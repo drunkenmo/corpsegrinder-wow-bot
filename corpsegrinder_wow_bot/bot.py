@@ -1460,6 +1460,14 @@ async def ensure_planner_dashboard(guild):
         await existing.edit(embed=planner_dashboard_embed(),
                             view=PlannerDashboardView())
     save_setting(PLANNER_STORAGE_KEY, existing.id)
+    # Zusätzlich ohne fremde Kanal-Themen zu überschreiben einen Link anbieten.
+    if not target.topic:
+        try:
+            await target.edit(
+                topic="🏰 Dungeon planen und Termine finden: " + existing.jump_url,
+                reason="Corpsegrinder Dungeon-Steuerzentrale")
+        except discord.HTTPException:
+            logging.warning("Kanalthema konnte nicht gesetzt werden")
     pinned = existing.pinned
     if not pinned:
         try:
