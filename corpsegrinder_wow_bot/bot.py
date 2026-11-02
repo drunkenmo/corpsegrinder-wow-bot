@@ -1,5 +1,10 @@
 import asyncio
 import calendar
+import email.utils
+import html
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import json
@@ -35,6 +40,7 @@ db.execute("CREATE TABLE IF NOT EXISTS level_signups (group_id INTEGER NOT NULL,
 db.execute("CREATE TABLE IF NOT EXISTS event_meta (kind TEXT NOT NULL, group_id INTEGER NOT NULL, reminder_sent INTEGER NOT NULL DEFAULT 0, full_prev INTEGER NOT NULL DEFAULT 0, voice_id INTEGER, voice_seen INTEGER NOT NULL DEFAULT 0, voice_created INTEGER NOT NULL DEFAULT 0, expired_at INTEGER, archived_at INTEGER, PRIMARY KEY(kind,group_id))")
 db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1)")
 db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(kind,group_id,user_id))")
+db.execute("CREATE TABLE IF NOT EXISTS blizzard_news_posts (article_id INTEGER PRIMARY KEY, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL)")
 db.commit()
 db.commit()
 
@@ -58,7 +64,7 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("ankündigungen", "text"),
-        ("rollenwahl", "text"), ("allgemein", "text")],
+        ("forever-news", "text"), ("rollenwahl", "text"), ("allgemein", "text")],
     "⚔️ WOW FOREVER | PVE": [
         ("pve-gruppensuche", "text"), ("dungeons", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
@@ -320,6 +326,9 @@ async def on_ready():
         bot.event_scheduler_started = True
         background(event_scheduler_loop())
     await post_version_news_once()
+    if not getattr(bot, "forever_news_worker_started", False):
+        bot.forever_news_worker_started = True
+        background(forever_news_worker())
 
 @bot.event
 async def on_member_join(member):
