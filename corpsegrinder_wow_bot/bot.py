@@ -364,4 +364,186 @@ async def show_group(i: discord.Interaction, gruppen_id: int):
     result = db.execute("SELECT user,role FROM signups WHERE group_id=?", (gruppen_id,)).fetchall()
     await answer(i, "\n".join("<@" + str(user) + "> – " + r for user, r in result) or "Noch keine Anmeldungen.")
 
+
+async def post_version_news_once():
+    """Postet wichtige Bot-Neuerungen einmal je Version; kein WoW-Nachrichten-Scraping."""
+    key = "news_posted_" + VERSION
+    if setting(key):
+        return
+    guild = bot.get_guild(GUILD_ID)
+    target = channel(guild, "ankündigungen") if guild else None
+    if not isinstance(target, discord.TextChannel):
+        return
+    try:
+        async for msg in target.history(limit=40):
+            if msg.author.id == bot.user.id and any(
+                "Bot-Version " + VERSION in (item.footer.text or "") for item in msg.embeds
+            ):
+                save_setting(key, str(msg.id))
+                return
+        msg = await target.send(
+            embed=update_embed(),
+            allowed_mentions=discord.AllowedMentions.none())
+        save_setting(key, str(msg.id))
+    except discord.HTTPException:
+        logging.exception("Automatische Update-Nachricht fehlgeschlagen")
+
+
+async def publish_info(channel_obj, storage_key, marker, embed):
+    """Intro anlegen oder wiederverwenden; mehrfacher Befehl erzeugt keine Textflut."""
+    existing = None
+    msg_id = setting(storage_key)
+    if msg_id:
+        try:
+            existing = await channel_obj.fetch_message(int(msg_id))
+            if existing.author.id != bot.user.id:
+                existing = None
+        except (discord.NotFound, ValueError):
+            existing = None
+    if existing is None:
+        async for candidate in channel_obj.history(limit=75):
+            if candidate.author.id == bot.user.id and any(
+                marker in (item.footer.text or "") for item in candidate.embeds
+            ):
+                existing = candidate
+                break
+    if existing is None:
+        existing = await channel_obj.send(
+            embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    else:
+        await existing.edit(embed=embed)
+    save_setting(storage_key, existing.id)
+    pin_note = ""
+    if not existing.pinned:
+        try:
+            await existing.pin(reason="Corpsegrinder Startinformation")
+        except discord.Forbidden:
+            pin_note = " (Anheften erfordert für den Bot 'Nachrichten verwalten'.)"
+    return existing, pin_note
+
+
+@bot.tree.command(name="rollen_design_vorschau", description="Vorschau der bunten Rollen und Icons (Admin)", guild=SERVER)
+async def role_design_preview(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    changes = []
+    collisions = []
+    for plain_name, (styled_name, colour, emoji) in ROLE_STYLE.items():
+        old = discord.utils.get(i.guild.roles, name=plain_name)
+        styled = discord.utils.get(i.guild.roles, name=styled_name)
+        if old and styled:
+            collisions.append(plain_name)
+        elif old:
+            changes.append(plain_name + " → " + styled_name)
+    icons = "möglich" if "ROLE_ICONS" in i.guild.features else "nicht freigeschaltet (Server-Boost-Level 2)"
+    await answer(i,
+        "**Vorschau – keine Änderung**\\n"
+        + ("\\n".join(changes) if changes else "Keine umzubenennenden Rollen.")
+        + ("\\n**Doppelte Namen bitte prüfen:** " + ", ".join(collisions) if collisions else "")
+        + "\\n**Discord-Rollen-Icons:** " + icons
+        + "\\n\\nMit /rollen_design_anwenden bestätigst du das Umbenennen und Färben dieser vorhandenen Rollen.")
+
+
+@bot.tree.command(name="rollen_design_anwenden", description="WoW-Rollen umbenennen und einfärben (Admin)", guild=SERVER)
+async def role_design_apply(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    changed, skipped = [], []
+    has_icons = "ROLE_ICONS" in i.guild.features
+    for plain_name, (styled_name, colour, emoji) in ROLE_STYLE.items():
+        old = discord.utils.get(i.guild.roles, name=plain_name)
+        styled = discord.utils.get(i.guild.roles, name=styled_name)
+        if old and styled:
+            skipped.append(plain_name + " (doppelte Rollen)")
+            continue
+        target = old or styled
+        if target is None:
+            continue
+        if target.managed or target >= i.guild.me.top_role:
+            skipped.append(plain_name + " (nicht bearbeitbar)")
+            continue
+        kwargs = dict(name=styled_name, colour=discord.Colour(colour),
+                      reason="Corpsegrinder sichtbare Rollen 1.0.5")
+        if has_icons:
+            kwargs["display_icon"] = emoji
+        try:
+            await target.edit(**kwargs)
+            changed.append(styled_name)
+        except discord.HTTPException:
+            if has_icons:
+                try:
+                    kwargs.pop("display_icon", None)
+                    await target.edit(**kwargs)
+                    changed.append(styled_name + " (ohne Icon)")
+                    continue
+                except discord.HTTPException:
+                    pass
+            skipped.append(plain_name + " (Berechtigung/Discord-Fehler)")
+    await i.followup.send(
+        "**Rollen aktualisiert:** " + str(len(changed)) +
+        "\\n" + (", ".join(changed) if changed else "Keine Änderung") +
+        ("\\n**Übersprungen:** " + ", ".join(skipped) if skipped else "") +
+        "\\nDie bestehenden Rollen-Zuweisungen bleiben erhalten.",
+        ephemeral=True)
+
+
+@bot.tree.command(name="startkanaele_einrichten", description="Willkommen/Ankündigungen mit Infotexten füllen (Admin)", guild=SERVER)
+async def start_channels(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    findings = []
+    for channel_name, key, marker, embed in (
+        ("willkommen", "welcome_post", "corpsegrinder:welcome", welcome_embed()),
+        ("ankündigungen", "announcement_intro_post", "corpsegrinder:news-intro",
+         announcement_intro_embed()),
+    ):
+        target = channel(i.guild, channel_name)
+        if not isinstance(target, discord.TextChannel):
+            findings.append(channel_name + ": Kanal nicht gefunden")
+            continue
+        try:
+            message, note = await publish_info(target, key, marker, embed)
+            findings.append("#" + channel_name + ": Nachricht eingerichtet" + note)
+        except discord.HTTPException:
+            logging.exception("Startkanal einrichten: %s", channel_name)
+            findings.append("#" + channel_name + ": Berechtigungsfehler")
+    await i.followup.send("\\n".join(findings), ephemeral=True)
+
+
+@bot.tree.command(name="ankuendigung", description="Schöne Nachricht in #ankündigungen veröffentlichen (Admin)", guild=SERVER)
+@app_commands.describe(titel="Überschrift", text="Inhalt der Ankündigung")
+async def admin_announcement(i: discord.Interaction, titel: str, text: str):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    target = channel(i.guild, "ankündigungen")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(i, "Kanal #ankündigungen nicht gefunden.")
+    try:
+        message = await target.send(
+            embed=news_embed(titel, text, i.user),
+            allowed_mentions=discord.AllowedMentions.none())
+        await answer(i, "Ankündigung veröffentlicht: " + message.jump_url)
+    except discord.HTTPException:
+        logging.exception("Ankündigung fehlgeschlagen")
+        await answer(i, "Die Ankündigung konnte nicht veröffentlicht werden.")
+
+
+@bot.tree.command(name="ankuendigungen_schreibschutz", description="Nur Admins/Bot dürfen dort posten (Admin)", guild=SERVER)
+async def announcement_lock(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    target = channel(i.guild, "ankündigungen")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(i, "Kanal #ankündigungen nicht gefunden.")
+    try:
+        await target.set_permissions(
+            i.guild.default_role, send_messages=False,
+            reason="Ankündigungen nur für die Serverleitung")
+        await answer(i, "#ankündigungen ist für normale Mitglieder jetzt schreibgeschützt. Admins können weiterhin schreiben.")
+    except discord.HTTPException:
+        await answer(i, "Kanalberechtigungen konnten nicht geändert werden.")
+
+
 bot.run(TOKEN, log_handler=None)
