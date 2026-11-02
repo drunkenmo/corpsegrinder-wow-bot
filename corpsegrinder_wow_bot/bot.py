@@ -1,6 +1,7 @@
 import asyncio
 import calendar
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 import json
 import logging
 import re
@@ -30,6 +31,10 @@ db.execute("CREATE TABLE IF NOT EXISTS planned_groups (id INTEGER PRIMARY KEY AU
 db.execute("CREATE TABLE IF NOT EXISTS planned_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, role TEXT NOT NULL, PRIMARY KEY(group_id,user))")
 db.execute("CREATE TABLE IF NOT EXISTS level_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, area TEXT NOT NULL, min_level INTEGER NOT NULL, max_level INTEGER NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
 db.execute("CREATE TABLE IF NOT EXISTS level_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, PRIMARY KEY(group_id,user))")
+# Die Planer-Datenbanken behalten auch nach der Löschung der Discord-Karten ihr Archiv.
+db.execute("CREATE TABLE IF NOT EXISTS event_meta (kind TEXT NOT NULL, group_id INTEGER NOT NULL, reminder_sent INTEGER NOT NULL DEFAULT 0, full_prev INTEGER NOT NULL DEFAULT 0, voice_id INTEGER, voice_seen INTEGER NOT NULL DEFAULT 0, voice_created INTEGER NOT NULL DEFAULT 0, expired_at INTEGER, archived_at INTEGER, PRIMARY KEY(kind,group_id))")
+db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1)")
+db.commit()
 db.commit()
 
 intents = discord.Intents.default()
@@ -96,14 +101,33 @@ def admin(i):
 
 def role_panel():
     embed = discord.Embed(
-        title="🩸 CORPSEGRINDER | Deine Rollen",
-        description="**Für die Horde!** Community und Gilde spielen gemeinsam. Wähle unabhängig PvE/PvP, Gruppenaufgaben, Klassen und Benachrichtigungen.",
-        color=discord.Color.dark_red())
-    embed.add_field(name="⚔️ Spielbereiche", value="PvE und PvP können gleichzeitig aktiv sein.", inline=False)
-    embed.add_field(name="🛡️ Gruppenaufgaben", value="Tank, Heiler und DD – mehrere möglich.", inline=False)
-    embed.add_field(name="🌿 Klassen", value="Wähle deine Klassen über das Menü.", inline=False)
-    embed.add_field(name="🔔 Benachrichtigungen", value="Lass dich nur bei gewünschten Themen ansprechen.", inline=False)
-    embed.set_footer(text="Erneut anklicken = Rolle entfernen · Meine Auswahl = Übersicht")
+        title="⚔️ CORPSEGRINDER · DIE HORDE RUFT!",
+        description=(
+            "**Alte Säcke. Kaltes Bier. Für die Horde!** 🍻\n\n"
+            "Wähle deine Rollen für die Community. Alles ist freiwillig und "
+            "du kannst deine Auswahl jederzeit ändern.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+        colour=discord.Colour.from_rgb(143, 35, 27))
+    embed.add_field(
+        name="⚔️ SPIELBEREICHE",
+        value="**PvE** · Dungeons, Quests und Raids\n"
+              "**PvP** · Schlachtfelder und Welt-PvP",
+        inline=False)
+    embed.add_field(
+        name="🛡️ DEINE AUFGABEN",
+        value="**Tank** · **Heiler** · **DD**\nMehrfachauswahl ist erlaubt.",
+        inline=False)
+    embed.add_field(
+        name="🧙 DEINE KLASSEN",
+        value="Wähle eine oder mehrere Klassen im Auswahlmenü.",
+        inline=False)
+    embed.add_field(
+        name="🔔 DEINE NACHRICHTEN",
+        value="News-Rollen im Menü auswählen. Erinnerungen und "
+              "Gruppenmeldungen kannst du separat ein- oder ausschalten.",
+        inline=False)
+    embed.set_footer(
+        text="Erneut klicken = abwählen • Meine Auswahl = private Übersicht")
     return embed
 
 async def toggle(i, names):
@@ -179,9 +203,48 @@ class RoleView(discord.ui.View):
             style=discord.ButtonStyle.success, row=4, custom_id="corpse_myroles_v104")
         async def overview(i):
             if allowed(i):
-                await answer(i, "**Deine Rollen**\n" + own_roles(i.user))
+                await i.response.send_message(
+                    embed=my_roles_embed(i.user), ephemeral=True)
         button.callback = overview
         self.add_item(button)
+        reminder = discord.ui.Button(
+            label="Erinnerungen an/aus", emoji="🔔",
+            style=discord.ButtonStyle.secondary, row=4,
+            custom_id="corpse_alert_toggle_v112")
+        async def toggle_alerts(i):
+            if not allowed(i):
+                return await answer(i, "Nur auf Corpsegrinder.")
+            enabled = not notifications_enabled(i.user.id)
+            db.execute(
+                "INSERT OR REPLACE INTO notification_preferences(user_id,enabled) VALUES (?,?)",
+                (i.user.id, int(enabled)))
+            db.commit()
+            await answer(i, "🔔 Persönliche Erinnerungen und Gruppenmeldungen: "
+                         + ("**EIN**" if enabled else "**AUS**"))
+        reminder.callback = toggle_alerts
+        self.add_item(reminder)
+
+def notifications_enabled(user_id):
+    result = db.execute(
+        "SELECT enabled FROM notification_preferences WHERE user_id=?",
+        (user_id,)).fetchone()
+    return bool(result[0]) if result else True
+
+
+def my_roles_embed(member):
+    embed = discord.Embed(
+        title="📜 Deine Corpsegrinder-Rollen",
+        description=own_roles(member),
+        colour=discord.Colour.from_rgb(178, 90, 34))
+    embed.add_field(
+        name="🔔 Persönliche Gruppenmeldungen",
+        value=("✅ Aktiv · 15-Minuten-Erinnerungen & volle Gruppen"
+               if notifications_enabled(member.id)
+               else "🔕 Deaktiviert"),
+        inline=False)
+    embed.set_footer(text="Änderungen jederzeit über #rollenwahl")
+    return embed
+
 
 class GroupView(discord.ui.View):
     def __init__(self, group_id):
