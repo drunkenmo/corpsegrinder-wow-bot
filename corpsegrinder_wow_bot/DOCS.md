@@ -103,3 +103,43 @@ Wenn das Panel nicht automatisch erscheint, hilft dem Admin `/levelpanel`. Fürs
 Wer die Sprachkanäle **➕ PvE-Gruppe erstellen** oder **➕ PvP-Gruppe erstellen** betritt, soll direkt in den neu erzeugten Voice-Kanal verschoben werden. Dafür muss der **WoW Forever Bot** die Discord-Rollenberechtigungen **Kanäle verwalten**, **Kanäle ansehen** und insbesondere **Mitglieder verschieben** besitzen. Die Rechte dürfen in den PvE-/PvP-Kategorien nicht blockiert werden. Fehlt "Mitglieder verschieben", lässt Discord die automatische Verschiebung nicht zu; der Bot meldet dies und legt keine leeren Kanalreste an.
 
 Alle Änderungen an normalen Botfunktionen kommen weiterhin mit `/bot_update` und benötigen keine neue Home-Assistant-App.
+
+## Das große Horde-Update 1.0.12
+
+### Neues Design
+- Das angepinnte Panel in `#willkommen` zeigt ein selbst gestaltetes Lagerfeuer-Banner (Ork, Tauren und Troll), Humor und Links zu den anderen Bereichen. Die bestehende Geschichte der Gilde seit 2004 wird bewusst nicht überschrieben oder gelöscht.
+- `#rollenwahl` bekommt eine rot-goldene Karte mit den Sektionen Spielbereiche, Gruppenaufgaben, Klassen und News/Erinnerungen sowie eine hübsche private Meine-Auswahl-Anzeige.
+- Das Dungeon-Panel in `#dungeons` und das Level-Panel in `#pve-gruppensuche` zeigen automatisch die **nächsten drei Gruppen** samt Restplätzen. Bilder werden als öffentliche PNG-Assets aus dem Github-Repository geladen. Der GitHub-Actions-Workflow rendert die zugrunde liegenden SVG-Illustrationen zu PNG.
+
+### Persönliche Benachrichtigungen
+- Standardmäßig aktiv. `/erinnerungen aktiv:false` deaktiviert sowohl die Erinnerungs-DMs als auch Vollmeldungen. `/erinnerungen aktiv:true` schaltet wieder ein.
+- Alternativ: Schalter **Erinnerungen an/aus** direkt in `#rollenwahl`; **Meine Auswahl** zeigt die aktuelle Einstellung.
+- 15 Minuten vor einem geplanten Termin werden die angemeldeten Spieler per Direktnachricht informiert, mit Link zur Gruppenkarte. Pro Teilnehmer und Gruppentermin gibt es keine doppelte Erinnerung (selbst nach Neustarts).
+- Wenn ein Dungeon erstmals **1 Tank / 1 Heiler / 3 DD** erreicht, werden alle fünf Spieler einmal benachrichtigt. Wird die Gruppe später durch Abmeldung wieder unvollständig und erneut vollständig, darf es eine neue Vollmeldung geben.
+- Falls Discord-Direktnachrichten blockiert werden, protokolliert der Bot dies und läuft weiter, ohne die Gruppe zu stören.
+
+### Automatisch geplante Sprachkanäle
+- Für **Dungeon- und Levelgruppen mit fünf angemeldeten Spielern** legt der Bot 15 Minuten vor Start einen fünf Plätze großen Sprachraum in der PvE-Kategorie an.
+- Erreicht eine Gruppe erst nach diesem Zeitpunkt die volle Besetzung, öffnet der Bot den Raum noch vor der Startzeit.
+- Der Raumname enthält die Instanz bzw. das Levelgebiet, bei Levelgruppen den Levelbereich und die Uhrzeit.
+- Der direkte Link erscheint in der Gruppenkarte und gegebenenfalls in der Erinnerung.
+- Solange ein Sprachraum noch nie benutzt wurde, hat er mindestens eine Stunde Schonfrist. Danach entfernt der Bot ungenutzte Räume; sobald ein besuchter Raum wieder leer wird, löscht der Bot ihn automatisch. **Die automatische Kartenlöschung trennt keine Spieler aus einem Sprachchat.**
+- Voraussetzung: Der Bot benötigt **Kanäle verwalten** in der PvE-Kategorie und Berechtigung, den Sprachkanal zu erstellen.
+
+### Termine und automatisches Aufräumen
+- Beim Start einer Gruppe ist die Karte aktiv. **Eine Stunde nach dem Start** erscheint **⌛ Abgelaufen**, fünf Minuten später wird die Discord-Nachricht gelöscht.
+- Die SQLite-Datensätze werden als internes Archiv behalten, die Karten verschwinden aus den aktiven Übersichten.
+- Der neue Button **✅ Abschließen** ermöglicht Organisator oder Admin, eine Gruppe vorzeitig zu beenden (fünf Minuten bis zur Kartenlöschung).
+- Auch abgesagte Termine werden nach einer kurzen Frist aufgeräumt.
+
+### Entfernen des alten Gildenbereichs
+- Der frühere Bereich `🔒 WOW FOREVER | GILDE` ist nicht mehr erforderlich.
+- Der Bot sucht beim ersten Start nur nach Kategorien, deren Name auf `WOW FOREVER | GILDE` endet, und löscht dort ausschließlich `gildenchat`, `gilden-raids` und `offiziers-chat`, anschließend die Kategorie.
+- **Achtung: Discord-Kanallöschungen entfernen den Chatverlauf unwiderruflich.** Hat der Bereich weitere oder anders benannte Kanäle, wird zur Sicherheit nichts gelöscht und der Fall im Log vermerkt.
+- Außerhalb dieser Kategorie werden keine anderen Kanäle verändert oder gelöscht.
+
+### Update
+1. In Discord mit `/bot_update` die Version 1.0.12 installieren.
+2. Nach dem automatischen Neustart mit `/bot_update_status` die neue Version prüfen.
+3. Falls die Illustration noch nicht sofort zu sehen ist, prüfen, ob GitHub Actions bereits `assets/*.png` veröffentlicht hat; Discord kann Bilder kurzzeitig cachen.
+4. Gruppensuche und Voice mit zwei Testaccounts ausprobieren.
