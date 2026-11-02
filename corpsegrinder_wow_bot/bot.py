@@ -28,6 +28,8 @@ db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,ro
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
 db.execute("CREATE TABLE IF NOT EXISTS planned_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, instance TEXT NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
 db.execute("CREATE TABLE IF NOT EXISTS planned_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, role TEXT NOT NULL, PRIMARY KEY(group_id,user))")
+db.execute("CREATE TABLE IF NOT EXISTS level_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, area TEXT NOT NULL, min_level INTEGER NOT NULL, max_level INTEGER NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
+db.execute("CREATE TABLE IF NOT EXISTS level_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, PRIMARY KEY(group_id,user))")
 db.commit()
 
 intents = discord.Intents.default()
@@ -221,6 +223,12 @@ async def on_ready():
         return
     bot.add_view(RoleView())
     bot.add_view(PlannerDashboardView())
+    bot.add_view(LevelDashboardView())
+    for (group_id, message_id) in db.execute(
+            "SELECT id,message FROM level_groups WHERE guild=? AND status='open' "
+            "AND start_utc>? AND message IS NOT NULL",
+            (GUILD_ID, int(datetime.now(timezone.utc).timestamp())-3600)).fetchall():
+        bot.add_view(LevelGroupView(group_id), message_id=message_id)
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
     # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
@@ -233,6 +241,7 @@ async def on_ready():
     mark_ready()
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
+    background(ensure_level_dashboard_on_start())
     await post_version_news_once()
 
 @bot.event
