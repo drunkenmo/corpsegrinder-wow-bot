@@ -1,7 +1,11 @@
 import asyncio
+import calendar
+from datetime import datetime, timedelta, timezone
 import json
 import logging
+import re
 import sqlite3
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from discord import app_commands
@@ -22,6 +26,8 @@ db.execute("CREATE TABLE IF NOT EXISTS characters (guild INTEGER, user INTEGER, 
 db.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT,guild INTEGER,owner INTEGER,kind TEXT,activity TEXT,when_text TEXT,channel INTEGER,message INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,role TEXT,PRIMARY KEY(group_id,user))")
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
+db.execute("CREATE TABLE IF NOT EXISTS planned_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, instance TEXT NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
+db.execute("CREATE TABLE IF NOT EXISTS planned_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, role TEXT NOT NULL, PRIMARY KEY(group_id,user))")
 db.commit()
 
 intents = discord.Intents.default()
@@ -216,6 +222,11 @@ async def on_ready():
     bot.add_view(RoleView())
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
+    # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
+    for (group_id, message_id) in db.execute(
+            "SELECT id,message FROM planned_groups WHERE guild=? AND status='open' AND start_utc > ? AND message IS NOT NULL",
+            (GUILD_ID, int(datetime.now(timezone.utc).timestamp()) - 3600)).fetchall():
+        bot.add_view(PlannedView(group_id), message_id=message_id)
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
     mark_ready()
