@@ -644,6 +644,40 @@ async def post_version_news_once():
         logging.exception("Automatische Update-Nachricht fehlgeschlagen")
 
 
+class WelcomeView(discord.ui.View):
+    def __init__(self, guild):
+        super().__init__(timeout=None)
+        links = (
+            ("🎭 Rollenwahl", "rollenwahl", discord.ButtonStyle.link),
+            ("⚔️ Dungeons", "dungeons", discord.ButtonStyle.link),
+            ("🌿 Levelgruppen", "pve-gruppensuche", discord.ButtonStyle.link),
+        )
+        for label, name, style in links:
+            target = channel(guild, name)
+            if target is not None:
+                self.add_item(discord.ui.Button(
+                    label=label, style=style,
+                    url=f"https://discord.com/channels/{guild.id}/{target.id}"))
+
+
+async def refresh_community_panels_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    try:
+        await publish_panel(guild)
+    except (discord.HTTPException, RuntimeError):
+        logging.exception("Rollenwahl-Panel 1.0.12 konnte nicht aktualisiert werden")
+    target = channel(guild, "willkommen")
+    if isinstance(target, discord.TextChannel):
+        try:
+            await publish_info(
+                target, "welcome_post", "corpsegrinder:welcome",
+                welcome_embed())
+        except discord.HTTPException:
+            logging.exception("Willkommenskarte konnte nicht aktualisiert werden")
+
+
 async def publish_info(channel_obj, storage_key, marker, embed):
     """Intro anlegen oder wiederverwenden; mehrfacher Befehl erzeugt keine Textflut."""
     existing = None
@@ -662,11 +696,13 @@ async def publish_info(channel_obj, storage_key, marker, embed):
             ):
                 existing = candidate
                 break
+    view = WelcomeView(channel_obj.guild) if marker == "corpsegrinder:welcome" else None
     if existing is None:
         existing = await channel_obj.send(
-            embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            embed=embed, view=view,
+            allowed_mentions=discord.AllowedMentions.none())
     else:
-        await existing.edit(embed=embed)
+        await existing.edit(embed=embed, view=view)
     save_setting(storage_key, existing.id)
     pin_note = ""
     if not existing.pinned:
