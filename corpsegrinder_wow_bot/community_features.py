@@ -1,9 +1,13 @@
 import discord
 
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
+    "Community": ("🌋 Community", 0x000000, "🌋"),
+    "Dungeon-News": ("🏰 Dungeon-News", 0x000000, "🏰"),
+    "Raid-News": ("🐉 Raid-News", 0x000000, "🐉"),
+    "PvP-News": ("📣 PvP-News", 0x000000, "📣"),
     "Tank": ("🛡️ Tank", 0x3274B5, "🛡️"),
     "Heiler": ("💚 Heiler", 0x32B875, "💚"),
     "DD": ("💥 DD", 0xD85742, "💥"),
@@ -68,11 +72,11 @@ def update_embed():
     embed = discord.Embed(
         title="🛠️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Testversion 1.0.7: Direkte Discord-Updates**\n\n"
-            "Diese Version dient dem ersten Praxistest unseres neuen Update-Systems. "
-            "Admins verwenden dafür **/bot_update** in Discord; der Bot soll dafür "
-            "nicht mehr als Home-Assistant-App aktualisiert werden müssen.\n\n"
-            "Die bestehenden Rollen, Kanäle, Charaktere und Gruppen bleiben erhalten."
+            "**Rollen & temporäre Sprachkanäle verbessert**\n\n"
+            "Alle WoW-Rollen erhalten einmalig automatisch passende Emoji-Namen und Farben. "
+            "Andere Spiele und Administratorrollen bleiben unangetastet.\n\n"
+            "Temporäre PvE- und PvP-Sprachkanäle werden entfernt, sobald sie leer sind – "
+            "auch nach einem Neustart des Bots."
         ),
         colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
