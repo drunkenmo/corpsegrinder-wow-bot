@@ -16,7 +16,7 @@ NAMES = {
     "clean_official_text", "official_article_link", "official_forever_title",
     "ForeverNewsIndexParser", "ForeverArticleParser",
     "parse_blizzard_publication_date", "parse_blizzard_article",
-    "gather_official_forever_articles"
+    "gather_official_forever_articles", "extract_blizzard_forever_api_items"
 }
 
 
@@ -31,7 +31,7 @@ def load_helpers():
         "email": email, "datetime": datetime, "timezone": timezone, "timedelta": timedelta,
         "FOREVER_NEWS_HOSTS": frozenset({
             "worldofwarcraft.blizzard.com", "news.blizzard.com"
-        })
+        }), "json": __import__("json"), "FOREVER_NEWS_MAX_ARTICLES": 15
     }
     exec(compile(module, "bot.py", "exec"), env)
     return env
@@ -134,6 +134,24 @@ class ForeverNewsTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][1], 24315820)
         self.assertEqual(env["gather_official_forever_articles"]({24315820}), [])
+
+    def test_official_blizzard_forever_api_schema(self):
+        fixture = """
+        {"feed":{"contentItems":[
+          {"properties":{"title":"World of Warcraft: Forever – Launch!",
+           "newsId":"24315820",
+           "newsUrl":"https://news.blizzard.com/de-de/article/24315820/forever-launch",
+           "summary":"Forever startet."}},
+          {"properties":{"title":"Ruf der Legenden: Midnight",
+           "newsUrl":"https://news.blizzard.com/de-de/article/24315821/midnight"}},
+          {"properties":{"title":"Forever auf unbekannter Webseite",
+           "newsUrl":"https://not-blizzard.example/de-de/article/24315822/forever"}}
+        ]}}
+        """
+        items = self.e["extract_blizzard_forever_api_items"](fixture)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0][0], 24315820)
+        self.assertEqual(items[0][2], "World of Warcraft: Forever – Launch!")
 
     def test_channel_and_checks_are_in_bootstrap(self):
         self.assertIn('("forever-news", "text")', SOURCE)
