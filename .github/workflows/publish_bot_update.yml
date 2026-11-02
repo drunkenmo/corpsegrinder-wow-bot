@@ -1,0 +1,46 @@
+name: Bot-Code prüfen und Update veröffentlichen
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'corpsegrinder_wow_bot/bot.py'
+      - 'corpsegrinder_wow_bot/community_features.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corpsegrinder-release-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python-Syntax prüfen
+        run: python -m compileall -q corpsegrinder_wow_bot
+      - name: Tests ausführen
+        run: python -m unittest discover -s tests -v
+      - name: Prüfbares Versionsmanifest erzeugen
+        run: python scripts/publish_manifest.py
+      - name: Manifest veröffentlichen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot_releases/latest.json
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen."
+          else
+            git commit -m "Publish verified Corpsegrinder bot release"
+            git push origin HEAD:main
+          fi
