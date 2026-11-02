@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.10 – PvE-Gruppenplaner zum Anklicken
+- Eine öffentliche Dungeon-Steuerzentrale in #pve-gruppensuche mit drei dauerhaften Buttons.
+- Private Zwei-Schritt-Auswahl für Instanz und Rolle sowie Datum/Stunde/Minute per Dropdown.
+- Auswahl für die nächsten 21 Tage und alle 24 Stunden, Minuten in 15-Minuten-Schritten.
+- Bekannte Classic-Instanzen als Dropdown; eigene Instanz/Notiz bei Bedarf als Texteingabe.
+- Bestehende Planungs-, Anmelde- und Absagefunktionen weiterverwendet.
+- Automatische Veröffentlichung und versuchtes Anpinnen; bei fehlenden Pin-Rechten manuell anpinnen.
+- Neue Admin-Funktion /gruppenpanel aktualisiert das Panel ohne doppelte Nachrichten.
+- Direktlink im Kanalthema, falls noch kein eigenes Kanalthema existiert.
+- Das Menü bleibt nach Bot-Neustarts nutzbar; persönliche Zwischenauswahlen sind nur temporär.
+
 ## 1.0.9 – Planbare Instanzgruppen
 - Neues /gruppe_planen mit Instanz, heute/morgen/übermorgen oder Datum, Uhrzeit (Deutschland), eigener Rolle und Notiz.
 - Interaktive Anmeldeschaltflächen für genau 1 Tank, 1 Heiler, 3 DD, inklusive Rollenwechsel und Abmelden.
