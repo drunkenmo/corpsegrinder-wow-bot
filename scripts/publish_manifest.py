@@ -28,8 +28,15 @@ old = json.loads(OUT.read_text(encoding="utf-8")) if OUT.exists() else None
 if old:
     before = tuple(map(int, old["version"].split(".")))
     after = tuple(map(int, version.split(".")))
+    same_files = old.get("files") == {
+        filename: hashlib.sha256((APP / filename).read_bytes()).hexdigest()
+        for filename in FILES
+    }
+    if after == before and same_files:
+        print("Release bereits aktuell:", version)
+        raise SystemExit(0)
     if after <= before:
-        raise RuntimeError("Bot-Version muss für jede neue Veröffentlichung steigen.")
+        raise RuntimeError("Bot-Version muss für jede geänderte Veröffentlichung steigen.")
 
 commit = subprocess.check_output(
     ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
