@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -72,11 +72,13 @@ def update_embed():
     embed = discord.Embed(
         title="🛠️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Rollen & temporäre Sprachkanäle verbessert**\n\n"
-            "Alle WoW-Rollen erhalten einmalig automatisch passende Emoji-Namen und Farben. "
-            "Andere Spiele und Administratorrollen bleiben unangetastet.\n\n"
-            "Temporäre PvE- und PvP-Sprachkanäle werden entfernt, sobald sie leer sind – "
-            "auch nach einem Neustart des Bots."
+            "**NEU: Planbare Dungeon-Gruppen!**\n\n"
+            "Mit **/gruppe_planen** können Mitglieder Instanz, Datum, Uhrzeit und "
+            "ihre Aufgabe festlegen. Andere treten direkt über 🛡️ Tank, "
+            "💚 Heiler oder 💥 DD bei. Die Gruppe ist auf 1/1/3 begrenzt.\n\n"
+            "**/termine** zeigt offene Veranstaltungen, **/termin_verschieben** "
+            "oder **/termin_absagen** helfen bei Änderungen. "
+            "Anmeldungen bleiben nach einem Bot-Neustart erhalten."
         ),
         colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)

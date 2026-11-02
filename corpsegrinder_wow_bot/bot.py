@@ -1,7 +1,11 @@
 import asyncio
+import calendar
+from datetime import datetime, timedelta, timezone
 import json
 import logging
+import re
 import sqlite3
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from discord import app_commands
@@ -22,6 +26,8 @@ db.execute("CREATE TABLE IF NOT EXISTS characters (guild INTEGER, user INTEGER, 
 db.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT,guild INTEGER,owner INTEGER,kind TEXT,activity TEXT,when_text TEXT,channel INTEGER,message INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,role TEXT,PRIMARY KEY(group_id,user))")
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
+db.execute("CREATE TABLE IF NOT EXISTS planned_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, instance TEXT NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
+db.execute("CREATE TABLE IF NOT EXISTS planned_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, role TEXT NOT NULL, PRIMARY KEY(group_id,user))")
 db.commit()
 
 intents = discord.Intents.default()
@@ -216,6 +222,11 @@ async def on_ready():
     bot.add_view(RoleView())
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
+    # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
+    for (group_id, message_id) in db.execute(
+            "SELECT id,message FROM planned_groups WHERE guild=? AND status='open' AND start_utc > ? AND message IS NOT NULL",
+            (GUILD_ID, int(datetime.now(timezone.utc).timestamp()) - 3600)).fetchall():
+        bot.add_view(PlannedView(group_id), message_id=message_id)
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
     mark_ready()
@@ -668,5 +679,395 @@ async def announcement_lock(i: discord.Interaction):
 
 
 register_update_commands(bot, SERVER, admin)
+
+
+# --- Terminplaner für Instanzgruppen ---------------------------------------
+# 5er-Dungeon: ein Tank, ein Heiler, drei Schadensklassen.
+# Separate SQLite-Tabellen erhalten die bisherigen Gruppenfinder-Daten.
+PLAN_ROLES = ("Tank", "Heiler", "DD")
+PLAN_LIMITS = {"Tank": 1, "Heiler": 1, "DD": 3}
+_PLAN_LOCKS = {}
+
+
+def plan_lock(group_id):
+    if group_id not in _PLAN_LOCKS:
+        _PLAN_LOCKS[group_id] = asyncio.Lock()
+    return _PLAN_LOCKS[group_id]
+
+
+def last_sunday(year, month):
+    day = calendar.monthrange(year, month)[1]
+    while datetime(year, month, day).weekday() != 6:
+        day -= 1
+    return day
+
+
+def berlin_now():
+    utc = datetime.now(timezone.utc)
+    try:
+        return utc.astimezone(ZoneInfo("Europe/Berlin"))
+    except ZoneInfoNotFoundError:
+        y = utc.year
+        start = datetime(y, 3, last_sunday(y, 3), 1, tzinfo=timezone.utc)
+        end = datetime(y, 10, last_sunday(y, 10), 1, tzinfo=timezone.utc)
+        hours = 2 if start <= utc < end else 1
+        return utc.astimezone(timezone(timedelta(hours=hours)))
+
+
+def parse_plan_time(day_text, clock_text):
+    label = day_text.strip().casefold()
+    today = berlin_now().date()
+    if label == "heute":
+        chosen = today
+    elif label == "morgen":
+        chosen = today + timedelta(days=1)
+    elif label in ("übermorgen", "uebermorgen"):
+        chosen = today + timedelta(days=2)
+    else:
+        chosen = None
+        for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+            try:
+                chosen = datetime.strptime(day_text.strip(), fmt).date()
+                break
+            except ValueError:
+                pass
+        if chosen is None:
+            raise ValueError("Datum bitte als heute, morgen, übermorgen oder TT.MM.JJJJ eingeben.")
+    if not re.fullmatch(r"[0-2]?\d:[0-5]\d", clock_text.strip()):
+        raise ValueError("Uhrzeit bitte als HH:MM eingeben, zum Beispiel 20:00.")
+    try:
+        hour, minute = map(int, clock_text.strip().split(":"))
+        naive = datetime(chosen.year, chosen.month, chosen.day, hour, minute)
+    except ValueError as exc:
+        raise ValueError("Ungültige Uhrzeit.") from exc
+    try:
+        zone = ZoneInfo("Europe/Berlin")
+        local = naive.replace(tzinfo=zone)
+        alternative = naive.replace(tzinfo=zone, fold=1)
+        if local.utcoffset() != alternative.utcoffset():
+            raise ValueError("Am Tag der Zeitumstellung bitte nicht 02:00–02:59 verwenden.")
+        if local.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) != naive:
+            raise ValueError("Uhrzeit existiert wegen der Zeitumstellung nicht.")
+    except ZoneInfoNotFoundError:
+        march = datetime(chosen.year, 3, last_sunday(chosen.year, 3)).date()
+        october = datetime(chosen.year, 10, last_sunday(chosen.year, 10)).date()
+        if chosen in (march, october) and hour == 2:
+            raise ValueError("Am Tag der Zeitumstellung bitte nicht 02:00–02:59 verwenden.")
+        summer = (march < chosen < october) or (
+            chosen == march and hour >= 3) or (chosen == october and hour < 2)
+        local = naive.replace(tzinfo=timezone(timedelta(hours=2 if summer else 1)))
+    when = int(local.astimezone(timezone.utc).timestamp())
+    now = int(datetime.now(timezone.utc).timestamp())
+    if when < now + 300:
+        raise ValueError("Der Termin muss mindestens fünf Minuten in der Zukunft liegen.")
+    if when > now + 120 * 86400:
+        raise ValueError("Termine höchstens 120 Tage im Voraus planen.")
+    display = naive.strftime("%d.%m.%Y · %H:%M") + (
+        " MESZ" if local.utcoffset() == timedelta(hours=2) else " MEZ")
+    return when, display
+
+
+def load_plan(group_id):
+    return db.execute(
+        "SELECT id,guild,owner,instance,start_utc,display_time,note,channel,message,status "
+        "FROM planned_groups WHERE id=? AND guild=?",
+        (group_id, GUILD_ID)).fetchone()
+
+
+def plan_members(group_id):
+    return db.execute(
+        "SELECT user,role FROM planned_signups WHERE group_id=? ORDER BY role,user",
+        (group_id,)).fetchall()
+
+
+def plan_counts(group_id):
+    members = plan_members(group_id)
+    return {role: sum(item_role == role for _, item_role in members)
+            for role in PLAN_ROLES}
+
+
+def plan_open(plan):
+    return (plan is not None and plan[9] == "open" and
+            plan[4] > int(datetime.now(timezone.utc).timestamp()) - 3600)
+
+
+def planned_embed(plan):
+    group_id, _, owner, instance, when, display, note, _, _, status = plan
+    members = plan_members(group_id)
+    counts = plan_counts(group_id)
+    full = all(counts[r] == PLAN_LIMITS[r] for r in PLAN_ROLES)
+    if status == "cancelled":
+        caption, color = "❌ Termin abgesagt", discord.Colour.red()
+    elif not plan_open(plan):
+        caption, color = "⌛ Termin vorbei", discord.Colour.dark_grey()
+    elif full:
+        caption, color = "✅ Gruppe vollständig", discord.Colour.green()
+    else:
+        caption, color = "🔎 Mitspieler gesucht", discord.Colour.blue()
+    safe_instance = discord.utils.escape_markdown(instance[:90])
+    safe_note = discord.utils.escape_markdown(note[:160])
+    embed = discord.Embed(
+        title="🏰 " + safe_instance,
+        description=(
+            f"**{caption}** · Termin **#{group_id}**\n"
+            f"📅 **{display}**\n"
+            f"🕒 <t:{when}:F> · <t:{when}:R>\n"
+            f"👑 Organisiert von <@{owner}>"
+            + (f"\n📝 {safe_note}" if note else "")),
+        colour=color
+    )
+    for role, emoji in (("Tank", "🛡️"), ("Heiler", "💚"), ("DD", "💥")):
+        players = [f"<@{user}>" for user, task in members if task == role]
+        embed.add_field(
+            name=f"{emoji} {role} · {len(players)}/{PLAN_LIMITS[role]}",
+            value="\n".join(players) if players else "*Noch frei*",
+            inline=True)
+    embed.set_footer(
+        text="Auf eine Rolle klicken = anmelden/wechseln · ❌ = abmelden")
+    return embed
+
+
+class PlannedView(discord.ui.View):
+    def __init__(self, group_id):
+        super().__init__(timeout=None)
+        for task, emoji in (("Tank", "🛡️"), ("Heiler", "💚"), ("DD", "💥")):
+            button = discord.ui.Button(
+                label=task, emoji=emoji,
+                custom_id=f"corpse_plan_{group_id}_{task}",
+                style=discord.ButtonStyle.primary)
+            async def choose(interaction, selected=task):
+                await plan_signup(interaction, group_id, selected)
+            button.callback = choose
+            self.add_item(button)
+        button = discord.ui.Button(
+            label="Abmelden", emoji="❌", style=discord.ButtonStyle.secondary,
+            custom_id=f"corpse_plan_{group_id}_leave")
+        async def leave(interaction):
+            await plan_signup(interaction, group_id, None)
+        button.callback = leave
+        self.add_item(button)
+
+
+async def refresh_planned_message(plan):
+    target = bot.get_channel(plan[7])
+    if not isinstance(target, discord.TextChannel):
+        target = await bot.fetch_channel(plan[7])
+    message = await target.fetch_message(plan[8])
+    await message.edit(
+        embed=planned_embed(plan),
+        view=PlannedView(plan[0]) if plan_open(plan) else None,
+        allowed_mentions=discord.AllowedMentions.none())
+
+
+async def plan_signup(interaction, group_id, task):
+    if not allowed(interaction):
+        return await answer(interaction, "Dieser Termin gehört zu Corpsegrinder.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    async with plan_lock(group_id):
+        plan = load_plan(group_id)
+        if not plan_open(plan):
+            return await interaction.followup.send(
+                "Der Termin ist nicht mehr offen.", ephemeral=True)
+        current = dict(plan_members(group_id)).get(interaction.user.id)
+        if task is None:
+            if current is None:
+                return await interaction.followup.send(
+                    "Du bist noch nicht angemeldet.", ephemeral=True)
+            db.execute(
+                "DELETE FROM planned_signups WHERE group_id=? AND user=?",
+                (group_id, interaction.user.id))
+            result = "Du bist abgemeldet."
+        else:
+            if task == current:
+                return await interaction.followup.send(
+                    "Du bist bereits als " + task + " angemeldet.", ephemeral=True)
+            if plan_counts(group_id)[task] >= PLAN_LIMITS[task]:
+                return await interaction.followup.send(
+                    "Dieser Platz ist bereits belegt. Wähle eine andere Rolle.",
+                    ephemeral=True)
+            db.execute(
+                "INSERT OR REPLACE INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
+                (group_id, interaction.user.id, task))
+            result = "Du bist jetzt als " + task + " angemeldet."
+        db.commit()
+        try:
+            await refresh_planned_message(plan)
+            result += " Die Übersicht wurde aktualisiert."
+        except discord.HTTPException:
+            logging.exception("Termin #%s gespeichert, Embed nicht aktualisiert", group_id)
+            result += " Gespeichert, aber Discord konnte die Anzeige nicht aktualisieren."
+        await interaction.followup.send(result, ephemeral=True)
+
+
+
+
+COMMON_DUNGEONS = (
+    "Flammenschlund", "Höhlen des Wehklagens", "Die Todesminen",
+    "Burg Schattenfang", "Tiefschwarze Grotte", "Gnomeregan",
+    "Kral der Klingenhauer", "Scharlachrotes Kloster", "Uldaman",
+    "Zul'Farrak", "Maraudon", "Versunkener Tempel", "Schwarzfelstiefen",
+    "Stratholme", "Scholomance", "Düsterbruch", "Untere Schwarzfelsspitze",
+    "Obere Schwarzfelsspitze"
+)
+
+
+async def suggest_dungeons(i, current):
+    matching = [name for name in COMMON_DUNGEONS
+                if current.casefold() in name.casefold()]
+    return [app_commands.Choice(name=name, value=name) for name in matching[:20]]
+
+
+@bot.tree.command(
+    name="gruppe_planen",
+    description="Instanztermin mit 1 Tank, 1 Heiler und 3 DD erstellen",
+    guild=SERVER)
+@app_commands.describe(
+    instanz="Welche Instanz? Beispiel: Flammenschlund",
+    tag="heute, morgen, übermorgen oder TT.MM.JJJJ",
+    uhrzeit="Deutsche Uhrzeit, zum Beispiel 20:00",
+    rolle="Mit welcher Rolle spielst du mit?",
+    notiz="Optional: Level, Treffpunkt, Hinweise")
+@app_commands.choices(rolle=[app_commands.Choice(name=r, value=r)
+                              for r in PLAN_ROLES])
+@app_commands.autocomplete(instanz=suggest_dungeons)
+async def create_planned_group(
+        i: discord.Interaction, instanz: str, tag: str, uhrzeit: str,
+        rolle: app_commands.Choice[str], notiz: str = ""):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    target = channel(i.guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(i, "Kanal #pve-gruppensuche ist nicht vorhanden.")
+    instanz = instanz.strip()
+    if not 2 <= len(instanz) <= 90:
+        return await answer(i, "Instanzname: 2 bis 90 Zeichen.")
+    if len(notiz) > 160:
+        return await answer(i, "Notiz: höchstens 160 Zeichen.")
+    try:
+        when, display = parse_plan_time(tag, uhrzeit)
+    except ValueError as exc:
+        return await answer(i, str(exc))
+    await i.response.defer(ephemeral=True, thinking=True)
+    # Die anlegende Person wird unmittelbar mit der gewählten Aufgabe eingetragen.
+    db.execute(
+        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
+        "VALUES (?,?,?,?,?,?)",
+        (GUILD_ID, i.user.id, instanz, when, display, notiz.strip()))
+    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.execute(
+        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
+        (group_id, i.user.id, rolle.value))
+    db.commit()
+    plan = load_plan(group_id)
+    try:
+        message = await target.send(
+            embed=planned_embed(plan),
+            view=PlannedView(group_id),
+            allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
+        db.commit()
+        logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
+        return await i.followup.send(
+            "Der Termin konnte nicht veröffentlicht werden. Bitte Bot-Rechte in #pve-gruppensuche prüfen.",
+            ephemeral=True)
+    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
+               (target.id, message.id, group_id))
+    db.commit()
+    bot.add_view(PlannedView(group_id), message_id=message.id)
+    await i.followup.send(
+        f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
+        f"am {display} erstellt. Du bist als **{rolle.value}** angemeldet.\n"
+        + message.jump_url, ephemeral=True)
+
+
+@bot.tree.command(name="termine",
+                  description="Nächste geplante Dungeon-Gruppen anzeigen",
+                  guild=SERVER)
+async def upcoming_plans(i: discord.Interaction):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    rows = db.execute(
+        "SELECT id,instance,start_utc,channel,message FROM planned_groups "
+        "WHERE guild=? AND status='open' AND start_utc>? "
+        "ORDER BY start_utc LIMIT 8",
+        (GUILD_ID, int(datetime.now(timezone.utc).timestamp()) - 3600)).fetchall()
+    if not rows:
+        return await answer(i, "Noch keine Termine geplant. Erstelle einen mit /gruppe_planen.")
+    parts = []
+    for group_id, instance, when, channel_id, message_id in rows:
+        counts = plan_counts(group_id)
+        slots = f"🛡️ {counts['Tank']}/1 · 💚 {counts['Heiler']}/1 · 💥 {counts['DD']}/3"
+        link = (f"https://discord.com/channels/{GUILD_ID}/{channel_id}/{message_id}"
+                if channel_id and message_id else "")
+        part = f"**#{group_id} {discord.utils.escape_markdown(instance[:65])}** · <t:{when}:f>\n{slots}"
+        parts.append(part + (f"\n[Zur Anmeldung]({link})" if link else ""))
+    await answer(i, "\n\n".join(parts))
+
+
+@bot.tree.command(name="termin_absagen",
+                  description="Eigenen Dungeon-Termin absagen (oder als Admin)",
+                  guild=SERVER)
+async def cancel_planned_group(i: discord.Interaction, termin_id: int):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    async with plan_lock(termin_id):
+        plan = load_plan(termin_id)
+        if not plan:
+            return await i.followup.send("Termin nicht gefunden.", ephemeral=True)
+        if i.user.id != plan[2] and not admin(i):
+            return await i.followup.send(
+                "Nur der Organisator oder ein Administrator kann diesen Termin absagen.",
+                ephemeral=True)
+        if plan[9] == "cancelled":
+            return await i.followup.send("Termin bereits abgesagt.", ephemeral=True)
+        db.execute("UPDATE planned_groups SET status='cancelled' WHERE id=?", (termin_id,))
+        db.commit()
+        try:
+            await refresh_planned_message(load_plan(termin_id))
+            result = "Der Termin wurde als abgesagt markiert."
+        except discord.HTTPException:
+            logging.exception("Terminabsage gespeichert, Anzeige konnte nicht aktualisiert werden")
+            result = "Termin abgesagt, aber Discord konnte die Nachricht nicht aktualisieren."
+        await i.followup.send(result, ephemeral=True)
+
+
+@bot.tree.command(name="termin_verschieben",
+                  description="Deinen Dungeon-Termin auf eine andere Uhrzeit verschieben",
+                  guild=SERVER)
+@app_commands.describe(
+    termin_id="Termin-Nummer aus der Gruppenkarte",
+    tag="morgen, übermorgen oder TT.MM.JJJJ",
+    uhrzeit="Neue deutsche Uhrzeit, z. B. 19:30")
+async def reschedule_planned_group(
+        i: discord.Interaction, termin_id: int, tag: str, uhrzeit: str):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    async with plan_lock(termin_id):
+        plan = load_plan(termin_id)
+        if not plan or plan[9] == "cancelled":
+            return await i.followup.send("Termin nicht vorhanden oder abgesagt.", ephemeral=True)
+        if i.user.id != plan[2] and not admin(i):
+            return await i.followup.send(
+                "Nur Organisator oder Administrator können diesen Termin verschieben.",
+                ephemeral=True)
+        try:
+            when, display = parse_plan_time(tag, uhrzeit)
+        except ValueError as exc:
+            return await i.followup.send(str(exc), ephemeral=True)
+        db.execute("UPDATE planned_groups SET start_utc=?,display_time=? WHERE id=?",
+                   (when, display, termin_id))
+        db.commit()
+        try:
+            await refresh_planned_message(load_plan(termin_id))
+            result = "Termin verschoben auf " + display + ". Alle bisherigen Anmeldungen bleiben erhalten."
+        except discord.HTTPException:
+            result = "Termin verschoben, aber Discord konnte die Karte noch nicht aktualisieren."
+        await i.followup.send(result, ephemeral=True)
+
+
 
 bot.run(TOKEN, log_handler=None)
