@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sqlite3
@@ -130,6 +131,8 @@ async def toggle(i, names):
 
 def own_roles(member):
     names = {r.name for r in member.roles}
+    # Namen mit Emoji nach der Rollenumstellung ebenfalls korrekt erkennen.
+    names |= {name for name in ROLES if visual_name(name) in names}
     blocks = []
     for title, values in (("Spielbereiche", INTERESTS), ("Gruppenaufgaben", TASKS),
                           ("Klassen", CLASSES), ("News", NEWS)):
@@ -214,6 +217,8 @@ async def on_ready():
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
     mark_ready()
+    background(cleanup_leftover_voice_channels())
+    background(apply_all_wow_role_styles_once())
     await post_version_news_once()
 
 @bot.event
@@ -231,26 +236,98 @@ async def on_member_join(member):
         await greeting.send("⚔️ Willkommen bei **Corpsegrinder**, " + member.mention + "! Für die Horde! Wähle deine Rollen in #rollenwahl.",
                             allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
 
+# Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
+# Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
+_background_tasks = set()
+
+
+def background(coroutine):
+    task = asyncio.create_task(coroutine)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
+def forget_temp_channel(channel_id):
+    db.execute("DELETE FROM settings WHERE key=?", ("temp_" + str(channel_id),))
+    db.commit()
+
+
+async def delete_temp_if_empty(channel_id, delay=3):
+    await asyncio.sleep(delay)  # Discords Voice-State-Cache und Umzüge auslaufen lassen
+    if setting("temp_" + str(channel_id)) != "1":
+        return
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    target = guild.get_channel(channel_id)
+    if target is None:
+        forget_temp_channel(channel_id)
+        return
+    if not isinstance(target, discord.VoiceChannel):
+        logging.warning("Markierter temporärer Kanal %s ist kein VoiceChannel", channel_id)
+        return
+    if target.members:
+        return
+    try:
+        await target.delete(reason="Corpsegrinder: temporärer Sprachkanal ist leer")
+        forget_temp_channel(channel_id)
+        logging.info("Leeren temporären Sprachkanal %s gelöscht", channel_id)
+    except discord.NotFound:
+        forget_temp_channel(channel_id)
+    except discord.Forbidden:
+        logging.warning("Konnte Sprachkanal %s nicht löschen: Kanäle verwalten fehlt", channel_id)
+    except discord.HTTPException:
+        logging.exception("Fehler beim Löschen des temporären Sprachkanals %s", channel_id)
+
+
+async def cleanup_leftover_voice_channels():
+    # Auch nach einem Neustart bleiben Kanal-IDs gespeichert und können bereinigt werden.
+    rows = db.execute(
+        "SELECT key FROM settings WHERE key LIKE 'temp_%' AND value='1'"
+    ).fetchall()
+    for (key,) in rows:
+        try:
+            channel_id = int(key.removeprefix("temp_"))
+        except ValueError:
+            continue
+        background(delete_temp_if_empty(channel_id, delay=12))
+
+
 @bot.event
 async def on_voice_state_update(member, before, after):
     if member.guild.id != GUILD_ID:
         return
-    if after.channel and after.channel != before.channel and after.channel.name in (
+    if after.channel is not None and after.channel != before.channel and after.channel.name in (
             "➕ PvE-Gruppe erstellen", "➕ PvP-Gruppe erstellen"):
         kind = "PvE" if "PvE" in after.channel.name else "PvP"
+        parent = after.channel.category
+        if parent is None:
+            logging.warning("Gruppenerstellungskanal hat keine Kategorie")
+            return
+        new_channel = None
         try:
-            new_channel = await after.channel.category.create_voice_channel(
+            new_channel = await parent.create_voice_channel(
                 (kind + " | " + member.display_name)[:90],
-                user_limit=5 if kind == "PvE" else 10)
+                user_limit=5 if kind == "PvE" else 10,
+                reason="Corpsegrinder: temporäre " + kind + "-Gruppe")
             save_setting("temp_" + str(new_channel.id), "1")
-            await member.move_to(new_channel)
-        except discord.Forbidden:
-            logging.warning("Temporärer Sprachkanal fehlgeschlagen")
-    if before.channel and setting("temp_" + str(before.channel.id)) and not before.channel.members:
-        try:
-            await before.channel.delete(reason="Temporärer Sprachkanal leer")
-        except discord.Forbidden:
-            pass
+            await member.move_to(new_channel, reason="Temporäre " + kind + "-Gruppe")
+        except discord.HTTPException:
+            logging.exception(
+                "Temporären Sprachkanal nicht erstellt/Spieler nicht verschoben. "
+                "Berechtigungen 'Kanäle verwalten' und 'Mitglieder verschieben' prüfen.")
+            # Ein erzeugter Raum ohne Spieler darf nicht liegenbleiben.
+            if new_channel is not None:
+                background(delete_temp_if_empty(new_channel.id, delay=5))
+    if before.channel is not None and setting("temp_" + str(before.channel.id)) == "1":
+        background(delete_temp_if_empty(before.channel.id, delay=3))
+
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    if channel.guild.id == GUILD_ID and setting("temp_" + str(channel.id)) == "1":
+        forget_temp_channel(channel.id)
 
 @bot.tree.command(name="einrichtung_vorschau", description="Noch fehlende WoW-Rollen und Kanäle", guild=SERVER)
 async def preview(i: discord.Interaction):
@@ -447,47 +524,85 @@ async def role_design_preview(i: discord.Interaction):
         + "\n\nMit /rollen_design_anwenden bestätigst du das Umbenennen und Färben dieser vorhandenen Rollen.")
 
 
-@bot.tree.command(name="rollen_design_anwenden", description="WoW-Rollen umbenennen und einfärben (Admin)", guild=SERVER)
-async def role_design_apply(i: discord.Interaction):
-    if not admin(i):
-        return await answer(i, "Nur Administratoren.")
-    await i.response.defer(ephemeral=True, thinking=True)
+async def style_all_wow_roles(guild):
+    """Gibt bestehenden WoW-Rollen Emoji-Namen und Farben; nie Admin-Rollen anfassen."""
     changed, skipped = [], []
-    has_icons = "ROLE_ICONS" in i.guild.features
+    bot_member = guild.me or guild.get_member(bot.user.id)
+    if bot_member is None:
+        return changed, ["Bot-Mitglied konnte nicht ermittelt werden"]
+    supports_icons = "ROLE_ICONS" in guild.features
     for plain_name, (styled_name, colour, emoji) in ROLE_STYLE.items():
-        old = discord.utils.get(i.guild.roles, name=plain_name)
-        styled = discord.utils.get(i.guild.roles, name=styled_name)
-        if old and styled:
-            skipped.append(plain_name + " (doppelte Rollen)")
+        old = discord.utils.get(guild.roles, name=plain_name)
+        styled = discord.utils.get(guild.roles, name=styled_name)
+        if old is not None and styled is not None:
+            skipped.append(plain_name + " (zwei Rollen mit gleichem Zweck)")
             continue
         target = old or styled
         if target is None:
+            # Fehlende WoW-Rollen werden ergänzt, nicht Rollennamen anderer Spiele angetastet.
+            try:
+                target = await guild.create_role(
+                    name=styled_name,
+                    colour=discord.Colour(colour),
+                    reason="Corpsegrinder 1.0.8: fehlende WoW-Rolle")
+                changed.append(styled_name)
+            except discord.HTTPException:
+                skipped.append(plain_name + " (Rolle fehlt/Erstellen nicht erlaubt)")
+                continue
+        if target.managed or target >= bot_member.top_role:
+            skipped.append(plain_name + " (durch Bot nicht bearbeitbar)")
             continue
-        if target.managed or target >= i.guild.me.top_role:
-            skipped.append(plain_name + " (nicht bearbeitbar)")
-            continue
-        kwargs = dict(name=styled_name, colour=discord.Colour(colour),
-                      reason="Corpsegrinder sichtbare Rollen 1.0.5")
-        if has_icons:
+        kwargs = {
+            "name": styled_name,
+            "colour": discord.Colour(colour),
+            "reason": "Corpsegrinder 1.0.8: WoW-Rollendesign",
+        }
+        if supports_icons:
             kwargs["display_icon"] = emoji
         try:
             await target.edit(**kwargs)
             changed.append(styled_name)
         except discord.HTTPException:
-            if has_icons:
+            if supports_icons:
+                # Discord-Icons sind je nach Boost-Level und Emoji-Unterstützung begrenzt.
+                kwargs.pop("display_icon", None)
                 try:
-                    kwargs.pop("display_icon", None)
                     await target.edit(**kwargs)
-                    changed.append(styled_name + " (ohne Icon)")
+                    changed.append(styled_name + " (ohne Rollen-Icon)")
                     continue
                 except discord.HTTPException:
                     pass
-            skipped.append(plain_name + " (Berechtigung/Discord-Fehler)")
+            skipped.append(plain_name + " (Discord-Berechtigung/Fehler)")
+    return changed, skipped
+
+
+async def apply_all_wow_role_styles_once():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None or setting("all_wow_roles_styled_v108") == "1":
+        return
+    try:
+        changed, skipped = await style_all_wow_roles(guild)
+        logging.info("WoW-Rollendesign: %s aktualisiert, %s übersprungen: %s",
+                     len(changed), len(skipped), skipped)
+        if not skipped:
+            save_setting("all_wow_roles_styled_v108", "1")
+    except Exception:
+        logging.exception("Automatisches WoW-Rollendesign gescheitert")
+
+
+@bot.tree.command(name="rollen_design_anwenden", description="Alle WoW-Rollen einfärben und umbenennen (Admin)", guild=SERVER)
+async def role_design_apply(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    changed, skipped = await style_all_wow_roles(i.guild)
+    if not skipped:
+        save_setting("all_wow_roles_styled_v108", "1")
     await i.followup.send(
-        "**Rollen aktualisiert:** " + str(len(changed)) +
-        "\n" + (", ".join(changed) if changed else "Keine Änderung") +
+        "**WoW-Rollen aktualisiert:** " + str(len(changed)) +
+        "\n" + (", ".join(changed) if changed else "Keine Änderung nötig") +
         ("\n**Übersprungen:** " + ", ".join(skipped) if skipped else "") +
-        "\nDie bestehenden Rollen-Zuweisungen bleiben erhalten.",
+        "\nVorhandene Mitglieds-Zuweisungen bleiben erhalten.",
         ephemeral=True)
 
 
