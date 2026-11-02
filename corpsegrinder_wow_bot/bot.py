@@ -3175,6 +3175,25 @@ def gather_official_forever_articles():
             parser.feed(page)
             for article_id, article_url, title in parser.results:
                 discovered.setdefault(article_id, (article_url, title))
+            # Fallback für Blizzard-Seiten, die News-Links als JSON in die
+            # HTML-Seite einbetten statt direkt als <a>-Element auszuliefern.
+            # Ein gefundener URL-Kandidat wird erst nach Prüfung des
+            # offiziellen Artikels und Publikationsdatums veröffentlicht.
+            flattened = page.replace("\\/", "/")
+            for match in re.finditer(
+                    r"(?:https://(?:worldofwarcraft|news)\\.blizzard\\.com)?"
+                    r"/de-de/(?:news|article)/\\d{6,10}"
+                    r"(?:/[a-zA-Z0-9_-]+)?",
+                    flattened):
+                parsed = official_article_link(match.group(0), index)
+                if not parsed:
+                    continue
+                nearby = clean_official_text(
+                    flattened[max(0, match.start()-150):match.end()+250], 500)
+                if ("forever" in nearby.casefold() or
+                        "forever" in parsed[1].casefold()):
+                    discovered.setdefault(
+                        parsed[0], (parsed[1], "World of Warcraft: Forever"))
             good_indexes += 1
         except (OSError, ValueError) as exc:
             logging.warning("Offizielle Blizzard-News-Seite %s nicht abrufbar: %s",
