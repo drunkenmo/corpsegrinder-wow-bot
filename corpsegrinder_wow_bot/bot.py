@@ -2956,6 +2956,9 @@ async def toggle_personal_reminders(interaction: discord.Interaction, aktiv: boo
 # --- Blizzard Forever News – nur offizielle, aktuelle Meldungen --------------
 # News werden nur nach bestätigtem Blizzard-Veröffentlichungsdatum eingetragen.
 # Jede Artikel-ID ist dauerhaft in SQLite gespeichert (keine Doppelpostings).
+FOREVER_NEWS_API = (
+    "https://news.blizzard.com/de-de/api/news/blizzard?"
+    "feedCxpProductIds%5B%5D=world-of-warcraft-forever")
 FOREVER_NEWS_INDEXES = (
     "https://worldofwarcraft.blizzard.com/de-de/news",
     "https://news.blizzard.com/de-de/feed/world-of-warcraft",
@@ -3164,11 +3167,62 @@ def read_official_blizzard_page(url):
         return data.decode("utf-8", errors="replace")
 
 
+
+def extract_blizzard_forever_api_items(source):
+    """Read Blizzard's product-filtered contentItems schema without third-party feeds.
+
+    The API is a Blizzard-hosted endpoint and may change; the HTML collector
+    remains a fallback. This function only yields candidates to be verified.
+    """
+    try:
+        doc = json.loads(source)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    feed = doc.get("feed")
+    if feed is None and isinstance(doc.get("data"), dict):
+        feed = doc["data"].get("feed")
+    if not isinstance(feed, dict):
+        return []
+    items = feed.get("contentItems", [])
+    if not isinstance(items, list):
+        return []
+    result = []
+    seen = set()
+    for item in items[:FOREVER_NEWS_MAX_ARTICLES]:
+        if not isinstance(item, dict):
+            continue
+        props = item.get("properties", item)
+        if not isinstance(props, dict):
+            continue
+        title = clean_official_text(props.get("title"), 240)
+        link = official_article_link(props.get("newsUrl"),
+                                     "https://news.blizzard.com/de-de")
+        if link is None or not official_forever_title(title):
+            continue
+        if link[0] not in seen:
+            seen.add(link[0])
+            result.append((link[0], link[1], title))
+    return result
+
+
 def gather_official_forever_articles(already_posted=None):
     """Runs in a worker thread; returns only independently dated recent posts."""
     discovered = {}
     already_posted = set(already_posted or ())
     good_indexes = 0
+    # Preferred: Blizzard's own news API filtered by Forever Product ID.
+    # This is far more accurate than searching all WoW news headlines.
+    try:
+        payload = read_official_blizzard_page(FOREVER_NEWS_API)
+        api_items = extract_blizzard_forever_api_items(payload)
+        for article_id, url, title in api_items:
+            discovered.setdefault(article_id, (url, title))
+        good_indexes += 1
+    except (OSError, ValueError) as exc:
+        logging.warning("Blizzard-Forever-API derzeit nicht erreichbar: %s", exc)
+    # Fallback: official Blizzard HTML indexes, still strict source/date/title.
     for index in FOREVER_NEWS_INDEXES:
         try:
             page = read_official_blizzard_page(index)
