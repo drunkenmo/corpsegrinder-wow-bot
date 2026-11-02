@@ -2965,7 +2965,7 @@ FOREVER_NEWS_HOSTS = frozenset((
 FOREVER_NEWS_PERIOD = 30 * 60
 FOREVER_NEWS_BACKFILL = 48 * 60 * 60
 FOREVER_NEWS_MAX_DOWNLOAD = 2_000_000
-FOREVER_NEWS_MAX_ARTICLES = 35
+FOREVER_NEWS_MAX_ARTICLES = 15
 FOREVER_NEWS_MARKER = "corpsegrinder:forever-news"
 _forever_news_lock = asyncio.Lock()
 
@@ -3164,9 +3164,10 @@ def read_official_blizzard_page(url):
         return data.decode("utf-8", errors="replace")
 
 
-def gather_official_forever_articles():
+def gather_official_forever_articles(already_posted=None):
     """Runs in a worker thread; returns only independently dated recent posts."""
     discovered = {}
+    already_posted = set(already_posted or ())
     good_indexes = 0
     for index in FOREVER_NEWS_INDEXES:
         try:
@@ -3205,6 +3206,8 @@ def gather_official_forever_articles():
     cutoff = now - FOREVER_NEWS_BACKFILL
     results = []
     for article_id, (url, title) in list(discovered.items())[:FOREVER_NEWS_MAX_ARTICLES]:
+        if article_id in already_posted:
+            continue
         try:
             page = read_official_blizzard_page(url)
             parsed = parse_blizzard_article(page, title)
@@ -3317,7 +3320,9 @@ async def check_forever_news():
         target = await ensure_forever_news_channel(guild)
         if target is None:
             return (0, "Start-Kategorie nicht gefunden")
-        rows = await asyncio.to_thread(gather_official_forever_articles)
+        known_ids = {item[0] for item in db.execute(
+            "SELECT article_id FROM blizzard_news_posts").fetchall()}
+        rows = await asyncio.to_thread(gather_official_forever_articles, known_ids)
         posted = 0
         for row in rows:
             _, article_id, title, _, url = row
