@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.9 – Planbare Instanzgruppen
+- Neues /gruppe_planen mit Instanz, heute/morgen/übermorgen oder Datum, Uhrzeit (Deutschland), eigener Rolle und Notiz.
+- Interaktive Anmeldeschaltflächen für genau 1 Tank, 1 Heiler, 3 DD, inklusive Rollenwechsel und Abmelden.
+- /termine listet die nächsten Gruppen mit Links zur Anmeldung.
+- /termin_verschieben und /termin_absagen können Organisator oder Admin verwenden.
+- Persistente SQLite-Termine und Anmeldebuttons nach Neustarts.
+- Vorschläge für bekannte Classic-Instanzen und Prüfung der Sommer-/Winterzeit.
+
 ## 1.0.6 – Discord-Updater (einmaliges Home-Assistant-App-Update)
 - Neuer Slash-Befehl /bot_update mit Admin-Bestätigung.
 - Bot-Code wird aus festgelegtem GitHub-Repository geladen; der Release-Commit ist festgepinnt und die Python-Dateien werden per SHA-256 geprüft.
