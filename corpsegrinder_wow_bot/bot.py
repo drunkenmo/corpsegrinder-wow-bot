@@ -303,9 +303,15 @@ async def on_ready():
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
     mark_ready()
+    initialize_scheduler_meta()
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
     background(ensure_level_dashboard_on_start())
+    background(remove_old_guild_category_once())
+    background(refresh_community_panels_on_start())
+    if not getattr(bot, "event_scheduler_started", False):
+        bot.event_scheduler_started = True
+        background(event_scheduler_loop())
     await post_version_news_once()
 
 @bot.event
@@ -354,11 +360,24 @@ async def delete_temp_if_empty(channel_id, delay=3):
     if not isinstance(target, discord.VoiceChannel):
         logging.warning("Markierter temporärer Kanal %s ist kein VoiceChannel", channel_id)
         return
+    scheduled = scheduled_voice_details(channel_id)
     if target.members:
+        if scheduled:
+            db.execute("UPDATE event_meta SET voice_seen=1 WHERE voice_id=?",
+                       (channel_id,))
+            db.commit()
         return
+    # Geplante Treffpunkte dürfen nach Erstellung nicht sofort wieder verschwinden:
+    # nie besucht = mindestens eine Stunde zum Eintreffen lassen.
+    if scheduled and not scheduled[2]:
+        if int(datetime.now(timezone.utc).timestamp()) < scheduled[3] + VOICE_UNUSED_TTL:
+            return
     try:
         await target.delete(reason="Corpsegrinder: temporärer Sprachkanal ist leer")
         forget_temp_channel(channel_id)
+        if scheduled:
+            db.execute("UPDATE event_meta SET voice_id=NULL WHERE voice_id=?", (channel_id,))
+            db.commit()
         logging.info("Leeren temporären Sprachkanal %s gelöscht", channel_id)
     except discord.NotFound:
         forget_temp_channel(channel_id)
@@ -464,6 +483,11 @@ async def on_voice_state_update(member, before, after):
                     "**Mitglieder verschieben** im Server und im Voice-Kanal.")
             except discord.HTTPException:
                 pass
+    if after.channel is not None and scheduled_voice_details(after.channel.id):
+        db.execute(
+            "UPDATE event_meta SET voice_seen=1 WHERE voice_id=?",
+            (after.channel.id,))
+        db.commit()
     if before.channel is not None and setting("temp_" + str(before.channel.id)) == "1":
         background(delete_temp_if_empty(before.channel.id, delay=3))
 
