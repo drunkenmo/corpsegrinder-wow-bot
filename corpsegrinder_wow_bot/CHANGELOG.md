@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.11 – Dungeon-Planer verlegt, Levelgruppen und automatischer Voice-Beitritt
+- Neue Dungeon-Termine und angeheftetes Dungeon-Dashboard erscheinen nun in #dungeons (PvE-Textkanal). Das alte, vom Bot erstellte Panel in #pve-gruppensuche wird beim Wechsel gezielt entfernt; bestehende Termin-Karten bleiben erhalten.
+- Neue Levelgruppen-Steuerzentrale in #pve-gruppensuche mit Gebietswahl (Horde-Classic-Gebiete und eigenes Ziel), Levelbereich, Tag/Stunde/Minuten und optionalem Hinweis.
+- Levelgruppen für bis zu fünf Spieler mit "Dabei sein", "Abmelden", Terminsuche und Meine-Gruppen-Übersicht.
+- /levelpanel erneuert die Level-Steuerzentrale; /leveltermin_verschieben und /leveltermin_absagen helfen Organisatoren.
+- Der Ersteller temporärer PvE- und PvP-Sprachkanäle wird durch den Bot direkt in den neuen Kanal verschoben. Fehlt das Recht "Mitglieder verschieben", gibt der Bot eine verständliche Fehlermeldung aus und vermeidet verwaiste Räume.
+- Alle neuen Gruppen und Anmeldungen bleiben in SQLite und nach Bot-Neustarts erhalten. Andere Spielekanäle werden nicht verändert.
+- Keine neue Home-Assistant-App nötig, Update über /bot_update.
+
 ## 1.0.10 – PvE-Gruppenplaner zum Anklicken
 - Eine öffentliche Dungeon-Steuerzentrale in #pve-gruppensuche mit drei dauerhaften Buttons.
 - Private Zwei-Schritt-Auswahl für Instanz und Rolle sowie Datum/Stunde/Minute per Dropdown.
