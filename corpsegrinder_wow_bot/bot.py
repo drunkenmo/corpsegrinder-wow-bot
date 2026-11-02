@@ -1790,4 +1790,231 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
     return message, group_id
 
 
+
+# ---------------------------------------------------------------------------
+# Interaktive Level-Planung, mit eigener Steuerzentrale in #pve-gruppensuche
+# ---------------------------------------------------------------------------
+
+def level_wizard_state(user_id):
+    return {
+        "owner": user_id, "area": None, "range": None,
+        "day": None, "hour": "20", "minute": "00", "note": "",
+        "published": False, "message_url": None,
+    }
+
+
+def level_wizard_embed(state, step=1, notice=None):
+    if step == 1:
+        explanation = (
+            "Such dir dein **Levelgebiet** und einen passenden **Levelbereich** aus. "
+            "Bei Bedarf kannst du ein eigenes Gebiet oder eine Notiz eintragen."
+        )
+    else:
+        explanation = (
+            "Wähle den **Tag**, die **Stunde** und die **Minuten**. "
+            "Erst mit **Levelgruppe veröffentlichen** wird dein Termin für alle sichtbar."
+        )
+    embed = discord.Embed(
+        title=f"🌿 Levelgruppe planen · Schritt {step}/2",
+        description=explanation,
+        colour=discord.Colour.green())
+    embed.add_field(
+        name="🌍 Levelgebiet",
+        value=state["area"] or "*Bitte auswählen*",
+        inline=False)
+    current_range = state["range"]
+    embed.add_field(
+        name="🎚️ Levelbereich",
+        value=(current_range.replace(":", "–") if current_range else "*Bitte auswählen*"),
+        inline=True)
+    day = state["day"]
+    formatted = (datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m.%Y")
+                 if day else "*Bitte auswählen*")
+    embed.add_field(name="📅 Tag", value=formatted, inline=True)
+    embed.add_field(
+        name="🕗 Uhrzeit", value=state["hour"] + ":" + state["minute"] + " Uhr",
+        inline=True)
+    if state["note"]:
+        embed.add_field(name="📝 Notiz", value=state["note"][:160], inline=False)
+    if notice:
+        embed.add_field(name="Hinweis", value=notice[:600], inline=False)
+    embed.set_footer(text="Privater Assistent • Levelgruppengröße: 5 Spieler")
+    return embed
+
+
+class LevelWizardSelect(discord.ui.Select):
+    def __init__(self, state, field, options, placeholder, row):
+        super().__init__(
+            placeholder=placeholder,
+            options=options,
+            min_values=1, max_values=1, row=row)
+        self.state = state
+        self.field = field
+
+    async def callback(self, interaction):
+        self.state[self.field] = self.values[0]
+        step = 1 if self.field in ("area", "range") else 2
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, step),
+            view=LevelWizardOne(self.state) if step == 1 else LevelWizardTwo(self.state))
+
+
+class LevelPrivateWizard(discord.ui.View):
+    def __init__(self, state):
+        super().__init__(timeout=600)
+        self.state = state
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id == self.state["owner"]:
+            return True
+        await interaction.response.send_message(
+            "Diese Auswahl gehört jemand anderem. Bitte öffne deinen eigenen Level-Planer.",
+            ephemeral=True)
+        return False
+
+
+class LevelCustomZoneModal(discord.ui.Modal, title="Eigenes Levelgebiet & Hinweis"):
+    area = discord.ui.TextInput(
+        label="Gebiet / Treffpunkt", min_length=2, max_length=90,
+        placeholder="Zum Beispiel eine Questreihe im Brachland")
+    note = discord.ui.TextInput(
+        label="Zusätzlicher Hinweis (optional)", required=False,
+        max_length=160, style=discord.TextStyle.paragraph,
+        placeholder="Gemeinsam Questen, Elitequest, Treffpunkt ...")
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+
+    async def on_submit(self, interaction):
+        if interaction.user.id != self.state["owner"]:
+            return await interaction.response.send_message(
+                "Diese Levelgruppe gehört dir nicht.", ephemeral=True)
+        self.state["area"] = str(self.area.value).strip()
+        self.state["note"] = str(self.note.value or "").strip()
+        await interaction.response.send_message(
+            embed=level_wizard_embed(self.state, 1),
+            view=LevelWizardOne(self.state),
+            ephemeral=True)
+
+
+class LevelWizardOne(LevelPrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        self.add_item(LevelWizardSelect(
+            state, "area",
+            [discord.SelectOption(
+                label=name, value=name,
+                default=(state["area"] == name))
+                for name in LEVEL_AREAS],
+            "🌍 Levelgebiet wählen", row=0))
+        self.add_item(LevelWizardSelect(
+            state, "range",
+            [discord.SelectOption(
+                label=("Alle Level" if (low, high) == (1, 60)
+                       else f"Level {low}–{high}"),
+                value=f"{low}:{high}",
+                default=(state["range"] == f"{low}:{high}"))
+                for low, high in LEVEL_RANGES],
+            "🎚️ Levelbereich wählen", row=1))
+
+    @discord.ui.button(label="Eigenes Gebiet / Notiz", emoji="✏️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def custom(self, interaction, button):
+        await interaction.response.send_modal(LevelCustomZoneModal(self.state))
+
+    @discord.ui.button(label="Weiter zum Termin", emoji="➡️",
+                       style=discord.ButtonStyle.success, row=2)
+    async def next(self, interaction, button):
+        if not self.state["area"] or not self.state["range"]:
+            return await interaction.response.send_message(
+                "Bitte zuerst Levelgebiet und Levelbereich auswählen.",
+                ephemeral=True)
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, 2),
+            view=LevelWizardTwo(self.state))
+
+
+class LevelWizardTwo(LevelPrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        today = berlin_now().date()
+        self.add_item(LevelWizardSelect(
+            state, "day",
+            [discord.SelectOption(
+                label=(("Heute" if ix == 0 else
+                        "Morgen" if ix == 1 else
+                        "Übermorgen" if ix == 2 else
+                        WEEKDAY_DE[(today + timedelta(days=ix)).weekday()])
+                       + f" · {(today + timedelta(days=ix)):%d.%m.%Y}"),
+                value=(today + timedelta(days=ix)).isoformat(),
+                default=(state["day"] == (today + timedelta(days=ix)).isoformat()))
+                for ix in range(21)],
+            "📅 Datum auswählen", row=0))
+        self.add_item(LevelWizardSelect(
+            state, "hour",
+            [discord.SelectOption(
+                label=f"{h:02d}:00 Uhr", value=f"{h:02d}",
+                default=(state["hour"] == f"{h:02d}"))
+                for h in range(24)],
+            "🕗 Stunde", row=1))
+        self.add_item(LevelWizardSelect(
+            state, "minute",
+            [discord.SelectOption(
+                label=f"{m:02d} Minuten", value=f"{m:02d}",
+                default=(state["minute"] == f"{m:02d}"))
+                for m in (0, 15, 30, 45)],
+            "⏱️ Minuten", row=2))
+
+    @discord.ui.button(label="Zurück", emoji="⬅️",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def back(self, interaction, button):
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, 1),
+            view=LevelWizardOne(self.state))
+
+    @discord.ui.button(label="Levelgruppe veröffentlichen", emoji="✅",
+                       style=discord.ButtonStyle.success, row=3)
+    async def publish(self, interaction, button):
+        state = self.state
+        if state["published"]:
+            return await interaction.response.send_message(
+                "Bereits veröffentlicht: " + (state["message_url"] or ""),
+                ephemeral=True)
+        if not all(state.get(item) for item in ("area", "range", "day")):
+            return await interaction.response.send_message(
+                "Bitte Gebiet, Levelbereich und Tag auswählen.", ephemeral=True)
+        try:
+            low, high = map(int, state["range"].split(":"))
+            when, display = parse_plan_time(
+                state["day"], state["hour"] + ":" + state["minute"])
+        except (ValueError, TypeError) as exc:
+            return await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        async with level_lock(-interaction.user.id):
+            if state["published"]:
+                return await interaction.followup.send(
+                    "Bereits veröffentlicht: " + (state["message_url"] or ""),
+                    ephemeral=True)
+            try:
+                message, group_id = await publish_level_group(
+                    interaction.guild, interaction.user.id,
+                    state["area"], low, high, when, display, state["note"])
+            except (discord.HTTPException, ValueError):
+                logging.exception("Levelgruppe konnte nicht gepostet werden")
+                return await interaction.followup.send(
+                    "Levelgruppe konnte nicht veröffentlicht werden. "
+                    "Bitte Bot-Berechtigungen im Kanal #pve-gruppensuche prüfen.",
+                    ephemeral=True)
+            state["published"] = True
+            state["message_url"] = message.jump_url
+        await interaction.followup.send(
+            f"✅ **Levelgruppe #{group_id} veröffentlicht!**\n"
+            f"🌍 {discord.utils.escape_markdown(state['area'])} · "
+            f"Level {low}–{high}\n📅 {display}\n"
+            f"[Zur Anmeldung]({message.jump_url})",
+            ephemeral=True)
+
+
+
 bot.run(TOKEN, log_handler=None)
