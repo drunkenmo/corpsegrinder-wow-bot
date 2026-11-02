@@ -32,3 +32,5 @@ jobs:
               assert isinstance(obj, dict), path
               print(f'OK: {path}')
           PY
+      - name: Offline-Updater-Tests
+        run: python -m unittest discover -s tests -v
