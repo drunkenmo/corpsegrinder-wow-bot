@@ -2526,6 +2526,7 @@ EVENT_REMIND_SECONDS = 900    # -15 Minuten: private Erinnerung/Voice.
 VOICE_UNUSED_TTL = 3600      # Leerer, nie benutzter Raum: 1h Schonfrist.
 _event_scheduler_task = None
 _event_panel_locks = {}
+_event_processing_locks = {}
 
 
 def event_meta(kind, group_id, create=True):
@@ -2747,6 +2748,13 @@ def scheduled_voice_details(channel_id):
 
 
 async def process_scheduled_event(kind, group_id):
+    key = (kind, group_id)
+    lock = _event_processing_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        return await _process_scheduled_event_locked(kind, group_id)
+
+
+async def _process_scheduled_event_locked(kind, group_id):
     group = event_record(kind,group_id)
     if not group:
         return
