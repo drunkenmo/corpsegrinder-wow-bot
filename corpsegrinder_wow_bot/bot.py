@@ -28,6 +28,8 @@ db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,ro
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
 db.execute("CREATE TABLE IF NOT EXISTS planned_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, instance TEXT NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
 db.execute("CREATE TABLE IF NOT EXISTS planned_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, role TEXT NOT NULL, PRIMARY KEY(group_id,user))")
+db.execute("CREATE TABLE IF NOT EXISTS level_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, area TEXT NOT NULL, min_level INTEGER NOT NULL, max_level INTEGER NOT NULL, start_utc INTEGER NOT NULL, display_time TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', channel INTEGER, message INTEGER, status TEXT NOT NULL DEFAULT 'open')")
+db.execute("CREATE TABLE IF NOT EXISTS level_signups (group_id INTEGER NOT NULL, user INTEGER NOT NULL, PRIMARY KEY(group_id,user))")
 db.commit()
 
 intents = discord.Intents.default()
@@ -221,6 +223,12 @@ async def on_ready():
         return
     bot.add_view(RoleView())
     bot.add_view(PlannerDashboardView())
+    bot.add_view(LevelDashboardView())
+    for (group_id, message_id) in db.execute(
+            "SELECT id,message FROM level_groups WHERE guild=? AND status='open' "
+            "AND start_utc>? AND message IS NOT NULL",
+            (GUILD_ID, int(datetime.now(timezone.utc).timestamp())-3600)).fetchall():
+        bot.add_view(level_group_view(group_id), message_id=message_id)
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
     # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
@@ -233,6 +241,7 @@ async def on_ready():
     mark_ready()
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
+    background(ensure_level_dashboard_on_start())
     await post_version_news_once()
 
 @bot.event
@@ -312,12 +321,32 @@ async def cleanup_leftover_voice_channels():
 async def on_voice_state_update(member, before, after):
     if member.guild.id != GUILD_ID:
         return
-    if after.channel is not None and after.channel != before.channel and after.channel.name in (
-            "➕ PvE-Gruppe erstellen", "➕ PvP-Gruppe erstellen"):
+    creation_names = ("➕ PvE-Gruppe erstellen", "➕ PvP-Gruppe erstellen")
+    if (after.channel is not None and after.channel != before.channel
+            and after.channel.name in creation_names):
         kind = "PvE" if "PvE" in after.channel.name else "PvP"
-        parent = after.channel.category
-        if parent is None:
-            logging.warning("Gruppenerstellungskanal hat keine Kategorie")
+        source = after.channel
+        parent = source.category
+        bot_member = member.guild.me or member.guild.get_member(bot.user.id)
+        if parent is None or bot_member is None:
+            logging.warning("Temporäre Gruppe: Kategorie oder Bot-Mitglied nicht gefunden")
+            return
+        # Ohne 'Mitglieder verschieben' darf Discord den Ersteller nicht bewegen.
+        # Dann gar keinen verwaisten Raum erzeugen.
+        perms = source.permissions_for(bot_member)
+        if not perms.manage_channels or not perms.move_members:
+            logging.error(
+                "Corpsegrinder: Bot benötigt in %s die Rechte 'Kanäle verwalten' "
+                "und 'Mitglieder verschieben' für das automatische Beitreten.",
+                source.name)
+            try:
+                await member.send(
+                    "⚠️ Deine " + kind + "-Gruppe wurde noch nicht erstellt: "
+                    "Dem WoW Forever Bot fehlen im Discord-Server die Berechtigungen "
+                    "**Kanäle verwalten** oder **Mitglieder verschieben**. "
+                    "Bitte einen Administrator bitten, sie der Bot-Rolle zu geben.")
+            except discord.HTTPException:
+                pass
             return
         new_channel = None
         try:
@@ -326,14 +355,51 @@ async def on_voice_state_update(member, before, after):
                 user_limit=5 if kind == "PvE" else 10,
                 reason="Corpsegrinder: temporäre " + kind + "-Gruppe")
             save_setting("temp_" + str(new_channel.id), "1")
-            await member.move_to(new_channel, reason="Temporäre " + kind + "-Gruppe")
-        except discord.HTTPException:
+            # Sichtbarkeit und Verbindung des Erstellers sind Voraussetzung
+            # für den sofortigen automatischen Wechsel.
+            user_perms = new_channel.permissions_for(member)
+            if not (user_perms.view_channel and user_perms.connect):
+                await new_channel.set_permissions(
+                    member, view_channel=True, connect=True,
+                    reason="Ersteller kann seinen temporären Gruppenraum betreten")
+            target_perms = new_channel.permissions_for(bot_member)
+            if not target_perms.move_members:
+                logging.error("Bot darf im neuen Raum %s keine Mitglieder verschieben", new_channel.id)
+                background(delete_temp_if_empty(new_channel.id, delay=7))
+                try:
+                    await member.send(
+                        "⚠️ Der neue Gruppenkanal erlaubt dem Bot kein **Mitglieder verschieben**. "
+                        "Bitte einen Administrator um Freigabe bitten.")
+                except discord.HTTPException:
+                    pass
+                return
+            # Voice-State und API-Update können kurz zeitversetzt eintreffen.
+            for attempt in range(2):
+                try:
+                    await member.move_to(
+                        new_channel, reason="Ersteller automatisch in " + kind + "-Gruppe")
+                    break
+                except discord.Forbidden:
+                    raise
+                except (discord.HTTPException, discord.ClientException):
+                    if attempt:
+                        raise
+                    await asyncio.sleep(0.6)
+            logging.info("Ersteller %s in neue Gruppe %s verschoben", member.id, new_channel.id)
+        except (discord.HTTPException, discord.ClientException):
             logging.exception(
-                "Temporären Sprachkanal nicht erstellt/Spieler nicht verschoben. "
-                "Berechtigungen 'Kanäle verwalten' und 'Mitglieder verschieben' prüfen.")
-            # Ein erzeugter Raum ohne Spieler darf nicht liegenbleiben.
+                "Automatisches Erstellen/Beitreten fehlgeschlagen. "
+                "Bot benötigt 'Mitglieder verschieben', 'Kanäle verwalten' "
+                "und Zugang zur PvE-/PvP-Kategorie.")
             if new_channel is not None:
-                background(delete_temp_if_empty(new_channel.id, delay=5))
+                background(delete_temp_if_empty(new_channel.id, delay=7))
+            try:
+                await member.send(
+                    "⚠️ Die " + kind + "-Gruppe konnte nicht automatisch betreten werden. "
+                    "Bitte prüfe mit einem Admin die Bot-Berechtigung "
+                    "**Mitglieder verschieben** im Server und im Voice-Kanal.")
+            except discord.HTTPException:
+                pass
     if before.channel is not None and setting("temp_" + str(before.channel.id)) == "1":
         background(delete_temp_if_empty(before.channel.id, delay=3))
 
@@ -937,9 +1003,9 @@ async def create_planned_group(
         rolle: app_commands.Choice[str], notiz: str = ""):
     if not allowed(i):
         return await answer(i, "Nur auf Corpsegrinder verfügbar.")
-    target = channel(i.guild, "pve-gruppensuche")
+    target = channel(i.guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        return await answer(i, "Kanal #pve-gruppensuche ist nicht vorhanden.")
+        return await answer(i, "Kanal #dungeons ist nicht vorhanden.")
     instanz = instanz.strip()
     if not 2 <= len(instanz) <= 90:
         return await answer(i, "Instanzname: 2 bis 90 Zeichen.")
@@ -957,7 +1023,7 @@ async def create_planned_group(
         logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
         return await i.followup.send(
             "Der Termin konnte nicht veröffentlicht werden. "
-            "Bitte Bot-Berechtigungen in #pve-gruppensuche prüfen.",
+            "Bitte Bot-Berechtigungen in #dungeons prüfen.",
             ephemeral=True)
     await i.followup.send(
         f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
@@ -1057,9 +1123,9 @@ async def reschedule_planned_group(
 
 async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
     """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
-    target = channel(guild, "pve-gruppensuche")
+    target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        raise ValueError("Kanal #pve-gruppensuche fehlt.")
+        raise ValueError("Kanal #dungeons fehlt.")
     if role not in PLAN_ROLES or not 2 <= len(instance) <= 90 or len(note) > 160:
         raise ValueError("Instanz-/Rollen-Auswahl ungültig.")
     if when < int(datetime.now(timezone.utc).timestamp()) + 30:
@@ -1092,7 +1158,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
 
 
 # --- Interaktiver Dungeon-Planer (1.0.10) ---------------------------------
-# Die Steuerzentrale ist eine dauerhafte Nachricht im #pve-gruppensuche-Kanal.
+# Die Dungeon-Steuerzentrale ist eine dauerhafte Nachricht im #dungeons-Kanal.
 # Der zwei-stufige Assistent ist privat und gilt nur für die auslösende Person.
 
 PLANNER_MARKER = "corpsegrinder:planner-dashboard"
@@ -1428,12 +1494,13 @@ def planner_list_embed(user_id=None):
 
 
 async def ensure_planner_dashboard(guild):
-    target = channel(guild, "pve-gruppensuche")
+    target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        logging.warning("Dungeon-Planer: #pve-gruppensuche fehlt")
+        logging.warning("Dungeon-Planer: #dungeons fehlt")
         return None, False
     existing = None
-    post_id = setting(PLANNER_STORAGE_KEY)
+    old_post_id = setting(PLANNER_STORAGE_KEY)
+    post_id = old_post_id
     if post_id:
         try:
             candidate = await target.fetch_message(int(post_id))
@@ -1460,6 +1527,20 @@ async def ensure_planner_dashboard(guild):
         await existing.edit(embed=planner_dashboard_embed(),
                             view=PlannerDashboardView())
     save_setting(PLANNER_STORAGE_KEY, existing.id)
+    # Nur den alten, eigenen Dungeon-Panelpost aus #pve-gruppensuche entfernen.
+    # Bereits erstellte Gruppentermine und fremde Nachrichten bleiben bestehen.
+    if old_post_id and str(old_post_id) != str(existing.id):
+        old_channel = channel(guild, "pve-gruppensuche")
+        if isinstance(old_channel, discord.TextChannel):
+            try:
+                previous = await old_channel.fetch_message(int(old_post_id))
+                if previous.author.id == bot.user.id and any(
+                        PLANNER_MARKER in (embed.footer.text or "")
+                        for embed in previous.embeds):
+                    await previous.delete()
+                    logging.info("Altes Dungeon-Panel aus PvE-Gruppensuche entfernt")
+            except (discord.HTTPException, ValueError):
+                logging.warning("Altes Dungeon-Panel konnte nicht gelöscht werden")
     # Zusätzlich ohne fremde Kanal-Themen zu überschreiben einen Link anbieten.
     if not target.topic:
         try:
@@ -1511,11 +1592,691 @@ async def set_planner_dashboard(interaction: discord.Interaction):
             "Bitte die Schreib- und Leserechte des Bots prüfen.", ephemeral=True)
     if message is None:
         return await interaction.followup.send(
-            "#pve-gruppensuche nicht gefunden.", ephemeral=True)
+            "#dungeons nicht gefunden.", ephemeral=True)
     note = "✅ Angepinnt" if pinned else "⚠️ Nicht angepinnt: Bitte Nachricht selbst anpinnen."
     await interaction.followup.send(
         f"🏰 Dungeon-Steuerzentrale: {message.jump_url}\n{note}",
         ephemeral=True)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Levelgruppen-Planer: separates Fünfer-Questteam statt Dungeon-Rollenpflicht.
+# Alles bleibt in den erlaubten Bot-Dateien, damit /bot_update weiter funktioniert.
+# ---------------------------------------------------------------------------
+LEVEL_AREAS = (
+    "Durotar", "Mulgore", "Tirisfal", "Brachland", "Silberwald",
+    "Steinkrallengebirge", "Vorgebirge des Hügellands", "Eschental",
+    "Tausend Nadeln", "Desolace", "Schlingendorntal", "Arathihochland",
+    "Düstermarschen", "Sümpfe des Elends", "Tanaris", "Feralas",
+    "Hinterland", "Sengende Schlucht", "Un'Goro-Krater", "Teufelswald",
+    "Westliche Pestländer", "Östliche Pestländer", "Brennende Steppe",
+    "Winterquell",
+)
+LEVEL_RANGES = (
+    (1, 10), (10, 15), (15, 20), (20, 25), (25, 30), (30, 35),
+    (35, 40), (40, 45), (45, 50), (50, 55), (55, 60), (1, 60),
+)
+LEVEL_PANEL_MARKER = "corpsegrinder:level-dashboard"
+LEVEL_PANEL_SETTING = "level_dashboard_v111"
+_LEVEL_LOCKS = {}
+
+
+def level_lock(group_id):
+    if group_id not in _LEVEL_LOCKS:
+        _LEVEL_LOCKS[group_id] = asyncio.Lock()
+    return _LEVEL_LOCKS[group_id]
+
+
+def level_record(group_id):
+    return db.execute(
+        "SELECT id,guild,owner,area,min_level,max_level,start_utc,display_time,"
+        "note,channel,message,status FROM level_groups WHERE id=? AND guild=?",
+        (group_id, GUILD_ID)).fetchone()
+
+
+def level_players(group_id):
+    return [row[0] for row in db.execute(
+        "SELECT user FROM level_signups WHERE group_id=? ORDER BY rowid",
+        (group_id,)).fetchall()]
+
+
+def level_open(record):
+    return (record is not None and record[11] == "open"
+            and record[6] >= int(datetime.now(timezone.utc).timestamp()) - 3600)
+
+
+def level_card(record):
+    group_id, _, owner, area, low, high, when, display, note, _, _, status = record
+    members = level_players(group_id)
+    if status == "cancelled":
+        state, colour = "❌ Abgesagt", discord.Colour.red()
+    elif not level_open(record):
+        state, colour = "⌛ Vergangen", discord.Colour.dark_grey()
+    elif len(members) >= 5:
+        state, colour = "✅ Gruppe vollständig", discord.Colour.green()
+    else:
+        state, colour = "🌿 Questgruppe sucht Mitspieler", discord.Colour.from_rgb(66, 167, 104)
+    embed = discord.Embed(
+        title="🌿 LEVELGRUPPE · " + discord.utils.escape_markdown(area[:90]),
+        description=(
+            f"**{state}** · Gruppe **#{group_id}**\n"
+            f"📅 **{display}** · <t:{when}:R>\n"
+            f"🎚️ **Level {low}–{high}**\n"
+            f"👑 Organisiert von <@{owner}>\n"
+            + (f"📝 {discord.utils.escape_markdown(note[:160])}\n" if note else "")
+        ),
+        colour=colour
+    )
+    embed.add_field(
+        name=f"👥 Mitspieler · {len(members)}/5",
+        value=("\n".join(f"• <@{user_id}>" for user_id in members)
+               if members else "*Noch keine Anmeldungen*"),
+        inline=False)
+    if len(members) < 5 and level_open(record):
+        embed.add_field(name="Freie Plätze", value=f"✨ {5-len(members)} Spieler gesucht!", inline=False)
+    embed.set_footer(
+        text="Beitreten und Abmelden über die Buttons • Gemeinsam questen, ohne feste Klassenpflicht")
+    return embed
+
+
+class LevelGroupView(discord.ui.View):
+    def __init__(self, group_id):
+        super().__init__(timeout=None)
+        self.group_id = group_id
+
+    @discord.ui.button(label="Dabei sein", emoji="✅",
+                       custom_id="corpse_level_join_placeholder",
+                       style=discord.ButtonStyle.success)
+    async def join(self, interaction, button):
+        await join_level_group(interaction, self.group_id, True)
+
+    @discord.ui.button(label="Abmelden", emoji="❌",
+                       custom_id="corpse_level_leave_placeholder",
+                       style=discord.ButtonStyle.secondary)
+    async def leave(self, interaction, button):
+        await join_level_group(interaction, self.group_id, False)
+
+
+def level_group_view(group_id):
+    view = LevelGroupView(group_id)
+    for item in view.children:
+        if isinstance(item, discord.ui.Button):
+            prefix = "join" if item.label == "Dabei sein" else "leave"
+            item.custom_id = f"corpse_level_{group_id}_{prefix}"
+    return view
+
+
+async def refresh_level_card(record):
+    target = bot.get_channel(record[9])
+    if not isinstance(target, discord.TextChannel):
+        target = await bot.fetch_channel(record[9])
+    post = await target.fetch_message(record[10])
+    await post.edit(
+        embed=level_card(record),
+        view=(level_group_view(record[0]) if level_open(record) else None),
+        allowed_mentions=discord.AllowedMentions.none())
+
+
+async def join_level_group(interaction, group_id, joining):
+    if not allowed(interaction):
+        return await answer(interaction, "Dieser Termin gehört nicht zu Corpsegrinder.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    async with level_lock(group_id):
+        group = level_record(group_id)
+        if not level_open(group):
+            return await interaction.followup.send(
+                "Diese Levelgruppe ist nicht mehr offen.", ephemeral=True)
+        players = level_players(group_id)
+        me = interaction.user.id
+        if joining and me in players:
+            return await interaction.followup.send(
+                "Du bist bereits angemeldet.", ephemeral=True)
+        if not joining and me not in players:
+            return await interaction.followup.send(
+                "Du bist nicht angemeldet.", ephemeral=True)
+        if joining:
+            if len(players) >= 5:
+                return await interaction.followup.send(
+                    "Die Gruppe ist voll (5/5).", ephemeral=True)
+            db.execute("INSERT OR IGNORE INTO level_signups(group_id,user) VALUES (?,?)",
+                       (group_id, me))
+            response = "✅ Du bist jetzt für diese Levelgruppe angemeldet!"
+        else:
+            db.execute("DELETE FROM level_signups WHERE group_id=? AND user=?",
+                       (group_id, me))
+            response = "❌ Du bist aus der Levelgruppe ausgetragen."
+        db.commit()
+        try:
+            await refresh_level_card(group)
+        except discord.HTTPException:
+            logging.exception("Levelgruppe #%s gespeichert, Nachricht nicht aktualisiert", group_id)
+            response += " Die Übersicht konnte gerade nicht aktualisiert werden."
+        await interaction.followup.send(response, ephemeral=True)
+
+
+async def publish_level_group(guild, user_id, area, low, high, when, display, note=""):
+    dest = channel(guild, "pve-gruppensuche")
+    if not isinstance(dest, discord.TextChannel):
+        raise ValueError("Kanal #pve-gruppensuche fehlt.")
+    if not 2 <= len(area) <= 90 or not 1 <= low <= high <= 60 or len(note) > 160:
+        raise ValueError("Ungültige Gebiets- oder Levelangabe.")
+    if when < int(datetime.now(timezone.utc).timestamp()) + 30:
+        raise ValueError("Dieser Termin liegt schon in der Vergangenheit.")
+    cursor = db.execute(
+        "INSERT INTO level_groups(guild,owner,area,min_level,max_level,start_utc,display_time,note) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (GUILD_ID, user_id, area, low, high, when, display, note))
+    group_id = cursor.lastrowid
+    db.execute("INSERT INTO level_signups(group_id,user) VALUES (?,?)",
+               (group_id, user_id))
+    db.commit()
+    group = level_record(group_id)
+    try:
+        message = await dest.send(
+            embed=level_card(group),
+            view=level_group_view(group_id),
+            allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        db.execute("DELETE FROM level_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM level_groups WHERE id=?", (group_id,))
+        db.commit()
+        raise
+    db.execute("UPDATE level_groups SET channel=?,message=? WHERE id=?",
+               (dest.id, message.id, group_id))
+    db.commit()
+    bot.add_view(level_group_view(group_id), message_id=message.id)
+    return message, group_id
+
+
+
+# ---------------------------------------------------------------------------
+# Interaktive Level-Planung, mit eigener Steuerzentrale in #pve-gruppensuche
+# ---------------------------------------------------------------------------
+
+def level_wizard_state(user_id):
+    return {
+        "owner": user_id, "area": None, "range": None,
+        "day": None, "hour": "20", "minute": "00", "note": "",
+        "published": False, "message_url": None,
+    }
+
+
+def level_wizard_embed(state, step=1, notice=None):
+    if step == 1:
+        explanation = (
+            "Such dir dein **Levelgebiet** und einen passenden **Levelbereich** aus. "
+            "Bei Bedarf kannst du ein eigenes Gebiet oder eine Notiz eintragen."
+        )
+    else:
+        explanation = (
+            "Wähle den **Tag**, die **Stunde** und die **Minuten**. "
+            "Erst mit **Levelgruppe veröffentlichen** wird dein Termin für alle sichtbar."
+        )
+    embed = discord.Embed(
+        title=f"🌿 Levelgruppe planen · Schritt {step}/2",
+        description=explanation,
+        colour=discord.Colour.green())
+    embed.add_field(
+        name="🌍 Levelgebiet",
+        value=state["area"] or "*Bitte auswählen*",
+        inline=False)
+    current_range = state["range"]
+    embed.add_field(
+        name="🎚️ Levelbereich",
+        value=(current_range.replace(":", "–") if current_range else "*Bitte auswählen*"),
+        inline=True)
+    day = state["day"]
+    formatted = (datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m.%Y")
+                 if day else "*Bitte auswählen*")
+    embed.add_field(name="📅 Tag", value=formatted, inline=True)
+    embed.add_field(
+        name="🕗 Uhrzeit", value=state["hour"] + ":" + state["minute"] + " Uhr",
+        inline=True)
+    if state["note"]:
+        embed.add_field(name="📝 Notiz", value=state["note"][:160], inline=False)
+    if notice:
+        embed.add_field(name="Hinweis", value=notice[:600], inline=False)
+    embed.set_footer(text="Privater Assistent • Levelgruppengröße: 5 Spieler")
+    return embed
+
+
+class LevelWizardSelect(discord.ui.Select):
+    def __init__(self, state, field, options, placeholder, row):
+        super().__init__(
+            placeholder=placeholder,
+            options=options,
+            min_values=1, max_values=1, row=row)
+        self.state = state
+        self.field = field
+
+    async def callback(self, interaction):
+        self.state[self.field] = self.values[0]
+        step = 1 if self.field in ("area", "range") else 2
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, step),
+            view=LevelWizardOne(self.state) if step == 1 else LevelWizardTwo(self.state))
+
+
+class LevelPrivateWizard(discord.ui.View):
+    def __init__(self, state):
+        super().__init__(timeout=600)
+        self.state = state
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id == self.state["owner"]:
+            return True
+        await interaction.response.send_message(
+            "Diese Auswahl gehört jemand anderem. Bitte öffne deinen eigenen Level-Planer.",
+            ephemeral=True)
+        return False
+
+
+class LevelCustomZoneModal(discord.ui.Modal, title="Eigenes Levelgebiet & Hinweis"):
+    area = discord.ui.TextInput(
+        label="Gebiet / Treffpunkt", min_length=2, max_length=90,
+        placeholder="Zum Beispiel eine Questreihe im Brachland")
+    note = discord.ui.TextInput(
+        label="Zusätzlicher Hinweis (optional)", required=False,
+        max_length=160, style=discord.TextStyle.paragraph,
+        placeholder="Gemeinsam Questen, Elitequest, Treffpunkt ...")
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+
+    async def on_submit(self, interaction):
+        if interaction.user.id != self.state["owner"]:
+            return await interaction.response.send_message(
+                "Diese Levelgruppe gehört dir nicht.", ephemeral=True)
+        self.state["area"] = str(self.area.value).strip()
+        self.state["note"] = str(self.note.value or "").strip()
+        await interaction.response.send_message(
+            embed=level_wizard_embed(self.state, 1),
+            view=LevelWizardOne(self.state),
+            ephemeral=True)
+
+
+class LevelWizardOne(LevelPrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        self.add_item(LevelWizardSelect(
+            state, "area",
+            [discord.SelectOption(
+                label=name, value=name,
+                default=(state["area"] == name))
+                for name in LEVEL_AREAS],
+            "🌍 Levelgebiet wählen", row=0))
+        self.add_item(LevelWizardSelect(
+            state, "range",
+            [discord.SelectOption(
+                label=("Alle Level" if (low, high) == (1, 60)
+                       else f"Level {low}–{high}"),
+                value=f"{low}:{high}",
+                default=(state["range"] == f"{low}:{high}"))
+                for low, high in LEVEL_RANGES],
+            "🎚️ Levelbereich wählen", row=1))
+
+    @discord.ui.button(label="Eigenes Gebiet / Notiz", emoji="✏️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def custom(self, interaction, button):
+        await interaction.response.send_modal(LevelCustomZoneModal(self.state))
+
+    @discord.ui.button(label="Weiter zum Termin", emoji="➡️",
+                       style=discord.ButtonStyle.success, row=2)
+    async def next(self, interaction, button):
+        if not self.state["area"] or not self.state["range"]:
+            return await interaction.response.send_message(
+                "Bitte zuerst Levelgebiet und Levelbereich auswählen.",
+                ephemeral=True)
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, 2),
+            view=LevelWizardTwo(self.state))
+
+
+class LevelWizardTwo(LevelPrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        today = berlin_now().date()
+        self.add_item(LevelWizardSelect(
+            state, "day",
+            [discord.SelectOption(
+                label=(("Heute" if ix == 0 else
+                        "Morgen" if ix == 1 else
+                        "Übermorgen" if ix == 2 else
+                        WEEKDAY_DE[(today + timedelta(days=ix)).weekday()])
+                       + f" · {(today + timedelta(days=ix)):%d.%m.%Y}"),
+                value=(today + timedelta(days=ix)).isoformat(),
+                default=(state["day"] == (today + timedelta(days=ix)).isoformat()))
+                for ix in range(21)],
+            "📅 Datum auswählen", row=0))
+        self.add_item(LevelWizardSelect(
+            state, "hour",
+            [discord.SelectOption(
+                label=f"{h:02d}:00 Uhr", value=f"{h:02d}",
+                default=(state["hour"] == f"{h:02d}"))
+                for h in range(24)],
+            "🕗 Stunde", row=1))
+        self.add_item(LevelWizardSelect(
+            state, "minute",
+            [discord.SelectOption(
+                label=f"{m:02d} Minuten", value=f"{m:02d}",
+                default=(state["minute"] == f"{m:02d}"))
+                for m in (0, 15, 30, 45)],
+            "⏱️ Minuten", row=2))
+
+    @discord.ui.button(label="Zurück", emoji="⬅️",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def back(self, interaction, button):
+        await interaction.response.edit_message(
+            embed=level_wizard_embed(self.state, 1),
+            view=LevelWizardOne(self.state))
+
+    @discord.ui.button(label="Levelgruppe veröffentlichen", emoji="✅",
+                       style=discord.ButtonStyle.success, row=3)
+    async def publish(self, interaction, button):
+        state = self.state
+        if state["published"]:
+            return await interaction.response.send_message(
+                "Bereits veröffentlicht: " + (state["message_url"] or ""),
+                ephemeral=True)
+        if not all(state.get(item) for item in ("area", "range", "day")):
+            return await interaction.response.send_message(
+                "Bitte Gebiet, Levelbereich und Tag auswählen.", ephemeral=True)
+        try:
+            low, high = map(int, state["range"].split(":"))
+            when, display = parse_plan_time(
+                state["day"], state["hour"] + ":" + state["minute"])
+        except (ValueError, TypeError) as exc:
+            return await interaction.response.send_message(str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        async with level_lock(-interaction.user.id):
+            if state["published"]:
+                return await interaction.followup.send(
+                    "Bereits veröffentlicht: " + (state["message_url"] or ""),
+                    ephemeral=True)
+            try:
+                message, group_id = await publish_level_group(
+                    interaction.guild, interaction.user.id,
+                    state["area"], low, high, when, display, state["note"])
+            except (discord.HTTPException, ValueError):
+                logging.exception("Levelgruppe konnte nicht gepostet werden")
+                return await interaction.followup.send(
+                    "Levelgruppe konnte nicht veröffentlicht werden. "
+                    "Bitte Bot-Berechtigungen im Kanal #pve-gruppensuche prüfen.",
+                    ephemeral=True)
+            state["published"] = True
+            state["message_url"] = message.jump_url
+        await interaction.followup.send(
+            f"✅ **Levelgruppe #{group_id} veröffentlicht!**\n"
+            f"🌍 {discord.utils.escape_markdown(state['area'])} · "
+            f"Level {low}–{high}\n📅 {display}\n"
+            f"[Zur Anmeldung]({message.jump_url})",
+            ephemeral=True)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Levelgruppen-Dashboard: nach einem Neustart automatisch wieder verfügbar.
+# ---------------------------------------------------------------------------
+
+def level_dashboard_embed():
+    embed = discord.Embed(
+        title="🌿 CORPSEGRINDER · LEVELGRUPPEN",
+        description=(
+            "**Gemeinsam leveln macht mehr Spaß!**\n\n"
+            "Plane deine nächsten Quests, Elitequests oder einen ganzen Levelabend. "
+            "Du wählst Gebiet, Levelbereich und Uhrzeit; Mitspieler melden sich "
+            "mit einem Klick an. Auch Besucher unserer Horde-Community sind willkommen!"
+        ),
+        colour=discord.Colour.green())
+    embed.add_field(
+        name="🌍 Gebiet & Level",
+        value="Durotar, Brachland, Schlingendorntal und viele weitere Gebiete "
+              "– oder ein eigenes Ziel mit Hinweis auswählen.",
+        inline=False)
+    embed.add_field(
+        name="📅 Dein Termin",
+        value="Datum und Uhrzeit komfortabel über Dropdowns auswählen.",
+        inline=False)
+    embed.add_field(
+        name="👥 Bis zu 5 Spieler",
+        value="Einfach **Dabei sein** oder **Abmelden** anklicken. "
+              "Keine feste Tank-/Heiler-/DD-Aufteilung notwendig.",
+        inline=False)
+    embed.set_footer(text="Corpsegrinder • Levelgruppen • " + LEVEL_PANEL_MARKER)
+    return embed
+
+
+def list_level_groups_embed(user_id=None):
+    cutoff = int(datetime.now(timezone.utc).timestamp()) - 3600
+    if user_id is None:
+        entries = db.execute(
+            "SELECT id,area,min_level,max_level,start_utc,channel,message "
+            "FROM level_groups WHERE guild=? AND status='open' AND start_utc > ? "
+            "ORDER BY start_utc LIMIT 8",
+            (GUILD_ID, cutoff)).fetchall()
+    else:
+        entries = db.execute(
+            "SELECT g.id,g.area,g.min_level,g.max_level,g.start_utc,g.channel,g.message "
+            "FROM level_groups g WHERE g.guild=? AND g.status='open' AND g.start_utc > ? "
+            "AND (g.owner=? OR EXISTS (SELECT 1 FROM level_signups l "
+            "WHERE l.group_id=g.id AND l.user=?)) ORDER BY g.start_utc LIMIT 8",
+            (GUILD_ID, cutoff, user_id, user_id)).fetchall()
+    embed = discord.Embed(
+        title="🌿 Meine Levelgruppen" if user_id else "🌿 Nächste Levelgruppen",
+        colour=discord.Colour.green())
+    if not entries:
+        embed.description = (
+            "Hier gibt es noch keine anstehenden Levelgruppen. "
+            "Starte die erste mit **🌿 Levelgruppe planen**!")
+        return embed
+    for group_id, area, low, high, start, chan, msg in entries:
+        roster = len(level_players(group_id))
+        jump_url = (f"https://discord.com/channels/{GUILD_ID}/{chan}/{msg}"
+                    if chan and msg else None)
+        content = f"🎚️ Level {low}–{high} · 👥 {roster}/5\n🗓️ <t:{start}:f>"
+        if jump_url:
+            content += f"\n[Zur Gruppenkarte]({jump_url})"
+        embed.add_field(
+            name=f"🌍 #{group_id} · {discord.utils.escape_markdown(area[:65])}",
+            value=content, inline=False)
+    embed.set_footer(text="Öffne eine Karte und melde dich an.")
+    return embed
+
+
+class LevelDashboardView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Levelgruppe planen", emoji="🌿",
+                       style=discord.ButtonStyle.success,
+                       custom_id="corpse_level_dashboard_new_v111")
+    async def new_level_group(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur auf Corpsegrinder verfügbar.", ephemeral=True)
+        state = level_wizard_state(interaction.user.id)
+        await interaction.response.send_message(
+            embed=level_wizard_embed(state, 1),
+            view=LevelWizardOne(state), ephemeral=True)
+
+    @discord.ui.button(label="Leveltermine", emoji="📅",
+                       style=discord.ButtonStyle.primary,
+                       custom_id="corpse_level_dashboard_upcoming_v111")
+    async def level_dates(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur auf Corpsegrinder verfügbar.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=list_level_groups_embed(), ephemeral=True)
+
+    @discord.ui.button(label="Meine Levelgruppen", emoji="📋",
+                       style=discord.ButtonStyle.secondary,
+                       custom_id="corpse_level_dashboard_mine_v111")
+    async def mine(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur auf Corpsegrinder verfügbar.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=list_level_groups_embed(interaction.user.id), ephemeral=True)
+
+
+async def ensure_level_dashboard(guild):
+    target = channel(guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        logging.warning("Levelgruppen-Dashboard: #pve-gruppensuche fehlt")
+        return None, False
+    post = None
+    old_id = setting(LEVEL_PANEL_SETTING)
+    if old_id:
+        try:
+            existing = await target.fetch_message(int(old_id))
+            if existing.author.id == bot.user.id and any(
+                    LEVEL_PANEL_MARKER in (item.footer.text or "")
+                    for item in existing.embeds):
+                post = existing
+        except (discord.HTTPException, ValueError):
+            pass
+    if post is None:
+        try:
+            async for existing in target.history(limit=80):
+                if existing.author.id == bot.user.id and any(
+                        LEVEL_PANEL_MARKER in (item.footer.text or "")
+                        for item in existing.embeds):
+                    post = existing
+                    break
+        except discord.HTTPException:
+            logging.warning("Levelgruppen-Dashboard: Kanalhistorie nicht lesbar")
+    if post is None:
+        post = await target.send(
+            embed=level_dashboard_embed(), view=LevelDashboardView(),
+            allowed_mentions=discord.AllowedMentions.none())
+    else:
+        await post.edit(
+            embed=level_dashboard_embed(), view=LevelDashboardView())
+    save_setting(LEVEL_PANEL_SETTING, post.id)
+    if (not target.topic or target.topic.startswith(
+            "🏰 Dungeon planen und Termine finden: ")):
+        try:
+            await target.edit(
+                topic="🌿 Levelgruppen planen und Mitspieler finden: " + post.jump_url,
+                reason="Corpsegrinder Levelgruppen-Dashboard")
+        except discord.HTTPException:
+            logging.warning("Kanalthema für Levelgruppen konnte nicht angepasst werden")
+    pinned = post.pinned
+    if not pinned:
+        try:
+            await post.pin(reason="Corpsegrinder Levelgruppen-Steuerzentrale")
+            pinned = True
+        except discord.Forbidden:
+            logging.warning(
+                "Levelgruppen-Bedienfeld gepostet, aber nicht angeheftet. "
+                "Recht 'Nachrichten verwalten' fehlt.")
+        except discord.HTTPException:
+            logging.exception("Levelgruppen-Bedienfeld konnte nicht angeheftet werden")
+    return post, pinned
+
+
+async def ensure_level_dashboard_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    try:
+        await ensure_level_dashboard(guild)
+    except discord.HTTPException:
+        logging.exception("Automatisches Levelgruppen-Dashboard fehlgeschlagen")
+
+
+@bot.tree.command(name="levelpanel",
+                  description="Levelgruppen-Steuerzentrale aktualisieren (Admin)",
+                  guild=SERVER)
+async def install_level_dashboard(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur Administratoren.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        post, pinned = await ensure_level_dashboard(interaction.guild)
+    except discord.HTTPException:
+        logging.exception("Levelgruppen-Dashboard")
+        return await interaction.followup.send(
+            "Das Panel konnte nicht erstellt werden. "
+            "Bitte Bot-Rechte in #pve-gruppensuche prüfen.", ephemeral=True)
+    if post is None:
+        return await interaction.followup.send(
+            "Der Textkanal #pve-gruppensuche wurde nicht gefunden.", ephemeral=True)
+    await interaction.followup.send(
+        f"🌿 **Levelgruppen-Panel**: {post.jump_url}\n"
+        + ("✅ Angepinnt" if pinned else "⚠️ Noch nicht angepinnt – bitte selbst anpinnen."),
+        ephemeral=True)
+
+
+@bot.tree.command(name="leveltermin_absagen",
+                  description="Eigene Levelgruppe absagen (oder als Administrator)",
+                  guild=SERVER)
+async def cancel_level_group(interaction: discord.Interaction, termin_id: int):
+    if not allowed(interaction):
+        return await answer(interaction, "Nur auf Corpsegrinder verfügbar.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    async with level_lock(termin_id):
+        group = level_record(termin_id)
+        if not group:
+            return await interaction.followup.send(
+                "Leveltermin nicht gefunden.", ephemeral=True)
+        if group[2] != interaction.user.id and not admin(interaction):
+            return await interaction.followup.send(
+                "Nur Organisator oder Administrator kann die Levelgruppe absagen.",
+                ephemeral=True)
+        if group[11] == "cancelled":
+            return await interaction.followup.send(
+                "Termin ist bereits abgesagt.", ephemeral=True)
+        db.execute("UPDATE level_groups SET status='cancelled' WHERE id=?", (termin_id,))
+        db.commit()
+        try:
+            await refresh_level_card(level_record(termin_id))
+            result = f"❌ Levelgruppe #{termin_id} abgesagt."
+        except discord.HTTPException:
+            logging.exception("Abgesagte Levelgruppe konnte nicht aktualisiert werden")
+            result = "Leveltermin abgesagt; die Gruppenkarte wurde noch nicht aktualisiert."
+        await interaction.followup.send(result, ephemeral=True)
+
+
+@bot.tree.command(name="leveltermin_verschieben",
+                  description="Datum/Uhrzeit einer eigenen Levelgruppe ändern",
+                  guild=SERVER)
+@app_commands.describe(
+    termin_id="Nummer der Levelgruppenkarte",
+    tag="morgen, übermorgen oder TT.MM.JJJJ",
+    uhrzeit="Neue Uhrzeit, z. B. 20:30")
+async def reschedule_level_group(
+        interaction: discord.Interaction, termin_id: int, tag: str, uhrzeit: str):
+    if not allowed(interaction):
+        return await answer(interaction, "Nur auf Corpsegrinder verfügbar.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    async with level_lock(termin_id):
+        group = level_record(termin_id)
+        if not group or group[11] == "cancelled":
+            return await interaction.followup.send(
+                "Leveltermin ist nicht vorhanden oder abgesagt.", ephemeral=True)
+        if group[2] != interaction.user.id and not admin(interaction):
+            return await interaction.followup.send(
+                "Nur Organisator oder Administrator kann verschieben.", ephemeral=True)
+        try:
+            when, display = parse_plan_time(tag, uhrzeit)
+        except ValueError as exc:
+            return await interaction.followup.send(str(exc), ephemeral=True)
+        db.execute(
+            "UPDATE level_groups SET start_utc=?,display_time=? WHERE id=?",
+            (when, display, termin_id))
+        db.commit()
+        try:
+            await refresh_level_card(level_record(termin_id))
+            result = "✅ Leveltermin verschoben auf " + display + ". Mitglieder bleiben angemeldet."
+        except discord.HTTPException:
+            result = "Termin geändert, aber die Gruppenkarte konnte nicht aktualisiert werden."
+        await interaction.followup.send(result, ephemeral=True)
 
 
 

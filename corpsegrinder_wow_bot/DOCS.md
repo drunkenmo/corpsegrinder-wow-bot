@@ -83,3 +83,23 @@ Die weiteren Tasten **📅 Nächste Termine** und **📋 Meine Termine** zeigen 
 **Admins:** `/gruppenpanel` kann die Steuerzentrale erneut erstellen oder aktualisieren, ohne Duplikate zu erzeugen. Der Bot versucht die Nachricht anzupinnen; fehlt ihm die Berechtigung `Nachrichten verwalten`, muss ein Administrator sie manuell über das Nachrichtenmenü anpinnen. Anpinnen erzeugt **keine dauerhaft feststehende Chat-Kopfzeile** – die Nachricht wird über das Pin-Symbol oben rechts aufgerufen. Wo möglich, wird bei leerem Kanalthema außerdem ein Link zur Steuerzentrale ergänzt. Vorhandene Kanalthemen werden nicht verändert.
 
 Das alte `/gruppe_planen` bleibt für längere Vorlaufzeiten (mehr als 21 Tage) und freie Eingaben erhalten. Bei Updates werden bestehende Gruppen, Spielerregistrierungen, Rollen und andere Serverkanäle nicht gelöscht.
+
+## Neue Levelgruppen und Dungeon-Umzug (ab Bot-Code 1.0.11)
+
+### Dungeon-Planer
+Die öffentliche Dungeon-Steuerzentrale und alle **neu angelegten Dungeon-Gruppentermine** stehen ab dieser Version im Textkanal **#dungeons**. Das vorhandene Dungeon-Panel in `#pve-gruppensuche` wird vom Bot nur dann entfernt, wenn es eindeutig als **eigene** Panel-Nachricht identifiziert wurde. Alte, bereits gebuchte Dungeon-Karten bleiben aus Datensicherheitsgründen an ihrer bisherigen Stelle und funktionieren weiterhin.
+
+### Level-Planer
+Im Textkanal **#pve-gruppensuche** erscheint eine eigene grüne Levelgruppen-Steuerzentrale mit den Buttons:
+- **🌿 Levelgruppe planen**: Privater Assistent mit Auswahl der Region, des Levelbereichs, Datum und Uhrzeit sowie optionaler Notiz (über "Eigenes Gebiet / Notiz").
+- **📅 Leveltermine**: kommende Levelgruppen mit Links zur Anmeldung.
+- **📋 Meine Levelgruppen**: eigens erstellte und beigetretene Gruppen.
+
+Gebiete umfassen Horde-Zonen wie Durotar, Mulgore, Brachland, Schlingendorntal und Winterquell. Levelbereiche sind in 5-Stufen-Schritten (plus 1–10 und "alle") auswählbar; maximal fünf Spieler je Gruppe. Der Organisator ist beim Erstellen direkt angemeldet. Mit **Dabei sein** und **Abmelden** kann man jederzeit kommen oder gehen. Die Anmeldungen stehen dauerhaft in SQLite. Organisator oder Administrator können mit `/leveltermin_verschieben` und `/leveltermin_absagen` Änderungen vornehmen.
+
+Wenn das Panel nicht automatisch erscheint, hilft dem Admin `/levelpanel`. Fürs automatische Anpinnen benötigt der Bot **Nachrichten verwalten**; sonst kann ein Administrator manuell über das Discord-Nachrichtenmenü anpinnen. Anpinnen bedeutet Zugang über das Pin-Symbol, nicht dauerhaft oben im laufenden Chat.
+
+### Automatische Voice-Gruppe: Ersteller sofort mitnehmen
+Wer die Sprachkanäle **➕ PvE-Gruppe erstellen** oder **➕ PvP-Gruppe erstellen** betritt, soll direkt in den neu erzeugten Voice-Kanal verschoben werden. Dafür muss der **WoW Forever Bot** die Discord-Rollenberechtigungen **Kanäle verwalten**, **Kanäle ansehen** und insbesondere **Mitglieder verschieben** besitzen. Die Rechte dürfen in den PvE-/PvP-Kategorien nicht blockiert werden. Fehlt "Mitglieder verschieben", lässt Discord die automatische Verschiebung nicht zu; der Bot meldet dies und legt keine leeren Kanalreste an.
+
+Alle Änderungen an normalen Botfunktionen kommen weiterhin mit `/bot_update` und benötigen keine neue Home-Assistant-App.
