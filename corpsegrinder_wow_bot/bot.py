@@ -1076,6 +1076,7 @@ async def plan_signup(interaction, group_id, task):
         except discord.HTTPException:
             logging.exception("Termin #%s gespeichert, Embed nicht aktualisiert", group_id)
             result += " Gespeichert, aber Discord konnte die Anzeige nicht aktualisieren."
+        await event_changed("dungeon", group_id)
         await interaction.followup.send(result, ephemeral=True)
 
 
@@ -1186,6 +1187,11 @@ async def cancel_planned_group(i: discord.Interaction, termin_id: int):
             return await i.followup.send("Termin bereits abgesagt.", ephemeral=True)
         db.execute("UPDATE planned_groups SET status='cancelled' WHERE id=?", (termin_id,))
         db.commit()
+        event_meta("dungeon", termin_id)
+        db.execute("UPDATE event_meta SET expired_at=? WHERE kind=? AND group_id=?",
+                   (int(datetime.now(timezone.utc).timestamp()), "dungeon", termin_id))
+        db.commit()
+        await refresh_event_dashboard("dungeon")
         try:
             await refresh_planned_message(load_plan(termin_id))
             result = "Der Termin wurde als abgesagt markiert."
@@ -1222,6 +1228,8 @@ async def reschedule_planned_group(
         db.execute("UPDATE planned_groups SET start_utc=?,display_time=? WHERE id=?",
                    (when, display, termin_id))
         db.commit()
+        reset_event_reminders("dungeon", termin_id)
+        await event_changed("dungeon", termin_id)
         try:
             await refresh_planned_message(load_plan(termin_id))
             result = "Termin verschoben auf " + display + ". Alle bisherigen Anmeldungen bleiben erhalten."
@@ -1266,6 +1274,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
                (target.id, message.id, group_id))
     db.commit()
     bot.add_view(PlannedView(group_id), message_id=message.id)
+    await event_changed("dungeon", group_id)
     return message, group_id
 
 
@@ -1890,6 +1899,7 @@ async def join_level_group(interaction, group_id, joining):
         except discord.HTTPException:
             logging.exception("Levelgruppe #%s gespeichert, Nachricht nicht aktualisiert", group_id)
             response += " Die Übersicht konnte gerade nicht aktualisiert werden."
+        await event_changed("level", group_id)
         await interaction.followup.send(response, ephemeral=True)
 
 
@@ -1924,6 +1934,7 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
                (dest.id, message.id, group_id))
     db.commit()
     bot.add_view(level_group_view(group_id), message_id=message.id)
+    await event_changed("level", group_id)
     return message, group_id
 
 
@@ -2371,6 +2382,11 @@ async def cancel_level_group(interaction: discord.Interaction, termin_id: int):
                 "Termin ist bereits abgesagt.", ephemeral=True)
         db.execute("UPDATE level_groups SET status='cancelled' WHERE id=?", (termin_id,))
         db.commit()
+        event_meta("level", termin_id)
+        db.execute("UPDATE event_meta SET expired_at=? WHERE kind=? AND group_id=?",
+                   (int(datetime.now(timezone.utc).timestamp()), "level", termin_id))
+        db.commit()
+        await refresh_event_dashboard("level")
         try:
             await refresh_level_card(level_record(termin_id))
             result = f"❌ Levelgruppe #{termin_id} abgesagt."
@@ -2408,6 +2424,8 @@ async def reschedule_level_group(
             "UPDATE level_groups SET start_utc=?,display_time=? WHERE id=?",
             (when, display, termin_id))
         db.commit()
+        reset_event_reminders("level", termin_id)
+        await event_changed("level", termin_id)
         try:
             await refresh_level_card(level_record(termin_id))
             result = "✅ Leveltermin verschoben auf " + display + ". Mitglieder bleiben angemeldet."
@@ -2766,6 +2784,14 @@ async def event_scheduler_loop():
         except Exception:
             logging.exception("Corpsegrinder Zeitsteuerung: unerwarteter Fehler")
         await asyncio.sleep(30)
+
+
+def reset_event_reminders(kind, group_id):
+    db.execute("DELETE FROM event_reminder_deliveries WHERE kind=? AND group_id=?",
+               (kind, group_id))
+    db.execute("UPDATE event_meta SET reminder_sent=0 WHERE kind=? AND group_id=?",
+               (kind, group_id))
+    db.commit()
 
 
 def initialize_scheduler_meta():
