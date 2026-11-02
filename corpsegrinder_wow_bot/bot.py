@@ -220,6 +220,7 @@ async def on_ready():
     if getattr(bot, "initialized", False):
         return
     bot.add_view(RoleView())
+    bot.add_view(PlannerDashboardView())
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
     # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
@@ -231,6 +232,7 @@ async def on_ready():
     bot.initialized = True
     mark_ready()
     background(apply_all_wow_role_styles_once())
+    background(ensure_planner_dashboard_on_start())
     await post_version_news_once()
 
 @bot.event
@@ -948,34 +950,15 @@ async def create_planned_group(
     except ValueError as exc:
         return await answer(i, str(exc))
     await i.response.defer(ephemeral=True, thinking=True)
-    # Die anlegende Person wird unmittelbar mit der gewählten Aufgabe eingetragen.
-    db.execute(
-        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
-        "VALUES (?,?,?,?,?,?)",
-        (GUILD_ID, i.user.id, instanz, when, display, notiz.strip()))
-    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
-    db.execute(
-        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
-        (group_id, i.user.id, rolle.value))
-    db.commit()
-    plan = load_plan(group_id)
     try:
-        message = await target.send(
-            embed=planned_embed(plan),
-            view=PlannedView(group_id),
-            allowed_mentions=discord.AllowedMentions.none())
-    except discord.HTTPException:
-        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
-        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
-        db.commit()
+        message, group_id = await create_plan_record_and_post(
+            i.guild, i.user.id, instanz, when, display, rolle.value, notiz.strip())
+    except (discord.HTTPException, ValueError):
         logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
         return await i.followup.send(
-            "Der Termin konnte nicht veröffentlicht werden. Bitte Bot-Rechte in #pve-gruppensuche prüfen.",
+            "Der Termin konnte nicht veröffentlicht werden. "
+            "Bitte Bot-Berechtigungen in #pve-gruppensuche prüfen.",
             ephemeral=True)
-    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
-               (target.id, message.id, group_id))
-    db.commit()
-    bot.add_view(PlannedView(group_id), message_id=message.id)
     await i.followup.send(
         f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
         f"am {display} erstellt. Du bist als **{rolle.value}** angemeldet.\n"
@@ -1069,6 +1052,43 @@ async def reschedule_planned_group(
         await i.followup.send(result, ephemeral=True)
 
 
+
+
+
+async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
+    """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
+    target = channel(guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        raise ValueError("Kanal #pve-gruppensuche fehlt.")
+    if role not in PLAN_ROLES or not 2 <= len(instance) <= 90 or len(note) > 160:
+        raise ValueError("Instanz-/Rollen-Auswahl ungültig.")
+    if when < int(datetime.now(timezone.utc).timestamp()) + 30:
+        raise ValueError("Der Termin liegt in der Vergangenheit.")
+    db.execute(
+        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
+        "VALUES (?,?,?,?,?,?)",
+        (GUILD_ID, user_id, instance.strip(), when, display, note.strip()))
+    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.execute(
+        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
+        (group_id, user_id, role))
+    db.commit()
+    plan = load_plan(group_id)
+    try:
+        message = await target.send(
+            embed=planned_embed(plan),
+            view=PlannedView(group_id),
+            allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
+        db.commit()
+        raise
+    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
+               (target.id, message.id, group_id))
+    db.commit()
+    bot.add_view(PlannedView(group_id), message_id=message.id)
+    return message, group_id
 
 
 # --- Interaktiver Dungeon-Planer (1.0.10) ---------------------------------
@@ -1452,6 +1472,18 @@ async def ensure_planner_dashboard(guild):
         except discord.HTTPException:
             logging.exception("Dungeon-Planer konnte nicht angepinnt werden")
     return existing, pinned
+
+
+
+async def ensure_planner_dashboard_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    try:
+        await ensure_planner_dashboard(guild)
+    except discord.HTTPException:
+        logging.exception("Konnte Dungeon-Steuerzentrale beim Start nicht einrichten")
+
 
 
 @bot.tree.command(
