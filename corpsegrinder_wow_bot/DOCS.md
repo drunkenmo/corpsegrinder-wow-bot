@@ -143,3 +143,17 @@ Alle Änderungen an normalen Botfunktionen kommen weiterhin mit `/bot_update` un
 2. Nach dem automatischen Neustart mit `/bot_update_status` die neue Version prüfen.
 3. Falls die Illustration noch nicht sofort zu sehen ist, prüfen, ob GitHub Actions bereits `assets/*.png` veröffentlicht hat; Discord kann Bilder kurzzeitig cachen.
 4. Gruppensuche und Voice mit zwei Testaccounts ausprobieren.
+
+## Forever News – offizieller Blizzard-Feed (Bot-Code 1.0.13)
+
+Der Bot erstellt nach dem Discord-Update automatisch den Textkanal `#forever-news` **direkt unter `#ankündigungen`, über `#rollenwahl`** in der bestehenden Start-Kategorie und fügt eine angepinnte Info-Karte hinzu. Der Kanal ist als News-Kanal mit Schreibrecht für den Bot vorgesehen.
+
+**Quelle:** Primär nutzt der Bot Blizzards eigenen nach dem Produkt `world-of-warcraft-forever` gefilterten News-Endpunkt unter `https://news.blizzard.com/de-de/api/news/blizzard?feedCxpProductIds%5B%5D=world-of-warcraft-forever`. Weil dieser Endpunkt nicht als stabile öffentliche Programmierschnittstelle garantiert ist, dienen die offizielle deutsche News-Übersicht unter `https://worldofwarcraft.blizzard.com/de-de/news` und die offizielle `news.blizzard.com`-Übersicht als Fallback. Es werden nur Artikel-URLs der offiziellen Domains und eindeutig Forever-bezogene Artikelüberschriften berücksichtigt. Gemischte Sammelbeiträge über andere WoW-Versionen werden weggelassen. Der Bot schaut **alle 30 Minuten** nach neuen Einträgen, ohne Push-Spam und ohne Doppelpostings.
+
+**Erstbefüllung:** Beim ersten erfolgreichen Abruf werden ausschließlich passende Blizzard-Artikel aus den vorherigen **48 Stunden** veröffentlicht. Das Datum stammt aus offiziellen Artikelmetadaten; Veröffentlichungen ohne eindeutig auslesbare Datumsangabe werden aus Vorsicht nicht gepostet. Wenn es in dieser Zeit keine Forever-News gibt, bleibt der Kanal zunächst nur mit der Info-Karte sichtbar – es werden keine älteren Meldungen als angeblich neue veröffentlicht. Vorübergehende Fehler beim Abruf sind im Home-Assistant-Bot-Log zu sehen.
+
+**Kommandos:** `/forever_news_status` zeigt die Anzahl gespeicherter Meldungen und den letzten Abruf. Mit `/forever_news_pruefen` kann ein Administrator sofort einen erneuten Abruf anstoßen. Der Bot archiviert bereits gepostete Artikel-IDs in `/data/corpsegrinder.sqlite` und postet sie nach Neustarts nicht erneut.
+
+**Berechtigungen:** Der Bot braucht in seiner Start-Kategorie mindestens `Kanäle verwalten`, `Kanal anzeigen`, `Nachrichten senden`, `Links einbetten` und `Nachrichtenverlauf lesen`. Fürs Anpinnen kommt `Nachrichten verwalten` hinzu.
+
+Nur die normalen per `/bot_update` verwalteten Python-Code-Dateien wurden verändert. Es wird keine zusätzliche Python-Abhängigkeit oder Home-Assistant-App-Aktualisierung benötigt.
