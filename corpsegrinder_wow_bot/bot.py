@@ -100,6 +100,13 @@ def allowed(i):
 def admin(i):
     return allowed(i) and i.user.guild_permissions.administrator
 
+# Bilddateien werden im GitHub-Repository bereitgestellt, ohne HA-Neuinstallation.
+ART_BASE = "https://raw.githubusercontent.com/drunkenmo/corpsegrinder-wow-bot/main/assets/"
+WELCOME_ART_URL = ART_BASE + "welcome.png"
+DUNGEON_ART_URL = ART_BASE + "dungeons.png"
+LEVEL_ART_URL = ART_BASE + "levelgruppen.png"
+
+
 def role_panel():
     embed = discord.Embed(
         title="⚔️ CORPSEGRINDER · DIE HORDE RUFT!",
@@ -1289,26 +1296,46 @@ WEEKDAY_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
 def planner_dashboard_embed():
     embed = discord.Embed(
-        title="🏰 CORPSEGRINDER · DUNGEON-PLANER",
+        title="⚔️ CORPSEGRINDER · DUNGEON-HALLE",
         description=(
-            "**Für die Horde!** Plane Instanzbesuche ohne umständliche Befehle. "
-            "Wähle über die Buttons eine Instanz, deine Aufgabe und den gewünschten Termin. "
-            "Der Assistent ist **nur für dich sichtbar**, bis du die Gruppe veröffentlichst."
-        ),
-        colour=discord.Colour.dark_red()
-    )
+            "**LOK'TAR OGAR!** 🏰 Die nächsten Dungeon-Abenteuer warten.\n"
+            "Wähle Instanz, deine Aufgabe und den Termin über **Dungeon planen**. "
+            "Der Assistent bleibt privat, bis du die Gruppe veröffentlichst.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+        colour=discord.Colour.from_rgb(144, 38, 25))
+    embed.set_image(url=DUNGEON_ART_URL)
     embed.add_field(
-        name="⚔️ 1. Dungeon planen",
-        value="Instanz & Rolle auswählen → Datum & Uhrzeit einstellen → veröffentlichen.",
+        name="🛡️ Deine Schlachtgruppe",
+        value="**1 Tank · 1 Heiler · 3 DD** · per Button anmelden, wechseln oder abmelden.",
+        inline=False)
+    now = int(datetime.now(timezone.utc).timestamp())
+    groups = db.execute(
+        "SELECT id,instance,start_utc,channel,message FROM planned_groups "
+        "WHERE guild=? AND status='open' AND start_utc>? "
+        "ORDER BY start_utc LIMIT 3", (GUILD_ID,now-3600)).fetchall()
+    lines = []
+    for group_id,instance,when,channel_id,message_id in groups:
+        counts = plan_counts(group_id)
+        total = sum(counts.values())
+        link = (f"https://discord.com/channels/{GUILD_ID}/{channel_id}/{message_id}"
+                if channel_id and message_id else None)
+        name = discord.utils.escape_markdown(instance[:55])
+        title = f"**#{group_id} · {name}**"
+        if link:
+            title = f"[{name}]({link})"
+        lines.append(
+            f"🏰 {title} · <t:{when}:f>\n"
+            f"🛡️ {counts['Tank']}/1 · 💚 {counts['Heiler']}/1 · "
+            f"💥 {counts['DD']}/3 · **{total}/5**")
+    embed.add_field(
+        name="📅 DIE NÄCHSTEN 3 ABENTEUER",
+        value="\n\n".join(lines) if lines else
+              "*Noch ist kein Dungeon geplant. Eröffne das erste Abenteuer!*",
         inline=False)
     embed.add_field(
-        name="🛡️ 2. Spieler finden",
-        value="**1 Tank · 1 Heiler · 3 DD** – alle tragen sich direkt auf der Gruppenkarte ein.",
-        inline=False)
-    embed.add_field(
-        name="📅 3. Überblick behalten",
-        value="Nächste Termine ansehen oder deine eigenen Termine aufrufen. "
-              "Gruppen können vom Organisator verschoben und abgesagt werden.",
+        name="🔔 Automatisch für dich",
+        value="15-Minuten-Erinnerung · Treffpunkt bei **5/5** · "
+              "Aufräumen nach dem Termin",
         inline=False)
     embed.set_footer(text="Corpsegrinder • Dungeonplaner • " + PLANNER_MARKER)
     return embed
@@ -2172,27 +2199,43 @@ class LevelWizardTwo(LevelPrivateWizard):
 
 def level_dashboard_embed():
     embed = discord.Embed(
-        title="🌿 CORPSEGRINDER · LEVELGRUPPEN",
+        title="🌿 CORPSEGRINDER · DER ABENTEURER-TREFF",
         description=(
-            "**Gemeinsam leveln macht mehr Spaß!**\n\n"
-            "Plane deine nächsten Quests, Elitequests oder einen ganzen Levelabend. "
-            "Du wählst Gebiet, Levelbereich und Uhrzeit; Mitspieler melden sich "
-            "mit einem Klick an. Auch Besucher unserer Horde-Community sind willkommen!"
-        ),
-        colour=discord.Colour.green())
+            "**Alte Säcke. Neue Quests. Gemeinsam statt allein!** 🍻\n"
+            "Wähle dein Levelgebiet, den Levelbereich und einen Termin. "
+            "Ob einfaches Questen oder Elite-Aufgaben: alle Horde-Spieler sind willkommen!\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+        colour=discord.Colour.from_rgb(49, 135, 77))
+    embed.set_image(url=LEVEL_ART_URL)
     embed.add_field(
-        name="🌍 Gebiet & Level",
-        value="Durotar, Brachland, Schlingendorntal und viele weitere Gebiete "
-              "– oder ein eigenes Ziel mit Hinweis auswählen.",
+        name="🌍 Dein Abenteuer",
+        value="**Bis zu fünf Spieler** · einfach beitreten, ohne feste Tank-/Heiler-Pflicht.",
+        inline=False)
+    now=int(datetime.now(timezone.utc).timestamp())
+    groups=db.execute(
+        "SELECT id,area,min_level,max_level,start_utc,channel,message "
+        "FROM level_groups WHERE guild=? AND status='open' AND start_utc>? "
+        "ORDER BY start_utc LIMIT 3", (GUILD_ID,now-3600)).fetchall()
+    lines=[]
+    for group_id,area,low,high,when,channel_id,message_id in groups:
+        total=len(level_players(group_id))
+        name=discord.utils.escape_markdown(area[:50])
+        link=(f"https://discord.com/channels/{GUILD_ID}/{channel_id}/{message_id}"
+              if channel_id and message_id else None)
+        title=f"[{name}]({link})" if link else name
+        lines.append(
+            f"🌿 **#{group_id}** · {title} · <t:{when}:f>\n"
+            f"🎚️ Level **{low}–{high}** · 👥 **{total}/5** · "
+            f"✨ **{5-total}** Plätze frei")
+    embed.add_field(
+        name="📅 DIE NÄCHSTEN 3 LEVELGRUPPEN",
+        value="\n\n".join(lines) if lines else
+              "*Noch keine Questgruppe geplant. Das Lagerfeuer wartet auf dich!*",
         inline=False)
     embed.add_field(
-        name="📅 Dein Termin",
-        value="Datum und Uhrzeit komfortabel über Dropdowns auswählen.",
-        inline=False)
-    embed.add_field(
-        name="👥 Bis zu 5 Spieler",
-        value="Einfach **Dabei sein** oder **Abmelden** anklicken. "
-              "Keine feste Tank-/Heiler-/DD-Aufteilung notwendig.",
+        name="🔔 Deine Erinnerungen",
+        value="15 Minuten vor Beginn per Direktnachricht · nur bei **5/5** "
+              "erscheint automatisch ein Sprach-Treffpunkt.",
         inline=False)
     embed.set_footer(text="Corpsegrinder • Levelgruppen • " + LEVEL_PANEL_MARKER)
     return embed
