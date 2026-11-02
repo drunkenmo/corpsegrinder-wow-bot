@@ -5,6 +5,8 @@ import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
+from updater_core import mark_ready
+from updater_discord import register as register_update_commands
 from community_features import ROLE_STYLE, VERSION, visual_name, welcome_embed, announcement_intro_embed, news_embed, update_embed
 
 logging.basicConfig(level=logging.INFO)
@@ -211,6 +213,7 @@ async def on_ready():
         bot.add_view(GroupView(group_id))
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
+    mark_ready()
     await post_version_news_once()
 
 @bot.event
@@ -548,5 +551,7 @@ async def announcement_lock(i: discord.Interaction):
     except discord.HTTPException:
         await answer(i, "Kanalberechtigungen konnten nicht geändert werden.")
 
+
+register_update_commands(bot, SERVER, admin)
 
 bot.run(TOKEN, log_handler=None)
