@@ -3181,8 +3181,8 @@ def gather_official_forever_articles():
             # offiziellen Artikels und Publikationsdatums veröffentlicht.
             flattened = page.replace("\\/", "/")
             for match in re.finditer(
-                    r"(?:https://(?:worldofwarcraft|news)\\.blizzard\\.com)?"
-                    r"/de-de/(?:news|article)/\\d{6,10}"
+                    r"(?:https://(?:worldofwarcraft|news)\.blizzard\.com)?"
+                    r"/de-de/(?:news|article)/\d{6,10}"
                     r"(?:/[a-zA-Z0-9_-]+)?",
                     flattened):
                 parsed = official_article_link(match.group(0), index)
