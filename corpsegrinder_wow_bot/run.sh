@@ -1,3 +1,3 @@
 #!/bin/sh
 set -eu
-exec /opt/venv/bin/python /app/bot.py
+exec /opt/venv/bin/python -u /app/launcher.py
