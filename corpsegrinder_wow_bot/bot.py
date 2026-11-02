@@ -381,12 +381,12 @@ async def on_voice_state_update(member, before, after):
                     break
                 except discord.Forbidden:
                     raise
-                except discord.HTTPException:
+                except (discord.HTTPException, discord.ClientException):
                     if attempt:
                         raise
                     await asyncio.sleep(0.6)
             logging.info("Ersteller %s in neue Gruppe %s verschoben", member.id, new_channel.id)
-        except discord.HTTPException:
+        except (discord.HTTPException, discord.ClientException):
             logging.exception(
                 "Automatisches Erstellen/Beitreten fehlgeschlagen. "
                 "Bot benötigt 'Mitglieder verschieben', 'Kanäle verwalten' "
