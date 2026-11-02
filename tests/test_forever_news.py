@@ -123,6 +123,9 @@ class ForeverNewsTests(unittest.TestCase):
           </head><body><h1>World of Warcraft: Forever wird veröffentlicht</h1></body></html>
         """
         env = self.e
+        env["FOREVER_NEWS_API"] = (
+            "https://news.blizzard.com/de-de/api/news/blizzard?"
+            "feedCxpProductIds%5B%5D=world-of-warcraft-forever")
         env["FOREVER_NEWS_INDEXES"] = (
             "https://worldofwarcraft.blizzard.com/de-de/news",)
         env["FOREVER_NEWS_BACKFILL"] = 48 * 3600
