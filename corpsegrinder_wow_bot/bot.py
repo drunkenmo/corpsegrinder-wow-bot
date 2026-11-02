@@ -5,6 +5,7 @@ import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
+from community_features import ROLE_STYLE, VERSION, visual_name, welcome_embed, announcement_intro_embed, news_embed, update_embed
 
 logging.basicConfig(level=logging.INFO)
 CONFIG = json.load(open("/data/options.json", encoding="utf-8"))
@@ -56,7 +57,8 @@ STRUCTURE = {
 }
 
 def role(guild, name):
-    return discord.utils.get(guild.roles, name=name)
+    return (discord.utils.get(guild.roles, name=visual_name(name))
+            or discord.utils.get(guild.roles, name=name))
 
 def channel(guild, name):
     return discord.utils.get(guild.channels, name=name)
@@ -209,6 +211,7 @@ async def on_ready():
         bot.add_view(GroupView(group_id))
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
+    await post_version_news_once()
 
 @bot.event
 async def on_member_join(member):
@@ -222,7 +225,7 @@ async def on_member_join(member):
             logging.warning("Community-Rolle konnte nicht vergeben werden")
     greeting = channel(member.guild, "willkommen")
     if isinstance(greeting, discord.TextChannel):
-        await greeting.send("Willkommen bei Corpsegrinder, " + member.mention + "! Für die Horde!",
+        await greeting.send("⚔️ Willkommen bei **Corpsegrinder**, " + member.mention + "! Für die Horde! Wähle deine Rollen in #rollenwahl.",
                             allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
 
 @bot.event
@@ -265,7 +268,7 @@ async def setup(i: discord.Interaction):
         for name in ROLES:
             current = "Rolle " + name
             if not role(i.guild, name):
-                await i.guild.create_role(name=name, reason="Corpsegrinder Einrichtung")
+                await i.guild.create_role(name=visual_name(name), reason="Corpsegrinder Einrichtung")
         for name, items in STRUCTURE.items():
             current = "Kategorie " + name
             category = discord.utils.get(i.guild.categories, name=name)
