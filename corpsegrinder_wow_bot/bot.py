@@ -1023,7 +1023,7 @@ async def create_planned_group(
         logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
         return await i.followup.send(
             "Der Termin konnte nicht veröffentlicht werden. "
-            "Bitte Bot-Berechtigungen in #pve-gruppensuche prüfen.",
+            "Bitte Bot-Berechtigungen in #dungeons prüfen.",
             ephemeral=True)
     await i.followup.send(
         f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
@@ -1158,7 +1158,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
 
 
 # --- Interaktiver Dungeon-Planer (1.0.10) ---------------------------------
-# Die Steuerzentrale ist eine dauerhafte Nachricht im #pve-gruppensuche-Kanal.
+# Die Dungeon-Steuerzentrale ist eine dauerhafte Nachricht im #dungeons-Kanal.
 # Der zwei-stufige Assistent ist privat und gilt nur für die auslösende Person.
 
 PLANNER_MARKER = "corpsegrinder:planner-dashboard"
