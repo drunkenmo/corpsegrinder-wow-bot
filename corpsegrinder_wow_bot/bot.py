@@ -34,6 +34,7 @@ db.execute("CREATE TABLE IF NOT EXISTS level_signups (group_id INTEGER NOT NULL,
 # Die Planer-Datenbanken behalten auch nach der Löschung der Discord-Karten ihr Archiv.
 db.execute("CREATE TABLE IF NOT EXISTS event_meta (kind TEXT NOT NULL, group_id INTEGER NOT NULL, reminder_sent INTEGER NOT NULL DEFAULT 0, full_prev INTEGER NOT NULL DEFAULT 0, voice_id INTEGER, voice_seen INTEGER NOT NULL DEFAULT 0, voice_created INTEGER NOT NULL DEFAULT 0, expired_at INTEGER, archived_at INTEGER, PRIMARY KEY(kind,group_id))")
 db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1)")
+db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(kind,group_id,user_id))")
 db.commit()
 db.commit()
 
@@ -2389,6 +2390,419 @@ async def reschedule_level_group(
         except discord.HTTPException:
             result = "Termin geändert, aber die Gruppenkarte konnte nicht aktualisiert werden."
         await interaction.followup.send(result, ephemeral=True)
+
+
+
+
+# --- Corpsegrinder 1.0.12: zeitgesteuerte Abenteuer --------------------------
+# Der Prozess läuft im vorhandenen Discord-Worker (kein neuer Supervisor nötig).
+# Zeitstempel bleiben in UTC; die Darstellung erfolgt lokal in Deutschland.
+
+EVENT_KINDS = ("dungeon", "level")
+EVENT_RETIRE_SECONDS = 3600    # +1 Stunde: Karte als abgelaufen kennzeichnen.
+EVENT_DELETE_DELAY = 300      # +5 Minuten: Karten-Nachricht endgültig entfernen.
+EVENT_REMIND_SECONDS = 900    # -15 Minuten: private Erinnerung/Voice.
+VOICE_UNUSED_TTL = 3600      # Leerer, nie benutzter Raum: 1h Schonfrist.
+_event_scheduler_task = None
+_event_panel_locks = {}
+
+
+def event_meta(kind, group_id, create=True):
+    if kind not in EVENT_KINDS:
+        raise ValueError("Unbekannte Gruppenart")
+    if create:
+        db.execute(
+            "INSERT OR IGNORE INTO event_meta(kind,group_id) VALUES (?,?)",
+            (kind, group_id))
+        db.commit()
+    return db.execute(
+        "SELECT kind,group_id,reminder_sent,full_prev,voice_id,voice_seen,"
+        "voice_created,expired_at,archived_at FROM event_meta "
+        "WHERE kind=? AND group_id=?", (kind, group_id)).fetchone()
+
+
+def event_record(kind, group_id):
+    return load_plan(group_id) if kind == "dungeon" else level_record(group_id)
+
+
+def event_start(kind, group):
+    return group[4] if kind == "dungeon" else group[6]
+
+
+def event_status(kind, group):
+    return group[9] if kind == "dungeon" else group[11]
+
+
+def event_owner(group):
+    return group[2]
+
+
+def event_participants(kind, group_id):
+    return ([user_id for user_id, _ in plan_members(group_id)]
+            if kind == "dungeon" else level_players(group_id))
+
+
+def event_is_full(kind, group_id):
+    if kind == "dungeon":
+        counts = plan_counts(group_id)
+        return all(counts.get(r, 0) == PLAN_LIMITS[r] for r in PLAN_ROLES)
+    return len(level_players(group_id)) == 5
+
+
+def event_title(kind, group):
+    return group[3]
+
+
+def event_channel_id(kind, group):
+    return group[7] if kind == "dungeon" else group[9]
+
+
+def event_message_id(kind, group):
+    return group[8] if kind == "dungeon" else group[10]
+
+
+def event_link(kind, group):
+    c, m = event_channel_id(kind, group), event_message_id(kind, group)
+    if c and m:
+        return f"https://discord.com/channels/{GUILD_ID}/{c}/{m}"
+    return None
+
+
+async def refresh_event_card(kind, group):
+    if not event_message_id(kind, group):
+        return
+    if kind == "dungeon":
+        await refresh_planned_message(group)
+    else:
+        await refresh_level_card(group)
+
+
+async def refresh_event_dashboard(kind):
+    lock = _event_panel_locks.setdefault(kind, asyncio.Lock())
+    async with lock:
+        guild = bot.get_guild(GUILD_ID)
+        if guild is None:
+            return
+        try:
+            if kind == "dungeon":
+                await ensure_planner_dashboard(guild)
+            else:
+                await ensure_level_dashboard(guild)
+        except discord.HTTPException:
+            logging.exception("Dynamisches %s-Panel konnte nicht aktualisiert werden", kind)
+
+
+async def event_dm(user_id, title, body, kind, group, voice_id=None):
+    if not notifications_enabled(user_id):
+        return
+    try:
+        user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+        embed = discord.Embed(
+            title=title,
+            description=body,
+            colour=(discord.Colour.dark_red() if kind == "dungeon"
+                    else discord.Colour.green()))
+        embed.add_field(
+            name="🗓️ Gruppenstart",
+            value=f"<t:{event_start(kind, group)}:F>",
+            inline=False)
+        url = event_link(kind, group)
+        if url:
+            embed.add_field(name="📜 Zur Anmeldung", value=f"[Gruppenkarte öffnen]({url})", inline=False)
+        if voice_id:
+            embed.add_field(
+                name="🔊 Sprachkanal",
+                value=f"[Zum Treffpunkt](https://discord.com/channels/{GUILD_ID}/{voice_id})",
+                inline=False)
+        await user.send(embed=embed)
+    except (discord.Forbidden, discord.NotFound):
+        logging.info("DM an %s nicht möglich (Privatsphäre)", user_id)
+    except discord.HTTPException:
+        logging.exception("Discord-DM an %s fehlgeschlagen", user_id)
+
+
+async def event_changed(kind, group_id):
+    group = event_record(kind, group_id)
+    if not group:
+        return
+    metadata = event_meta(kind, group_id)
+    is_full = event_is_full(kind, group_id)
+    was_full = bool(metadata[3])
+    db.execute(
+        "UPDATE event_meta SET full_prev=? WHERE kind=? AND group_id=?",
+        (int(is_full), kind, group_id))
+    db.commit()
+    if (kind == "dungeon" and is_full and not was_full
+            and event_status(kind, group) == "open"):
+        for user_id in event_participants(kind, group_id):
+            background(event_dm(
+                user_id, "🎉 Eure Dungeon-Gruppe ist vollständig!",
+                f"**{discord.utils.escape_markdown(event_title(kind, group))}** "
+                "ist mit **1 Tank, 1 Heiler und 3 DD** vollständig. "
+                "15 Minuten vor dem Termin folgt eure Erinnerung.",
+                kind, group, metadata[4]))
+    await refresh_event_dashboard(kind)
+    # Falls eine Gruppe erst kurz vor Start voll wird, direkt den Treffpunkt öffnen.
+    when = event_start(kind, group)
+    now = int(datetime.now(timezone.utc).timestamp())
+    if is_full and when-900 <= now < when:
+        background(process_scheduled_event(kind, group_id))
+
+
+async def finish_scheduled_group(interaction, kind, group_id):
+    if not allowed(interaction):
+        return await answer(interaction, "Nur auf Corpsegrinder verfügbar.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    lock = plan_lock(group_id) if kind == "dungeon" else level_lock(group_id)
+    async with lock:
+        group = event_record(kind, group_id)
+        if not group or event_status(kind, group) != "open":
+            return await interaction.followup.send(
+                "Die Gruppe ist nicht mehr aktiv.", ephemeral=True)
+        if (interaction.user.id != event_owner(group) and not admin(interaction)):
+            return await interaction.followup.send(
+                "Nur der Organisator oder ein Administrator darf abschließen.",
+                ephemeral=True)
+        table = "planned_groups" if kind == "dungeon" else "level_groups"
+        db.execute(f"UPDATE {table} SET status='completed' WHERE id=? AND guild=?",
+                   (group_id, GUILD_ID))
+        event_meta(kind, group_id)
+        db.execute(
+            "UPDATE event_meta SET expired_at=? WHERE kind=? AND group_id=?",
+            (int(datetime.now(timezone.utc).timestamp()), kind, group_id))
+        db.commit()
+        try:
+            await refresh_event_card(kind, event_record(kind, group_id))
+        except discord.HTTPException:
+            logging.exception("Abgeschlossene %s-Gruppe konnte nicht aktualisiert werden",kind)
+        await refresh_event_dashboard(kind)
+        await interaction.followup.send(
+            "✅ Gruppe abgeschlossen und aus den aktiven Übersichten entfernt. "
+            "Die Karte wird in fünf Minuten gelöscht; euer Sprachkanal bleibt "
+            "bestehen, solange jemand darin ist.",
+            ephemeral=True)
+
+
+async def create_scheduled_voice(kind, group):
+    group_id = group[0]
+    metadata = event_meta(kind, group_id)
+    if metadata[4]:
+        active = bot.get_channel(metadata[4])
+        if isinstance(active, discord.VoiceChannel):
+            return active.id
+    guild = bot.get_guild(GUILD_ID)
+    source = channel(guild, "dungeons" if kind == "dungeon" else "pve-gruppensuche") if guild else None
+    category = source.category if source else None
+    if category is None:
+        logging.warning("%s-Gruppe #%s: keine PvE-Kategorie für Sprachkanal",kind,group_id)
+        return None
+    name = event_title(kind, group)
+    short_time = datetime.fromtimestamp(
+        event_start(kind, group), timezone.utc).astimezone(berlin_now().tzinfo).strftime("%H:%M")
+    if kind == "dungeon":
+        voice_name = f"🏰 {name} · {short_time}"
+    else:
+        voice_name = f"🌿 {name} {group[4]}–{group[5]} · {short_time}"
+    voice = await category.create_voice_channel(
+        voice_name[:100], user_limit=5,
+        reason=f"Corpsegrinder Termin #{group_id}: automatischer Treffpunkt")
+    db.execute(
+        "UPDATE event_meta SET voice_id=?,voice_seen=0,voice_created=? "
+        "WHERE kind=? AND group_id=?",
+        (voice.id, int(datetime.now(timezone.utc).timestamp()), kind,group_id))
+    db.commit()
+    save_setting("temp_"+str(voice.id),"1")
+    try:
+        await refresh_event_card(kind, event_record(kind, group_id))
+    except discord.HTTPException:
+        logging.warning("Sprachkanal in Gruppenkarte noch nicht angezeigt")
+    return voice.id
+
+
+def scheduled_voice_details(channel_id):
+    return db.execute(
+        "SELECT kind,group_id,voice_seen,voice_created FROM event_meta "
+        "WHERE voice_id=?", (channel_id,)).fetchone()
+
+
+async def process_scheduled_event(kind, group_id):
+    group = event_record(kind,group_id)
+    if not group:
+        return
+    status = event_status(kind, group)
+    now = int(datetime.now(timezone.utc).timestamp())
+    start = event_start(kind, group)
+    metadata = event_meta(kind, group_id)
+    if status == "open":
+        if now >= start + EVENT_RETIRE_SECONDS:
+            table = "planned_groups" if kind == "dungeon" else "level_groups"
+            db.execute(
+                f"UPDATE {table} SET status='expired' WHERE id=? AND guild=?",
+                (group_id, GUILD_ID))
+            db.execute(
+                "UPDATE event_meta SET expired_at=? WHERE kind=? AND group_id=?",
+                (now, kind, group_id))
+            db.commit()
+            try:
+                await refresh_event_card(kind, event_record(kind,group_id))
+            except (discord.HTTPException, ValueError):
+                logging.warning("Abgelaufene Gruppenkarte %s/%s konnte nicht markiert werden",kind,group_id)
+            await refresh_event_dashboard(kind)
+            return
+        if now >= start-EVENT_REMIND_SECONDS and now < start:
+            voice_id = metadata[4]
+            if event_is_full(kind,group_id):
+                if not voice_id or not isinstance(bot.get_channel(voice_id),discord.VoiceChannel):
+                    voice_id = await create_scheduled_voice(kind,group)
+            for user_id in event_participants(kind,group_id):
+                # Pro Spieler nur eine Erinnerung (auch nach Neustart).
+                cursor = db.execute(
+                    "INSERT OR IGNORE INTO event_reminder_deliveries(kind,group_id,user_id) "
+                    "VALUES (?,?,?)", (kind,group_id,user_id))
+                db.commit()
+                if cursor.rowcount:
+                    background(event_dm(
+                        user_id, "🔔 Dein Abenteuer startet in Kürze!",
+                        f"**{discord.utils.escape_markdown(event_title(kind,group))}** "
+                        "beginnt um **<t:"+str(start)+":t>**. "
+                        "Dein Corpsegrinder-Treffpunkt ist bereit!",
+                        kind, group, voice_id))
+        elif now >= start:
+            # Nie nach dem Start eine verspätete Erinnerung senden.
+            db.execute(
+                "UPDATE event_meta SET reminder_sent=1 WHERE kind=? AND group_id=?",
+                (kind,group_id))
+            db.commit()
+    elif status in ("expired","completed","cancelled"):
+        done_at = metadata[7]
+        if done_at is None:
+            db.execute(
+                "UPDATE event_meta SET expired_at=? WHERE kind=? AND group_id=?",
+                (now,kind,group_id))
+            db.commit()
+            done_at=now
+        if now < done_at+EVENT_DELETE_DELAY:
+            return
+        channel_id = event_channel_id(kind,group)
+        message_id = event_message_id(kind,group)
+        if channel_id and message_id:
+            try:
+                target = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+                post = await target.fetch_message(message_id)
+                if post.author.id == bot.user.id:
+                    await post.delete(reason="Corpsegrinder Gruppenkarte abgelaufen")
+            except discord.NotFound:
+                pass
+            except discord.HTTPException:
+                logging.exception("Kann abgelaufene Karte %s/%s nicht löschen",kind,group_id)
+                return
+        table = "planned_groups" if kind == "dungeon" else "level_groups"
+        db.execute(f"UPDATE {table} SET status='archived' WHERE id=? AND guild=?",
+                   (group_id,GUILD_ID))
+        db.execute(
+            "UPDATE event_meta SET archived_at=? WHERE kind=? AND group_id=?",
+            (now,kind,group_id))
+        db.commit()
+        await refresh_event_dashboard(kind)
+
+
+async def event_scheduler_loop():
+    # Neustart-sicher: Ereigniszustand, Erinnerung und Kanal werden in SQLite gespeichert.
+    while not bot.is_closed():
+        try:
+            now = int(datetime.now(timezone.utc).timestamp())
+            for kind,table in (("dungeon","planned_groups"),("level","level_groups")):
+                time_col = "start_utc"
+                rows = db.execute(
+                    f"SELECT id FROM {table} WHERE guild=? "
+                    "AND status IN ('open','expired','cancelled','completed') "
+                    f"AND ({time_col}<=? OR status!='open') ORDER BY id",
+                    (GUILD_ID,now+EVENT_REMIND_SECONDS)).fetchall()
+                for (group_id,) in rows:
+                    try:
+                        await process_scheduled_event(kind, group_id)
+                    except (discord.HTTPException, ValueError):
+                        logging.exception("Event-Timer %s/%s gescheitert",kind,group_id)
+            # Erst genutzte Sprachräume sofort nach Leerwerden löschen;
+            # bis dahin noch ungenutzte Räume erst nach Schonfrist.
+            rows = db.execute(
+                "SELECT voice_id FROM event_meta WHERE voice_id IS NOT NULL").fetchall()
+            for (voice_id,) in rows:
+                target = bot.get_channel(voice_id)
+                if target is None:
+                    forget_temp_channel(voice_id)
+                    db.execute("UPDATE event_meta SET voice_id=NULL WHERE voice_id=?", (voice_id,))
+                    db.commit()
+                elif target.members:
+                    db.execute("UPDATE event_meta SET voice_seen=1 WHERE voice_id=?",
+                               (voice_id,))
+                    db.commit()
+                else:
+                    background(delete_temp_if_empty(voice_id, delay=0))
+        except Exception:
+            logging.exception("Corpsegrinder Zeitsteuerung: unerwarteter Fehler")
+        await asyncio.sleep(30)
+
+
+def initialize_scheduler_meta():
+    for kind,table in (("dungeon","planned_groups"),("level","level_groups")):
+        rows = db.execute(
+            f"SELECT id FROM {table} WHERE guild=? AND status='open'",
+            (GUILD_ID,)).fetchall()
+        for (group_id,) in rows:
+            if event_meta(kind,group_id,create=False) is None:
+                # Frühere, schon volle Gruppen beim Neustart nicht als neu 'voll' melden.
+                db.execute(
+                    "INSERT OR IGNORE INTO event_meta(kind,group_id,full_prev) "
+                    "VALUES (?,?,?)",
+                    (kind,group_id,int(event_is_full(kind,group_id))))
+    db.commit()
+
+
+async def remove_old_guild_category_once():
+    """Löscht NUR die explizit abgewählte alte WoW-Gilden-Kategorie."""
+    if setting("guild_area_removed_112") == "1":
+        return
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    matching = [cat for cat in guild.categories
+                if cat.name.upper().strip().endswith("WOW FOREVER | GILDE")]
+    if not matching:
+        save_setting("guild_area_removed_112","1")
+        return
+    allowed_names = {"gildenchat","gilden-raids","offiziers-chat"}
+    for category in matching:
+        present = {x.name.casefold() for x in category.channels}
+        if not present.issubset(allowed_names):
+            logging.warning(
+                "Gilden-Kategorie %s enthält fremde Kanäle: %s – keine Löschung",
+                category.name, present-allowed_names)
+            return
+        # Vorhandene Chatnachrichten werden durch Discord-Kanallöschung unwiederbringlich entfernt.
+        try:
+            for ch in list(category.channels):
+                await ch.delete(reason="Corpsegrinder: alter Gildenbereich auf Nutzerwunsch entfernt")
+            await category.delete(reason="Corpsegrinder: gemeinsamer Server ohne Gildentrennung")
+        except discord.HTTPException:
+            logging.exception("Alte Gildenkategorie konnte nicht vollständig entfernt werden")
+            return
+    save_setting("guild_area_removed_112","1")
+
+
+@bot.tree.command(name="erinnerungen",
+                  description="Private Gruppen-Erinnerungen und Vollmeldungen ein-/ausschalten",
+                  guild=SERVER)
+async def toggle_personal_reminders(interaction: discord.Interaction, aktiv: bool):
+    if not allowed(interaction):
+        return await answer(interaction, "Nur auf Corpsegrinder.")
+    db.execute(
+        "INSERT OR REPLACE INTO notification_preferences(user_id,enabled) VALUES (?,?)",
+        (interaction.user.id,int(aktiv)))
+    db.commit()
+    await answer(interaction,
+                 "🔔 Deine Gruppen-Erinnerungen und Vollmeldungen sind jetzt "
+                 + ("**aktiviert**." if aktiv else "**deaktiviert**."))
 
 
 
