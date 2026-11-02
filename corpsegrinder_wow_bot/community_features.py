@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -68,12 +68,11 @@ def update_embed():
     embed = discord.Embed(
         title="🛠️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**NEU: Bot-Updates direkt in Discord!**\n\n"
-            "Admins können mit **/bot_update** nach neuen Versionen suchen und sie "
-            "nach Bestätigung installieren – ohne Home-Assistant-App-Update.\n\n"
-            "Bot-Code wird nur aus dem festgelegten GitHub-Repository geladen, "
-            "per SHA-256 geprüft und beim Startfehler automatisch zurückgesetzt.\n\n"
-            "Die Rollen- und Kanalbefehle bleiben erhalten."
+            "**Testversion 1.0.7: Direkte Discord-Updates**\n\n"
+            "Diese Version dient dem ersten Praxistest unseres neuen Update-Systems. "
+            "Admins verwenden dafür **/bot_update** in Discord; der Bot soll dafür "
+            "nicht mehr als Home-Assistant-App aktualisiert werden müssen.\n\n"
+            "Die bestehenden Rollen, Kanäle, Charaktere und Gruppen bleiben erhalten."
         ),
         colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
