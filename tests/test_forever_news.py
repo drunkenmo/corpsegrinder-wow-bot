@@ -1,6 +1,6 @@
 """Offline tests for official Blizzard Forever news (no bot credentials)."""
 import ast
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import email.utils
 import html
@@ -27,7 +27,7 @@ def load_helpers():
     env = {
         "html": html, "HTMLParser": HTMLParser,
         "re": re, "urljoin": urljoin, "urlparse": urlparse,
-        "email": email, "datetime": datetime, "timezone": timezone,
+        "email": email, "datetime": datetime, "timezone": timezone, "timedelta": timedelta,
         "FOREVER_NEWS_HOSTS": frozenset({
             "worldofwarcraft.blizzard.com", "news.blizzard.com"
         })
