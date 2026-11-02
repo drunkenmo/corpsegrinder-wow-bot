@@ -2952,4 +2952,424 @@ async def toggle_personal_reminders(interaction: discord.Interaction, aktiv: boo
 
 
 
+
+# --- Blizzard Forever News – nur offizielle, aktuelle Meldungen --------------
+# News werden nur nach bestätigtem Blizzard-Veröffentlichungsdatum eingetragen.
+# Jede Artikel-ID ist dauerhaft in SQLite gespeichert (keine Doppelpostings).
+FOREVER_NEWS_INDEXES = (
+    "https://worldofwarcraft.blizzard.com/de-de/news",
+    "https://news.blizzard.com/de-de/feed/world-of-warcraft",
+)
+FOREVER_NEWS_HOSTS = frozenset((
+    "worldofwarcraft.blizzard.com", "news.blizzard.com"))
+FOREVER_NEWS_PERIOD = 30 * 60
+FOREVER_NEWS_BACKFILL = 48 * 60 * 60
+FOREVER_NEWS_MAX_DOWNLOAD = 2_000_000
+FOREVER_NEWS_MAX_ARTICLES = 35
+FOREVER_NEWS_MARKER = "corpsegrinder:forever-news"
+_forever_news_lock = asyncio.Lock()
+
+
+def clean_official_text(value, limit=400):
+    value = html.unescape(re.sub(r"<[^>]*>", " ", value or ""))
+    return re.sub(r"\s+", " ", value).strip()[:limit]
+
+
+def official_article_link(raw, base):
+    """Accept only German Blizzard news/article URLs with numeric article IDs."""
+    if not isinstance(raw, str):
+        return None
+    parsed = urlparse(urljoin(base, html.unescape(raw)))
+    if parsed.scheme != "https" or parsed.hostname not in FOREVER_NEWS_HOSTS:
+        return None
+    match = re.match(r"^/de-de/(?:news|article)/(\d{6,10})(?:/|$)",
+                     parsed.path, re.IGNORECASE)
+    if not match:
+        return None
+    return (int(match.group(1)),
+            f"https://{parsed.hostname}{parsed.path.rstrip('/')}")
+
+
+def official_forever_title(title):
+    """Article must primarily discuss Forever, not a mixed WoW news roundup."""
+    cleaned = clean_official_text(title, 240).casefold()
+    return (("forever" in cleaned) and
+            not any(term in cleaned for term in (
+                "midnight", "burning crusade", "diese woche in wow",
+                "this week in wow", "blizzcon 2026-neuigkeiten",
+                "the last titan", "zul'aman", "zul’aman")))
+
+
+class ForeverNewsIndexParser(HTMLParser):
+    """Collect link text (including headings nested inside anchors)."""
+    def __init__(self, base):
+        super().__init__(convert_charrefs=True)
+        self.base = base
+        self.anchor = None
+        self.results = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "a":
+            attrs = dict(attrs)
+            link = official_article_link(attrs.get("href"), self.base)
+            self.anchor = (link, []) if link else None
+
+    def handle_data(self, data):
+        if self.anchor is not None:
+            self.anchor[1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self.anchor is not None:
+            link, parts = self.anchor
+            self.anchor = None
+            title = clean_official_text(" ".join(parts), 240)
+            if link and official_forever_title(title):
+                self.results.append((link[0], link[1], title))
+
+
+class ForeverArticleParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.meta = {}
+        self.dates = []
+        self.in_h1 = False
+        self.headline = []
+        self.in_time = False
+        self.times = []
+
+    def handle_starttag(self, tag, attrs):
+        props = dict(attrs)
+        if tag.lower() == "meta":
+            key = (props.get("property") or props.get("name") or "").casefold()
+            if key:
+                self.meta[key] = props.get("content", "")
+        elif tag.lower() == "time":
+            self.in_time = True
+            if props.get("datetime"):
+                self.dates.append(props["datetime"])
+        elif tag.lower() == "h1":
+            self.in_h1 = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "h1":
+            self.in_h1 = False
+        elif tag.lower() == "time":
+            self.in_time = False
+
+    def handle_data(self, data):
+        if self.in_h1:
+            self.headline.append(data)
+        if self.in_time:
+            self.times.append(data)
+
+
+def parse_blizzard_publication_date(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    val = html.unescape(value.strip())
+    try:
+        dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        if dt.tzinfo:
+            return int(dt.timestamp())
+    except ValueError:
+        pass
+    try:
+        dt = email.utils.parsedate_to_datetime(val)
+        if dt.tzinfo:
+            return int(dt.timestamp())
+    except (ValueError, TypeError, IndexError):
+        pass
+    months = {
+        "januar": 1, "februar": 2, "märz": 3, "april": 4,
+        "mai": 5, "juni": 6, "juli": 7, "august": 8,
+        "september": 9, "oktober": 10, "november": 11, "dezember": 12,
+    }
+    match = re.fullmatch(
+        r"(\d{1,2})\.?\s+([a-zA-ZäöüÄÖÜß]+)\s+(\d{4})"
+        r"(?:\s+(?:um\s+)?(\d{1,2}):(\d{2})\s*(GMT|UTC|MEZ|MESZ)?)?",
+        val, flags=re.IGNORECASE)
+    if match:
+        month = months.get(match.group(2).casefold())
+        if month:
+            suffix = (match.group(6) or "GMT").upper()
+            tz = timezone(timedelta(hours=(
+                2 if suffix == "MESZ" else 1 if suffix == "MEZ" else 0)))
+            try:
+                return int(datetime(
+                    int(match.group(3)), month, int(match.group(1)),
+                    int(match.group(4) or 0), int(match.group(5) or 0),
+                    tzinfo=tz).timestamp())
+            except ValueError:
+                return None
+    return None
+
+
+def parse_blizzard_article(page, link_title):
+    """Trust explicit publication fields; never infer age from crawl time."""
+    parser = ForeverArticleParser()
+    parser.feed(page)
+    title = clean_official_text(
+        " ".join(parser.headline) or parser.meta.get("og:title")
+        or link_title, 240)
+    description = clean_official_text(
+        parser.meta.get("og:description")
+        or parser.meta.get("description") or "", 320)
+    if not official_forever_title(title):
+        return None
+
+    dates = [
+        parser.meta.get(key, "") for key in (
+            "article:published_time", "article:published",
+            "datepublished", "publication_date", "publishdate",
+            "date", "datecreated")]
+    dates += parser.dates + parser.times
+    # JSON-LD fields from Blizzard page metadata. Article body dates
+    # (e.g. launch dates) are explicitly not used as publication dates.
+    for match in re.finditer(
+            r'''(?i)["'](?:datePublished|publishedAt|publicationDate|published_time)["']\s*:\s*["']([^"'<>]{8,70})["']''',
+            page):
+        dates.append(match.group(1))
+    when = next((dt for val in dates
+                 if (dt := parse_blizzard_publication_date(val)) is not None),
+                None)
+    if when is None:
+        # Blizzard's human-readable author/byline (not arbitrary body dates).
+        head = clean_official_text(page[:150_000], 120_000)
+        match = re.search(
+            r"von\s+Blizzard Entertainment\s+am\s+"
+            r"(\d{1,2}\.?\s+[A-Za-zäöüÄÖÜß]+\s+\d{4}\s+"
+            r"um\s+\d{1,2}:\d{2}\s*(?:GMT|UTC|MEZ|MESZ))",
+            head, re.IGNORECASE)
+        if match:
+            when = parse_blizzard_publication_date(match.group(1))
+    return (title, description, when) if when else None
+
+
+def read_official_blizzard_page(url):
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in FOREVER_NEWS_HOSTS:
+        raise ValueError("Blizzard-URL außerhalb der erlaubten Domains.")
+    request = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; CorpsegrinderForeverNews/1.0; Discord bot)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "de-DE,de;q=0.9",
+    })
+    with urlopen(request, timeout=20) as response:
+        effective = urlparse(response.geturl())
+        if effective.scheme != "https" or effective.hostname not in FOREVER_NEWS_HOSTS:
+            raise ValueError("Unerwartete Weiterleitung außerhalb von Blizzard.")
+        data = response.read(FOREVER_NEWS_MAX_DOWNLOAD + 1)
+        if len(data) > FOREVER_NEWS_MAX_DOWNLOAD:
+            raise ValueError("Blizzard-Antwort zu groß.")
+        return data.decode("utf-8", errors="replace")
+
+
+def gather_official_forever_articles():
+    """Runs in a worker thread; returns only independently dated recent posts."""
+    discovered = {}
+    good_indexes = 0
+    for index in FOREVER_NEWS_INDEXES:
+        try:
+            page = read_official_blizzard_page(index)
+            parser = ForeverNewsIndexParser(index)
+            parser.feed(page)
+            for article_id, article_url, title in parser.results:
+                discovered.setdefault(article_id, (article_url, title))
+            good_indexes += 1
+        except (OSError, ValueError) as exc:
+            logging.warning("Offizielle Blizzard-News-Seite %s nicht abrufbar: %s",
+                            index, exc)
+    if good_indexes == 0:
+        raise RuntimeError("Keine offizielle Blizzard-Nachrichtenseite erreichbar.")
+
+    now = int(datetime.now(timezone.utc).timestamp())
+    cutoff = now - FOREVER_NEWS_BACKFILL
+    results = []
+    for article_id, (url, title) in list(discovered.items())[:FOREVER_NEWS_MAX_ARTICLES]:
+        try:
+            page = read_official_blizzard_page(url)
+            parsed = parse_blizzard_article(page, title)
+            if not parsed:
+                continue
+            verified_title, description, timestamp = parsed
+            if cutoff <= timestamp <= now + 60:
+                results.append((timestamp, article_id, verified_title,
+                                description, url))
+        except (OSError, ValueError):
+            logging.warning("Blizzard-Artikel %s gerade nicht lesbar", article_id)
+    return sorted(results)
+
+
+async def ensure_forever_news_channel(guild):
+    """Place #forever-news directly below #ankündigungen, above #rollenwahl."""
+    announcements = channel(guild, "ankündigungen")
+    role_channel = channel(guild, "rollenwahl")
+    category = (announcements.category if announcements else
+                role_channel.category if role_channel else None)
+    if category is None:
+        logging.warning("Forever-News: Start-Kategorie fehlt, kein Kanal erstellt.")
+        return None
+    target = channel(guild, "forever-news")
+    if target is None:
+        bot_member = guild.me or guild.get_member(bot.user.id)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(send_messages=False),
+        }
+        if bot_member is not None:
+            overwrites[bot_member] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True,
+                embed_links=True, read_message_history=True)
+        target = await guild.create_text_channel(
+            "forever-news", category=category,
+            overwrites=overwrites,
+            topic="📰 Offizielle Blizzard-News zu World of Warcraft: Forever "
+                  "– automatische Meldungen alle 30 Minuten.",
+            reason="Corpsegrinder: eigener Blizzard-Forever-News-Kanal")
+    if target.category_id == category.id and announcements and (
+            target.position != announcements.position + 1):
+        try:
+            await target.edit(
+                position=announcements.position + 1,
+                reason="Forever-News direkt unter #ankündigungen einsortieren")
+        except discord.Forbidden:
+            logging.warning("Forever-News: Kanalposition nicht änderbar.")
+    if setting("forever_news_intro_id") is None:
+        embed = discord.Embed(
+            title="📰 CORPSEGRINDER · FOREVER NEWS",
+            description=(
+                "**Für die Horde!** ⚔️\n\n"
+                "Hier postet der WoW Forever Bot ausschließlich **offizielle "
+                "Blizzard-Meldungen zu World of Warcraft: Forever**.\n\n"
+                "🔎 **Automatische Prüfung:** alle 30 Minuten\n"
+                "📅 **Start:** passende Artikel der letzten 48 Stunden\n"
+                "🔗 **Quelle:** Blizzard Entertainment\n\n"
+                "Keine allgemeinen Retail-, Midnight- oder Classic-News. "
+                "Gibt es keine neuen Forever-Artikel, bleibt der Kanal ruhig."),
+            colour=discord.Colour.dark_red())
+        embed.set_footer(text=FOREVER_NEWS_MARKER)
+        existing = None
+        try:
+            async for post in target.history(limit=40):
+                if (post.author.id == bot.user.id and
+                        any(FOREVER_NEWS_MARKER in (e.footer.text or "")
+                            for e in post.embeds)):
+                    existing = post
+                    break
+        except discord.HTTPException:
+            pass
+        if existing is None:
+            existing = await target.send(
+                embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        save_setting("forever_news_intro_id", existing.id)
+        if not existing.pinned:
+            try:
+                await existing.pin(reason="Corpsegrinder: Forever-News Begrüßung")
+            except discord.HTTPException:
+                logging.warning("Forever-News-Intro konnte nicht angeheftet werden.")
+    return target
+
+
+def forever_news_embed(row):
+    timestamp, article_id, title, summary, url = row
+    embed = discord.Embed(
+        title="📰 " + title[:250],
+        description=(summary or
+                     "Neuer offizieller Beitrag zu World of Warcraft: Forever. "
+                     "Alle Details stehen bei Blizzard.")[:400],
+        colour=discord.Colour.from_rgb(155, 48, 28),
+        url=url)
+    embed.add_field(
+        name="📅 Von Blizzard veröffentlicht",
+        value=f"<t:{timestamp}:F>", inline=False)
+    embed.add_field(
+        name="⚔️ Originalbeitrag",
+        value=f"[Jetzt bei Blizzard lesen]({url})",
+        inline=False)
+    embed.set_footer(text=f"Blizzard Entertainment · Forever · Artikel {article_id}")
+    return embed
+
+
+async def check_forever_news():
+    """One shared check for manual trigger + 30-minute worker."""
+    async with _forever_news_lock:
+        guild = bot.get_guild(GUILD_ID)
+        if guild is None:
+            return (0, "Discord-Server gerade nicht verfügbar")
+        target = await ensure_forever_news_channel(guild)
+        if target is None:
+            return (0, "Start-Kategorie nicht gefunden")
+        rows = await asyncio.to_thread(gather_official_forever_articles)
+        posted = 0
+        for row in rows:
+            _, article_id, title, _, url = row
+            if db.execute(
+                    "SELECT 1 FROM blizzard_news_posts WHERE article_id=?",
+                    (article_id,)).fetchone():
+                continue
+            message = await target.send(
+                embed=forever_news_embed(row),
+                allowed_mentions=discord.AllowedMentions.none())
+            db.execute(
+                "INSERT OR IGNORE INTO blizzard_news_posts "
+                "(article_id,published_utc,discord_message_id,url,title) "
+                "VALUES (?,?,?,?,?)",
+                (article_id, row[0], message.id, url, title))
+            db.commit()
+            posted += 1
+        save_setting("forever_news_checked", int(
+            datetime.now(timezone.utc).timestamp()))
+        save_setting("forever_news_last_result",
+                     f"{posted} neue Forever-Meldung(en) aus den letzten 48 Stunden")
+        return (posted, "OK")
+
+
+async def forever_news_worker():
+    # Runs only after bot readiness; the first attempt also backfills 48 h.
+    while not bot.is_closed():
+        try:
+            await check_forever_news()
+        except Exception:
+            logging.exception("Forever-News: automatischer Blizzard-Check fehlgeschlagen")
+            save_setting("forever_news_last_result",
+                         "Fehler beim Abrufen oder Veröffentlichen")
+        await asyncio.sleep(FOREVER_NEWS_PERIOD)
+
+
+@bot.tree.command(
+    name="forever_news_pruefen",
+    description="Offizielle Forever-News jetzt prüfen (Admin)",
+    guild=SERVER)
+async def manually_check_forever_news(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur für Administratoren.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        count, result = await check_forever_news()
+        await interaction.followup.send(
+            f"📰 **Forever-News geprüft.**\n"
+            f"Neue Artikel (letzte 48 Stunden): **{count}**\nStatus: {result}\n"
+            f"Ziel: **#forever-news**", ephemeral=True)
+    except Exception:
+        logging.exception("Manuelle Forever-News-Prüfung fehlgeschlagen")
+        await interaction.followup.send(
+            "Die Blizzard-News konnten gerade nicht geprüft werden. "
+            "Bitte Home-Assistant-Bot-Log ansehen.", ephemeral=True)
+
+
+@bot.tree.command(
+    name="forever_news_status",
+    description="Status des automatischen Blizzard-Forever-News-Abrufs",
+    guild=SERVER)
+async def forever_news_status(interaction: discord.Interaction):
+    if not allowed(interaction):
+        return await answer(interaction, "Nur auf Corpsegrinder verfügbar.")
+    total = db.execute("SELECT COUNT(*) FROM blizzard_news_posts").fetchone()[0]
+    last = setting("forever_news_checked")
+    status = setting("forever_news_last_result") or "Noch kein erfolgreicher Abruf"
+    await answer(interaction,
+                 f"📰 **Forever-News**\nAutomatisch alle **30 Minuten**\n"
+                 f"Bereits gepostete Blizzard-Artikel: **{total}**\n"
+                 + (f"Letzter erfolgreicher Check: <t:{last}:F>\n"
+                    if last else "") + f"Status: {status}")
+
 bot.run(TOKEN, log_handler=None)
