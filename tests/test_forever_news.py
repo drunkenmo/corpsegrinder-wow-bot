@@ -15,7 +15,8 @@ TREE = ast.parse(SOURCE)
 NAMES = {
     "clean_official_text", "official_article_link", "official_forever_title",
     "ForeverNewsIndexParser", "ForeverArticleParser",
-    "parse_blizzard_publication_date", "parse_blizzard_article"
+    "parse_blizzard_publication_date", "parse_blizzard_article",
+    "gather_official_forever_articles"
 }
 
 
@@ -105,6 +106,34 @@ class ForeverNewsTests(unittest.TestCase):
         self.assertIsNotNone(parse("Mon, 02 Nov 2026 19:00:00 GMT"))
         self.assertIsNotNone(parse("2. November 2026 um 19:00 GMT"))
         self.assertIsNone(parse("5. November Spielstart"))
+
+    def test_embedded_json_news_links_recovered_and_dated(self):
+        now = datetime.now(timezone.utc)
+        stamp = now.isoformat()
+        index = """
+          <script>
+          {"article":"/de-de/news/24315820/forever-launch",
+           "title":"World of Warcraft: Forever wird veröffentlicht"}
+          </script>
+        """
+        article = f"""
+          <html><head>
+          <meta property="article:published_time" content="{stamp}">
+          <meta property="og:title" content="World of Warcraft: Forever wird veröffentlicht">
+          </head><body><h1>World of Warcraft: Forever wird veröffentlicht</h1></body></html>
+        """
+        env = self.e
+        env["FOREVER_NEWS_INDEXES"] = (
+            "https://worldofwarcraft.blizzard.com/de-de/news",)
+        env["FOREVER_NEWS_BACKFILL"] = 48 * 3600
+        env["FOREVER_NEWS_MAX_ARTICLES"] = 15
+        env["logging"] = __import__("logging")
+        env["read_official_blizzard_page"] = lambda url: (
+            index if url.endswith("/de-de/news") else article)
+        rows = env["gather_official_forever_articles"]()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][1], 24315820)
+        self.assertEqual(env["gather_official_forever_articles"]({24315820}), [])
 
     def test_channel_and_checks_are_in_bootstrap(self):
         self.assertIn('("forever-news", "text")', SOURCE)
