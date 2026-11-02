@@ -312,12 +312,32 @@ async def cleanup_leftover_voice_channels():
 async def on_voice_state_update(member, before, after):
     if member.guild.id != GUILD_ID:
         return
-    if after.channel is not None and after.channel != before.channel and after.channel.name in (
-            "➕ PvE-Gruppe erstellen", "➕ PvP-Gruppe erstellen"):
+    creation_names = ("➕ PvE-Gruppe erstellen", "➕ PvP-Gruppe erstellen")
+    if (after.channel is not None and after.channel != before.channel
+            and after.channel.name in creation_names):
         kind = "PvE" if "PvE" in after.channel.name else "PvP"
-        parent = after.channel.category
-        if parent is None:
-            logging.warning("Gruppenerstellungskanal hat keine Kategorie")
+        source = after.channel
+        parent = source.category
+        bot_member = member.guild.me or member.guild.get_member(bot.user.id)
+        if parent is None or bot_member is None:
+            logging.warning("Temporäre Gruppe: Kategorie oder Bot-Mitglied nicht gefunden")
+            return
+        # Ohne 'Mitglieder verschieben' darf Discord den Ersteller nicht bewegen.
+        # Dann gar keinen verwaisten Raum erzeugen.
+        perms = source.permissions_for(bot_member)
+        if not perms.manage_channels or not perms.move_members:
+            logging.error(
+                "Corpsegrinder: Bot benötigt in %s die Rechte 'Kanäle verwalten' "
+                "und 'Mitglieder verschieben' für das automatische Beitreten.",
+                source.name)
+            try:
+                await member.send(
+                    "⚠️ Deine " + kind + "-Gruppe wurde noch nicht erstellt: "
+                    "Dem WoW Forever Bot fehlen im Discord-Server die Berechtigungen "
+                    "**Kanäle verwalten** oder **Mitglieder verschieben**. "
+                    "Bitte einen Administrator bitten, sie der Bot-Rolle zu geben.")
+            except discord.HTTPException:
+                pass
             return
         new_channel = None
         try:
@@ -326,14 +346,51 @@ async def on_voice_state_update(member, before, after):
                 user_limit=5 if kind == "PvE" else 10,
                 reason="Corpsegrinder: temporäre " + kind + "-Gruppe")
             save_setting("temp_" + str(new_channel.id), "1")
-            await member.move_to(new_channel, reason="Temporäre " + kind + "-Gruppe")
+            # Sichtbarkeit und Verbindung des Erstellers sind Voraussetzung
+            # für den sofortigen automatischen Wechsel.
+            user_perms = new_channel.permissions_for(member)
+            if not (user_perms.view_channel and user_perms.connect):
+                await new_channel.set_permissions(
+                    member, view_channel=True, connect=True,
+                    reason="Ersteller kann seinen temporären Gruppenraum betreten")
+            target_perms = new_channel.permissions_for(bot_member)
+            if not target_perms.move_members:
+                logging.error("Bot darf im neuen Raum %s keine Mitglieder verschieben", new_channel.id)
+                background(delete_temp_if_empty(new_channel.id, delay=7))
+                try:
+                    await member.send(
+                        "⚠️ Der neue Gruppenkanal erlaubt dem Bot kein **Mitglieder verschieben**. "
+                        "Bitte einen Administrator um Freigabe bitten.")
+                except discord.HTTPException:
+                    pass
+                return
+            # Voice-State und API-Update können kurz zeitversetzt eintreffen.
+            for attempt in range(2):
+                try:
+                    await member.move_to(
+                        new_channel, reason="Ersteller automatisch in " + kind + "-Gruppe")
+                    break
+                except discord.Forbidden:
+                    raise
+                except discord.HTTPException:
+                    if attempt:
+                        raise
+                    await asyncio.sleep(0.6)
+            logging.info("Ersteller %s in neue Gruppe %s verschoben", member.id, new_channel.id)
         except discord.HTTPException:
             logging.exception(
-                "Temporären Sprachkanal nicht erstellt/Spieler nicht verschoben. "
-                "Berechtigungen 'Kanäle verwalten' und 'Mitglieder verschieben' prüfen.")
-            # Ein erzeugter Raum ohne Spieler darf nicht liegenbleiben.
+                "Automatisches Erstellen/Beitreten fehlgeschlagen. "
+                "Bot benötigt 'Mitglieder verschieben', 'Kanäle verwalten' "
+                "und Zugang zur PvE-/PvP-Kategorie.")
             if new_channel is not None:
-                background(delete_temp_if_empty(new_channel.id, delay=5))
+                background(delete_temp_if_empty(new_channel.id, delay=7))
+            try:
+                await member.send(
+                    "⚠️ Die " + kind + "-Gruppe konnte nicht automatisch betreten werden. "
+                    "Bitte prüfe mit einem Admin die Bot-Berechtigung "
+                    "**Mitglieder verschieben** im Server und im Voice-Kanal.")
+            except discord.HTTPException:
+                pass
     if before.channel is not None and setting("temp_" + str(before.channel.id)) == "1":
         background(delete_temp_if_empty(before.channel.id, delay=3))
 
