@@ -53,3 +53,17 @@ Achtung: Unicode-Emojis im Rollennamen erscheinen im Rollenprofil; ein echtes Ic
 3. In Discord mit `/bot_update` prüfen und installieren. **Keine ZIP-Datei und kein `ha store reload` nötig.**
 
 Es gibt **keine automatische Selbstaktualisierung ohne Admin-Bestätigung**. Die vorherige Version bleibt im persistierenden App-Speicher für einen Rückfall erhalten.
+
+## Geplante Instanzgruppen (ab Bot-Version 1.0.9)
+
+**Neue Slash-Befehle:**
+
+- `/gruppe_planen instanz:Flammenschlund tag:übermorgen uhrzeit:20:00 rolle:Tank` erstellt eine öffentliche Gruppe in `#pve-gruppensuche`.
+- `/termine` zeigt die nächsten geplanten Gruppen mit direktem Link.
+- `/termin_verschieben` ändert Datum/Uhrzeit ohne die vorhandenen Spieler auszutragen.
+- `/termin_absagen` sagt einen Termin ab (nur Ersteller oder Server-Admin).
+
+Der Organisator ist bereits mit der gewählten Rolle angemeldet. Der Button-Terminplaner bietet **1 Tank, 1 Heiler und 3 DD**. Jeder Teilnehmer kann mit einem Klick dazukommen, die Rolle wechseln oder sich abmelden. Der Bot aktualisiert die übersichtliche Gruppenkarte sofort und verhindert Doppelanmeldungen sowie zu viele Spieler pro Rolle. Andere Spielkanäle bleiben unberührt.
+
+Das Feld **tag** akzeptiert **heute**, **morgen**, **übermorgen** oder **TT.MM.JJJJ**. Uhrzeit ist deutsche Ortszeit (MEZ/MESZ). Alle Daten bleiben in der Home-Assistant-App-Datenbank `/data/corpsegrinder.sqlite` und werden auch bei Bot-Updates beibehalten. Die bisherigen spontanen Gruppenfinder-Befehle bleiben verfügbar.
+
