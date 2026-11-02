@@ -437,11 +437,11 @@ async def role_design_preview(i: discord.Interaction):
             changes.append(plain_name + " → " + styled_name)
     icons = "möglich" if "ROLE_ICONS" in i.guild.features else "nicht freigeschaltet (Server-Boost-Level 2)"
     await answer(i,
-        "**Vorschau – keine Änderung**\\n"
-        + ("\\n".join(changes) if changes else "Keine umzubenennenden Rollen.")
-        + ("\\n**Doppelte Namen bitte prüfen:** " + ", ".join(collisions) if collisions else "")
-        + "\\n**Discord-Rollen-Icons:** " + icons
-        + "\\n\\nMit /rollen_design_anwenden bestätigst du das Umbenennen und Färben dieser vorhandenen Rollen.")
+        "**Vorschau – keine Änderung**\n"
+        + ("\n".join(changes) if changes else "Keine umzubenennenden Rollen.")
+        + ("\n**Doppelte Namen bitte prüfen:** " + ", ".join(collisions) if collisions else "")
+        + "\n**Discord-Rollen-Icons:** " + icons
+        + "\n\nMit /rollen_design_anwenden bestätigst du das Umbenennen und Färben dieser vorhandenen Rollen.")
 
 
 @bot.tree.command(name="rollen_design_anwenden", description="WoW-Rollen umbenennen und einfärben (Admin)", guild=SERVER)
@@ -482,9 +482,9 @@ async def role_design_apply(i: discord.Interaction):
             skipped.append(plain_name + " (Berechtigung/Discord-Fehler)")
     await i.followup.send(
         "**Rollen aktualisiert:** " + str(len(changed)) +
-        "\\n" + (", ".join(changed) if changed else "Keine Änderung") +
-        ("\\n**Übersprungen:** " + ", ".join(skipped) if skipped else "") +
-        "\\nDie bestehenden Rollen-Zuweisungen bleiben erhalten.",
+        "\n" + (", ".join(changed) if changed else "Keine Änderung") +
+        ("\n**Übersprungen:** " + ", ".join(skipped) if skipped else "") +
+        "\nDie bestehenden Rollen-Zuweisungen bleiben erhalten.",
         ephemeral=True)
 
 
@@ -509,7 +509,7 @@ async def start_channels(i: discord.Interaction):
         except discord.HTTPException:
             logging.exception("Startkanal einrichten: %s", channel_name)
             findings.append("#" + channel_name + ": Berechtigungsfehler")
-    await i.followup.send("\\n".join(findings), ephemeral=True)
+    await i.followup.send("\n".join(findings), ephemeral=True)
 
 
 @bot.tree.command(name="ankuendigung", description="Schöne Nachricht in #ankündigungen veröffentlichen (Admin)", guild=SERVER)
@@ -541,7 +541,10 @@ async def announcement_lock(i: discord.Interaction):
         await target.set_permissions(
             i.guild.default_role, send_messages=False,
             reason="Ankündigungen nur für die Serverleitung")
-        await answer(i, "#ankündigungen ist für normale Mitglieder jetzt schreibgeschützt. Admins können weiterhin schreiben.")
+        await target.set_permissions(
+            i.guild.me, view_channel=True, send_messages=True,
+            reason="Bot darf weiterhin Mitteilungen veröffentlichen")
+        await answer(i, "#ankündigungen ist für normale Mitglieder jetzt schreibgeschützt. Admins und der Bot können weiterhin schreiben.")
     except discord.HTTPException:
         await answer(i, "Kanalberechtigungen konnten nicht geändert werden.")
 
