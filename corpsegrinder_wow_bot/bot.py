@@ -220,6 +220,7 @@ async def on_ready():
     if getattr(bot, "initialized", False):
         return
     bot.add_view(RoleView())
+    bot.add_view(PlannerDashboardView())
     for (group_id,) in db.execute("SELECT id FROM groups WHERE guild=?", (GUILD_ID,)).fetchall():
         bot.add_view(GroupView(group_id))
     # Alle noch aktiven Termin-Schaltflächen überleben Neustarts.
@@ -231,6 +232,7 @@ async def on_ready():
     bot.initialized = True
     mark_ready()
     background(apply_all_wow_role_styles_once())
+    background(ensure_planner_dashboard_on_start())
     await post_version_news_once()
 
 @bot.event
@@ -948,34 +950,15 @@ async def create_planned_group(
     except ValueError as exc:
         return await answer(i, str(exc))
     await i.response.defer(ephemeral=True, thinking=True)
-    # Die anlegende Person wird unmittelbar mit der gewählten Aufgabe eingetragen.
-    db.execute(
-        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
-        "VALUES (?,?,?,?,?,?)",
-        (GUILD_ID, i.user.id, instanz, when, display, notiz.strip()))
-    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
-    db.execute(
-        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
-        (group_id, i.user.id, rolle.value))
-    db.commit()
-    plan = load_plan(group_id)
     try:
-        message = await target.send(
-            embed=planned_embed(plan),
-            view=PlannedView(group_id),
-            allowed_mentions=discord.AllowedMentions.none())
-    except discord.HTTPException:
-        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
-        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
-        db.commit()
+        message, group_id = await create_plan_record_and_post(
+            i.guild, i.user.id, instanz, when, display, rolle.value, notiz.strip())
+    except (discord.HTTPException, ValueError):
         logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
         return await i.followup.send(
-            "Der Termin konnte nicht veröffentlicht werden. Bitte Bot-Rechte in #pve-gruppensuche prüfen.",
+            "Der Termin konnte nicht veröffentlicht werden. "
+            "Bitte Bot-Berechtigungen in #pve-gruppensuche prüfen.",
             ephemeral=True)
-    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
-               (target.id, message.id, group_id))
-    db.commit()
-    bot.add_view(PlannedView(group_id), message_id=message.id)
     await i.followup.send(
         f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
         f"am {display} erstellt. Du bist als **{rolle.value}** angemeldet.\n"
@@ -1067,6 +1050,472 @@ async def reschedule_planned_group(
         except discord.HTTPException:
             result = "Termin verschoben, aber Discord konnte die Karte noch nicht aktualisieren."
         await i.followup.send(result, ephemeral=True)
+
+
+
+
+
+async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
+    """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
+    target = channel(guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        raise ValueError("Kanal #pve-gruppensuche fehlt.")
+    if role not in PLAN_ROLES or not 2 <= len(instance) <= 90 or len(note) > 160:
+        raise ValueError("Instanz-/Rollen-Auswahl ungültig.")
+    if when < int(datetime.now(timezone.utc).timestamp()) + 30:
+        raise ValueError("Der Termin liegt in der Vergangenheit.")
+    db.execute(
+        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
+        "VALUES (?,?,?,?,?,?)",
+        (GUILD_ID, user_id, instance.strip(), when, display, note.strip()))
+    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.execute(
+        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
+        (group_id, user_id, role))
+    db.commit()
+    plan = load_plan(group_id)
+    try:
+        message = await target.send(
+            embed=planned_embed(plan),
+            view=PlannedView(group_id),
+            allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
+        db.commit()
+        raise
+    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
+               (target.id, message.id, group_id))
+    db.commit()
+    bot.add_view(PlannedView(group_id), message_id=message.id)
+    return message, group_id
+
+
+# --- Interaktiver Dungeon-Planer (1.0.10) ---------------------------------
+# Die Steuerzentrale ist eine dauerhafte Nachricht im #pve-gruppensuche-Kanal.
+# Der zwei-stufige Assistent ist privat und gilt nur für die auslösende Person.
+
+PLANNER_MARKER = "corpsegrinder:planner-dashboard"
+PLANNER_STORAGE_KEY = "planner_dashboard_message_v110"
+WEEKDAY_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def planner_dashboard_embed():
+    embed = discord.Embed(
+        title="🏰 CORPSEGRINDER · DUNGEON-PLANER",
+        description=(
+            "**Für die Horde!** Plane Instanzbesuche ohne umständliche Befehle. "
+            "Wähle über die Buttons eine Instanz, deine Aufgabe und den gewünschten Termin. "
+            "Der Assistent ist **nur für dich sichtbar**, bis du die Gruppe veröffentlichst."
+        ),
+        colour=discord.Colour.dark_red()
+    )
+    embed.add_field(
+        name="⚔️ 1. Dungeon planen",
+        value="Instanz & Rolle auswählen → Datum & Uhrzeit einstellen → veröffentlichen.",
+        inline=False)
+    embed.add_field(
+        name="🛡️ 2. Spieler finden",
+        value="**1 Tank · 1 Heiler · 3 DD** – alle tragen sich direkt auf der Gruppenkarte ein.",
+        inline=False)
+    embed.add_field(
+        name="📅 3. Überblick behalten",
+        value="Nächste Termine ansehen oder deine eigenen Termine aufrufen. "
+              "Gruppen können vom Organisator verschoben und abgesagt werden.",
+        inline=False)
+    embed.set_footer(text="Corpsegrinder • Dungeonplaner • " + PLANNER_MARKER)
+    return embed
+
+
+def wizard_state(user_id):
+    return {
+        "owner": user_id,
+        "instance": None,
+        "role": None,
+        "day": None,
+        "hour": "20",
+        "minute": "00",
+        "note": "",
+        "published": False,
+        "message_url": None,
+    }
+
+
+def wizard_embed(state, step=1, notice=None):
+    embed = discord.Embed(
+        title=("🏰 Terminplanung · 1/2" if step == 1
+               else "📅 Terminplanung · 2/2"),
+        description=(
+            "**Wähle Instanz und Aufgabe** und klicke dann auf **Weiter**."
+            if step == 1 else
+            "**Datum und Uhrzeit auswählen.** Danach kannst du die Gruppe "
+            "im PvE-Kanal veröffentlichen."
+        ),
+        colour=discord.Colour.gold()
+    )
+    embed.add_field(name="🏰 Instanz", value=state["instance"] or "Noch nicht gewählt", inline=False)
+    embed.add_field(
+        name="🎭 Deine Rolle",
+        value={"Tank": "🛡️ Tank", "Heiler": "💚 Heiler", "DD": "💥 DD"}
+        .get(state["role"], "Noch nicht gewählt"),
+        inline=True)
+    day = state["day"]
+    try:
+        if day:
+            pretty = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m.%Y")
+        else:
+            pretty = "Noch nicht gewählt"
+    except ValueError:
+        pretty = "Noch nicht gewählt"
+    embed.add_field(name="🗓️ Tag", value=pretty, inline=True)
+    embed.add_field(
+        name="🕗 Uhrzeit", value=state["hour"] + ":" + state["minute"] + " Uhr",
+        inline=True)
+    if state.get("note"):
+        embed.add_field(name="📝 Hinweis", value=state["note"][:160], inline=False)
+    if notice:
+        embed.add_field(name="Hinweis", value=notice[:700], inline=False)
+    embed.set_footer(text="Private Auswahl • Nach 10 Minuten erneut starten")
+    return embed
+
+
+class WizardSelect(discord.ui.Select):
+    def __init__(self, state, field, placeholder, options, row):
+        super().__init__(
+            placeholder=placeholder, min_values=1, max_values=1,
+            options=options, row=row)
+        self.state = state
+        self.field = field
+
+    async def callback(self, interaction):
+        self.state[self.field] = self.values[0]
+        step = 1 if self.field in ("instance", "role") else 2
+        await interaction.response.edit_message(
+            embed=wizard_embed(self.state, step),
+            view=(WizardStepOne(self.state) if step == 1
+                  else WizardStepTwo(self.state)))
+
+
+class PrivateWizard(discord.ui.View):
+    def __init__(self, state):
+        super().__init__(timeout=600)
+        self.state = state
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id == self.state["owner"]:
+            return True
+        await interaction.response.send_message(
+            "Dieser Termin-Assistent gehört einer anderen Person. "
+            "Benutze die öffentliche Steuerzentrale für deine eigene Gruppe.",
+            ephemeral=True)
+        return False
+
+
+class CustomInstanceModal(discord.ui.Modal, title="Eigene Instanz auswählen"):
+    instance = discord.ui.TextInput(
+        label="Instanzname", placeholder="Zum Beispiel eine besondere Instanz",
+        min_length=2, max_length=90, required=True)
+    note = discord.ui.TextInput(
+        label="Optionaler Hinweis", placeholder="Zum Beispiel Mindestlevel",
+        style=discord.TextStyle.paragraph, max_length=160, required=False)
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+
+    async def on_submit(self, interaction):
+        if interaction.user.id != self.state["owner"]:
+            return await interaction.response.send_message(
+                "Diese Auswahl gehört nicht dir.", ephemeral=True)
+        self.state["instance"] = str(self.instance.value).strip()
+        self.state["note"] = str(self.note.value or "").strip()
+        # Modal-Antwort als neue private Nachricht: der Hauptkanal bleibt sauber.
+        await interaction.response.send_message(
+            embed=wizard_embed(self.state, 1),
+            view=WizardStepOne(self.state), ephemeral=True)
+
+
+class WizardStepOne(PrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        self.add_item(WizardSelect(
+            state, "instance", "🏰 Instanz auswählen",
+            [discord.SelectOption(
+                label=name, value=name,
+                default=(state["instance"] == name))
+                for name in COMMON_DUNGEONS[:25]],
+            row=0))
+        self.add_item(WizardSelect(
+            state, "role", "🛡️ Deine Rolle auswählen",
+            [discord.SelectOption(
+                label=r, value=r,
+                emoji={"Tank": "🛡️", "Heiler": "💚", "DD": "💥"}[r],
+                default=(state["role"] == r))
+                for r in PLAN_ROLES],
+            row=1))
+
+    @discord.ui.button(label="Andere Instanz", emoji="✏️",
+                       style=discord.ButtonStyle.secondary, row=2)
+    async def custom(self, interaction, button):
+        await interaction.response.send_modal(CustomInstanceModal(self.state))
+
+    @discord.ui.button(label="Weiter zum Termin", emoji="➡️",
+                       style=discord.ButtonStyle.success, row=2)
+    async def forward(self, interaction, button):
+        if not self.state["instance"] or not self.state["role"]:
+            return await interaction.response.send_message(
+                "Bitte zuerst eine Instanz und deine Rolle auswählen.", ephemeral=True)
+        await interaction.response.edit_message(
+            embed=wizard_embed(self.state, 2),
+            view=WizardStepTwo(self.state))
+
+
+class WizardStepTwo(PrivateWizard):
+    def __init__(self, state):
+        super().__init__(state)
+        today = berlin_now().date()
+        options = []
+        for index in range(21):
+            day = today + timedelta(days=index)
+            prefix = ("Heute" if index == 0
+                      else "Morgen" if index == 1
+                      else "Übermorgen" if index == 2 else WEEKDAY_DE[day.weekday()])
+            options.append(discord.SelectOption(
+                label=f"{prefix} · {day:%d.%m.%Y}",
+                value=day.isoformat(),
+                default=(state["day"] == day.isoformat())))
+        self.add_item(WizardSelect(
+            state, "day", "📅 Tag auswählen (nächste 21 Tage)",
+            options, row=0))
+        self.add_item(WizardSelect(
+            state, "hour", "🕗 Stunde auswählen",
+            [discord.SelectOption(
+                label=f"{n:02d}:00 Uhr", value=f"{n:02d}",
+                default=(state["hour"] == f"{n:02d}"))
+                for n in range(24)],
+            row=1))
+        self.add_item(WizardSelect(
+            state, "minute", "⏱️ Minuten auswählen",
+            [discord.SelectOption(
+                label=f"{n:02d} Minuten", value=f"{n:02d}",
+                default=(state["minute"] == f"{n:02d}"))
+                for n in (0, 15, 30, 45)],
+            row=2))
+
+    @discord.ui.button(label="Zurück", emoji="⬅️",
+                       style=discord.ButtonStyle.secondary, row=3)
+    async def back(self, interaction, button):
+        await interaction.response.edit_message(
+            embed=wizard_embed(self.state, 1),
+            view=WizardStepOne(self.state))
+
+    @discord.ui.button(label="Termin veröffentlichen", emoji="✅",
+                       style=discord.ButtonStyle.success, row=3)
+    async def publish(self, interaction, button):
+        state = self.state
+        if state["published"]:
+            return await interaction.response.send_message(
+                "Dein Termin wurde bereits veröffentlicht: " +
+                (state["message_url"] or ""), ephemeral=True)
+        if not all(state[k] for k in ("instance", "role", "day")):
+            return await interaction.response.send_message(
+                "Bitte zuerst Instanz, Rolle und Datum auswählen.", ephemeral=True)
+        try:
+            when, display = parse_plan_time(
+                state["day"], state["hour"] + ":" + state["minute"])
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        async with plan_lock(-interaction.user.id):
+            if state["published"]:
+                return await interaction.followup.send(
+                    "Dieser Termin wurde bereits erstellt: " +
+                    (state["message_url"] or ""), ephemeral=True)
+            try:
+                message, group_id = await create_plan_record_and_post(
+                    interaction.guild, interaction.user.id, state["instance"],
+                    when, display, state["role"], state["note"])
+            except (discord.HTTPException, ValueError) as exc:
+                logging.exception("Konnte Dungeon-Termin über Assistent nicht erstellen")
+                return await interaction.followup.send(
+                    "Der Termin konnte nicht veröffentlicht werden. "
+                    "Bitte Discord-Kanalberechtigungen prüfen.",
+                    ephemeral=True)
+            state["published"] = True
+            state["message_url"] = message.jump_url
+        await interaction.followup.send(
+            f"✅ **Gruppe #{group_id} erstellt!**\n"
+            f"🏰 **{discord.utils.escape_markdown(state['instance'])}** · {display}\n"
+            f"Du bist als **{state['role']}** eingetragen.\n"
+            f"[Zur Gruppenkarte]({message.jump_url})",
+            ephemeral=True)
+
+
+class PlannerDashboardView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Dungeon planen", emoji="🏰",
+                       style=discord.ButtonStyle.success,
+                       custom_id="corpse_planner_new_v110")
+    async def start(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur in Corpsegrinder verfügbar.", ephemeral=True)
+        state = wizard_state(interaction.user.id)
+        await interaction.response.send_message(
+            embed=wizard_embed(state),
+            view=WizardStepOne(state), ephemeral=True)
+
+    @discord.ui.button(label="Nächste Termine", emoji="📅",
+                       style=discord.ButtonStyle.primary,
+                       custom_id="corpse_planner_upcoming_v110")
+    async def upcoming(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur in Corpsegrinder verfügbar.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=planner_list_embed(), ephemeral=True)
+
+    @discord.ui.button(label="Meine Termine", emoji="📋",
+                       style=discord.ButtonStyle.secondary,
+                       custom_id="corpse_planner_mine_v110")
+    async def mine(self, interaction, button):
+        if not allowed(interaction):
+            return await interaction.response.send_message(
+                "Nur in Corpsegrinder verfügbar.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=planner_list_embed(user_id=interaction.user.id), ephemeral=True)
+
+
+def planner_list_embed(user_id=None):
+    cutoff = int(datetime.now(timezone.utc).timestamp()) - 3600
+    if user_id is None:
+        rows = db.execute(
+            "SELECT id,instance,start_utc,channel,message FROM planned_groups "
+            "WHERE guild=? AND status='open' AND start_utc>? "
+            "ORDER BY start_utc LIMIT 8", (GUILD_ID, cutoff)).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT g.id,g.instance,g.start_utc,g.channel,g.message "
+            "FROM planned_groups g WHERE g.guild=? AND g.status='open' "
+            "AND g.start_utc>? AND "
+            "(g.owner=? OR EXISTS (SELECT 1 FROM planned_signups s "
+            "WHERE s.group_id=g.id AND s.user=?)) "
+            "ORDER BY g.start_utc LIMIT 8",
+            (GUILD_ID, cutoff, user_id, user_id)).fetchall()
+    embed = discord.Embed(
+        title="📅 " + ("Meine Dungeon-Termine" if user_id else "Nächste Dungeon-Termine"),
+        colour=discord.Colour.blue())
+    if not rows:
+        embed.description = "Noch keine passenden Termine. "
+        embed.description += "Erstelle einen über **🏰 Dungeon planen**!"
+        return embed
+    for group_id, instance, when, channel_id, message_id in rows:
+        counts = plan_counts(group_id)
+        slots = (f"🛡️ {counts['Tank']}/1 · 💚 {counts['Heiler']}/1 · "
+                 f"💥 {counts['DD']}/3")
+        link = (f"https://discord.com/channels/{GUILD_ID}/{channel_id}/{message_id}"
+                if channel_id and message_id else None)
+        embed.add_field(
+            name=f"🏰 #{group_id} · {discord.utils.escape_markdown(instance[:65])}",
+            value=(f"🗓️ <t:{when}:f>\n{slots}\n"
+                   + (f"[Zur Gruppenkarte]({link})" if link else "")),
+            inline=False)
+    embed.set_footer(text="In der Gruppenkarte auf deine Rolle klicken, um dich anzumelden.")
+    return embed
+
+
+async def ensure_planner_dashboard(guild):
+    target = channel(guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        logging.warning("Dungeon-Planer: #pve-gruppensuche fehlt")
+        return None, False
+    existing = None
+    post_id = setting(PLANNER_STORAGE_KEY)
+    if post_id:
+        try:
+            candidate = await target.fetch_message(int(post_id))
+            if candidate.author.id == bot.user.id:
+                existing = candidate
+        except (discord.HTTPException, ValueError):
+            pass
+    if existing is None:
+        try:
+            async for candidate in target.history(limit=80):
+                if candidate.author.id == bot.user.id and any(
+                        PLANNER_MARKER in (emb.footer.text or "")
+                        for emb in candidate.embeds):
+                    existing = candidate
+                    break
+        except discord.HTTPException:
+            logging.warning("Dungeon-Planer: bisherige Nachrichten nicht lesbar")
+    if existing is None:
+        existing = await target.send(
+            embed=planner_dashboard_embed(),
+            view=PlannerDashboardView(),
+            allowed_mentions=discord.AllowedMentions.none())
+    else:
+        await existing.edit(embed=planner_dashboard_embed(),
+                            view=PlannerDashboardView())
+    save_setting(PLANNER_STORAGE_KEY, existing.id)
+    # Zusätzlich ohne fremde Kanal-Themen zu überschreiben einen Link anbieten.
+    if not target.topic:
+        try:
+            await target.edit(
+                topic="🏰 Dungeon planen und Termine finden: " + existing.jump_url,
+                reason="Corpsegrinder Dungeon-Steuerzentrale")
+        except discord.HTTPException:
+            logging.warning("Kanalthema konnte nicht gesetzt werden")
+    pinned = existing.pinned
+    if not pinned:
+        try:
+            await existing.pin(reason="Corpsegrinder: Dungeon-Planer")
+            pinned = True
+        except discord.Forbidden:
+            logging.warning(
+                "Dungeon-Planer veröffentlicht, aber nicht angepinnt. "
+                "Bot benötigt Nachrichten verwalten; alternativ selbst anpinnen.")
+        except discord.HTTPException:
+            logging.exception("Dungeon-Planer konnte nicht angepinnt werden")
+    return existing, pinned
+
+
+
+async def ensure_planner_dashboard_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    try:
+        await ensure_planner_dashboard(guild)
+    except discord.HTTPException:
+        logging.exception("Konnte Dungeon-Steuerzentrale beim Start nicht einrichten")
+
+
+
+@bot.tree.command(
+    name="gruppenpanel",
+    description="Angeheftete PvE-Dungeon-Steuerzentrale einrichten (Admin)",
+    guild=SERVER)
+async def set_planner_dashboard(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur Administratoren.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        message, pinned = await ensure_planner_dashboard(interaction.guild)
+    except discord.HTTPException:
+        logging.exception("Dungeon-Steuerzentrale")
+        return await interaction.followup.send(
+            "Konnte die Steuerzentrale nicht erstellen. "
+            "Bitte die Schreib- und Leserechte des Bots prüfen.", ephemeral=True)
+    if message is None:
+        return await interaction.followup.send(
+            "#pve-gruppensuche nicht gefunden.", ephemeral=True)
+    note = "✅ Angepinnt" if pinned else "⚠️ Nicht angepinnt: Bitte Nachricht selbst anpinnen."
+    await interaction.followup.send(
+        f"🏰 Dungeon-Steuerzentrale: {message.jump_url}\n{note}",
+        ephemeral=True)
 
 
 

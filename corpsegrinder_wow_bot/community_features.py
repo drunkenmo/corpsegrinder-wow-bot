@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.9"
+VERSION = "1.0.10"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -72,13 +72,15 @@ def update_embed():
     embed = discord.Embed(
         title="🛠️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**NEU: Planbare Dungeon-Gruppen!**\n\n"
-            "Mit **/gruppe_planen** können Mitglieder Instanz, Datum, Uhrzeit und "
-            "ihre Aufgabe festlegen. Andere treten direkt über 🛡️ Tank, "
-            "💚 Heiler oder 💥 DD bei. Die Gruppe ist auf 1/1/3 begrenzt.\n\n"
-            "**/termine** zeigt offene Veranstaltungen, **/termin_verschieben** "
-            "oder **/termin_absagen** helfen bei Änderungen. "
-            "Anmeldungen bleiben nach einem Bot-Neustart erhalten."
+            "**Neu: Dungeon-Planer mit Buttons und Dropdown-Menüs!**\n\n"
+            "In **#pve-gruppensuche** erscheint eine Steuerzentrale mit den "
+            "Buttons **🏰 Dungeon planen**, **📅 Nächste Termine** und "
+            "**📋 Meine Termine**.\n\n"
+            "Der private Assistent fragt zuerst Instanz und Rolle ab. "
+            "Anschließend lassen sich Tag (nächste 21 Tage), Stunde und "
+            "Minuten auswählen – ohne Datum oder Uhrzeit einzutippen. "
+            "Erst zum Schluss wird die Gruppenkarte veröffentlicht.\n\n"
+            "Admins können die Steuerzentrale mit **/gruppenpanel** erneut einrichten."
         ),
         colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)

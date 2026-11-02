@@ -67,3 +67,19 @@ Der Organisator ist bereits mit der gewählten Rolle angemeldet. Der Button-Term
 
 Das Feld **tag** akzeptiert **heute**, **morgen**, **übermorgen** oder **TT.MM.JJJJ**. Uhrzeit ist deutsche Ortszeit (MEZ/MESZ). Alle Daten bleiben in der Home-Assistant-App-Datenbank `/data/corpsegrinder.sqlite` und werden auch bei Bot-Updates beibehalten. Die bisherigen spontanen Gruppenfinder-Befehle bleiben verfügbar.
 
+
+## Dungeon-Steuerzentrale – Buttons und Dropdowns (ab 1.0.10)
+
+Nach dem Bot-Update wird in `#pve-gruppensuche` eine Steuerzentrale veröffentlicht. Ihre Buttons bleiben auch nach einem Bot-Neustart funktionsfähig.
+
+**🏰 Dungeon planen** öffnet eine **private** 2-Schritt-Auswahl:
+
+1. Instanz aus einer Classic-Liste und Tank/Heiler/DD auswählen. Für andere Instanzen gibt es `Andere Instanz` mit optionalem Hinweis.
+2. Einen Tag aus den **nächsten 21 Tagen**, eine Stunde zwischen 00 und 23 Uhr und Minuten `00 / 15 / 30 / 45` wählen.
+3. Erst durch `Termin veröffentlichen` wird die vollständige Fünfergruppe in `#pve-gruppensuche` für alle sichtbar, inklusive Anmeldebuttons.
+
+Die weiteren Tasten **📅 Nächste Termine** und **📋 Meine Termine** zeigen eine private Terminübersicht mit direkten Links.
+
+**Admins:** `/gruppenpanel` kann die Steuerzentrale erneut erstellen oder aktualisieren, ohne Duplikate zu erzeugen. Der Bot versucht die Nachricht anzupinnen; fehlt ihm die Berechtigung `Nachrichten verwalten`, muss ein Administrator sie manuell über das Nachrichtenmenü anpinnen. Anpinnen erzeugt **keine dauerhaft feststehende Chat-Kopfzeile** – die Nachricht wird über das Pin-Symbol oben rechts aufgerufen. Wo möglich, wird bei leerem Kanalthema außerdem ein Link zur Steuerzentrale ergänzt. Vorhandene Kanalthemen werden nicht verändert.
+
+Das alte `/gruppe_planen` bleibt für längere Vorlaufzeiten (mehr als 21 Tage) und freie Eingaben erhalten. Bei Updates werden bestehende Gruppen, Spielerregistrierungen, Rollen und andere Serverkanäle nicht gelöscht.
