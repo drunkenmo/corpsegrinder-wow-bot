@@ -16,7 +16,7 @@ Horde-only Discord-Community-Bot für PvE/PvP.
 
 - Discord-Token niemals in GitHub veröffentlichen. Token wird nur im Home-Assistant-Konfigurationsdialog eingetragen.
 - Lokale und Repository-Installation gelten als zwei verschiedene Apps. Daten aus /data/corpsegrinder.sqlite werden nicht automatisch übertragen. Die alte App nicht löschen, bevor Daten und Rollenmenü geprüft wurden.
-- Die v1.0.4 erzeugt keine neue private Gildenkategorie. Vorhandene WOW FOREVER | GILDE-Kanäle werden aus Sicherheitsgründen nicht automatisch gelöscht.
+- Die v1.0.5 erzeugt keine neue private Gildenkategorie. Vorhandene WOW FOREVER | GILDE-Kanäle werden aus Sicherheitsgründen nicht automatisch gelöscht.
 - Keine automatische Löschung anderer Discord-Kanäle/Rollen.
 - Die App wird auf dem Home-Assistant-Rechner gebaut. Beim ersten Installieren ist Internetzugriff für Python-Pakete notwendig.
 - Versionsupdates: Nach Änderung der App-Dateien muss version in config.yaml erhöht werden. Im App-Store nach Updates suchen und Aktualisieren wählen.
@@ -24,3 +24,14 @@ Horde-only Discord-Community-Bot für PvE/PvP.
 ## Befehle
 
 /einrichtung_vorschau, /einrichtung_start, /rollenmenue_aktualisieren, /meine_rollen, /charakter, /meine_charaktere, /charakter_loeschen, /gruppe_erstellen, /gruppe_anzeigen, /gruppe_abmelden.
+
+## Neue Befehle ab 1.0.5
+
+- /rollen_design_vorschau zeigt vorab genau an, welche Rollen umbenannt werden.
+- /rollen_design_anwenden benennt bestehende Rollen mit Emojis um und setzt Farben; Rollenzuweisungen bleiben erhalten.
+- /startkanaele_einrichten erzeugt eine Begrüßung in #willkommen und eine Info in #ankündigungen; der Bot versucht diese anzuheften (benötigt Nachrichten verwalten).
+- /ankuendigung titel:<Text> text:<Text> erstellt eine formatierte Mitteilung ohne Massen-Pings (Admins).
+- /ankuendigungen_schreibschutz macht #ankündigungen für normale Mitglieder schreibgeschützt (Admins).
+- Beim Start einer neuen Version wird einmal eine Bot-Update-Meldung nach #ankündigungen gepostet. Bei neuen Mitgliedern erfolgt automatisch eine Begrüßung in #willkommen.
+
+Achtung: Unicode-Emojis im Rollennamen erscheinen im Rollenprofil; ein echtes Icon direkt neben dem Chatnamen benötigt Discords Rollen-Icons (Boost-Level 2). Es wird nur das Icon der höchstpriorisierten passenden Rolle angezeigt. Der Bot verändert keine Nicknames automatisch.
