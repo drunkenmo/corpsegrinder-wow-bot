@@ -68,10 +68,12 @@ def update_embed():
     embed = discord.Embed(
         title="🛠️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "Das Rollenmenü kann jetzt durch sichtbare Emojis und Klassenfarben ergänzt werden. "
-            "Außerdem sind Vorlagen für **#willkommen** und **#ankündigungen** verfügbar.\n\n"
-            "Admins: /rollen_design_vorschau, /rollen_design_anwenden, /startkanaele_einrichten. "
-            "Der Bot ändert bestehende Rollen und Kanaltexte **nicht ohne diese Befehle**."
+            "**NEU: Bot-Updates direkt in Discord!**\n\n"
+            "Admins können mit **/bot_update** nach neuen Versionen suchen und sie "
+            "nach Bestätigung installieren – ohne Home-Assistant-App-Update.\n\n"
+            "Bot-Code wird nur aus dem festgelegten GitHub-Repository geladen, "
+            "per SHA-256 geprüft und beim Startfehler automatisch zurückgesetzt.\n\n"
+            "Die Rollen- und Kanalbefehle bleiben erhalten."
         ),
         colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
