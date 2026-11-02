@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.12"
+VERSION = "1.0.13"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -86,22 +86,19 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🔥 Corpsegrinder Bot – Update " + VERSION,
+        title="📰 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Das große Horde-Community-Update!** 🍻\n\n"
-            "🎨 Neue Warcraft-Karten, Banner und dynamische Gruppenzentralen "
-            "mit den nächsten **3 Terminen** sowie eine schönere Rollenwahl.\n\n"
-            "🔔 **15 Minuten vor Gruppenbeginn** erhalten angemeldete Spieler "
-            "eine persönliche Erinnerung. Diese lässt sich über **/erinnerungen** "
-            "oder im Rollenmenü deaktivieren.\n\n"
-            "🎉 Bei **5/5** Dungeon-Spielern erhalten alle eine Vollmeldung. "
-            "Ist die Gruppe 15 Minuten vor Start vollständig, öffnet "
-            "der Bot automatisch einen privaten **5-Platz-Sprach-Treffpunkt**.\n\n"
-            "⌛ Eine Stunde nach Start wird die Gruppe als **Abgelaufen** markiert "
-            "und fünf Minuten später gelöscht. Organisatoren können Gruppen "
-            "auch vorzeitig abschließen. Sprachkanäle bleiben, solange jemand drin ist.\n\n"
-            "🏠 Der bisherige separate Gildenbereich wird auf Wunsch entfernt."
+            "**NEU: #forever-news – Offizielle Blizzard-Nachrichten!**\n\n"
+            "Direkt unter **#ankündigungen** und über **#rollenwahl** "
+            "erscheint ein neuer Textkanal nur für **World of Warcraft: Forever**.\n\n"
+            "🔎 Der Bot prüft alle **30 Minuten** die offiziellen deutschen "
+            "Blizzard-Neuigkeiten und veröffentlicht nur eindeutig Forever-bezogene "
+            "Artikel mit geprüftem Veröffentlichungsdatum.\n\n"
+            "📅 Beim ersten Start werden passende Artikel der letzten "
+            "**48 Stunden** nachgetragen, sofern es welche gibt. "
+            "Jeder Artikel wird nur einmal gepostet.\n\n"
+            "Admin: **/forever_news_pruefen** · Status: **/forever_news_status**"
         ),
-        colour=discord.Colour.gold())
+        colour=discord.Colour.dark_red())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
     return embed
