@@ -35,3 +35,21 @@ Horde-only Discord-Community-Bot für PvE/PvP.
 - Beim Start einer neuen Version wird einmal eine Bot-Update-Meldung nach #ankündigungen gepostet. Bei neuen Mitgliedern erfolgt automatisch eine Begrüßung in #willkommen.
 
 Achtung: Unicode-Emojis im Rollennamen erscheinen im Rollenprofil; ein echtes Icon direkt neben dem Chatnamen benötigt Discords Rollen-Icons (Boost-Level 2). Es wird nur das Icon der höchstpriorisierten passenden Rolle angezeigt. Der Bot verändert keine Nicknames automatisch.
+
+## Bot-Updates direkt in Discord (ab Home-Assistant-App-Version 1.0.6)
+
+- Die Home-Assistant-App auf **1.0.6** aktualisieren (letztes notwendiges App-Update für normale Bot-Codeänderungen).
+- In Discord als Server-Administrator `/bot_update` eingeben. Bei einer neueren Version auf `🔄 Update installieren` klicken.
+- Nach erfolgreicher SHA-256-/Syntaxprüfung verbindet sich der Bot automatisch neu. Der App-Container bleibt dabei aktiv. Ein abgebrochenes Update ändert den laufenden Code nicht.
+- `/bot_update_status` zeigt die aktive Bot-Version. Bei fehlerhaftem Start setzt der Launcher automatisch auf die zuletzt funktionierende Version zurück.
+- Die Bot-Datenbank und `/data/options.json` werden **nicht** mit GitHub überschrieben. Es wird **kein** Home-Assistant-Supervisor-API-Administratorzugriff benötigt.
+- **Sicherheit:** Das Verfahren führt Python-Code aus dem festgelegten GitHub-Repository aus. Schütze deshalb dein GitHub-Konto mit Zwei-Faktor-Authentifizierung und lasse nur vertrauenswürdige Personen dort Änderungen vornehmen. Keine Updates aus fremden Quellen.
+- **Grenze:** Änderungen am festen Launcher, Python-Abhängigkeiten oder Home-Assistant-App-Einstellungen benötigen weiterhin ein reguläres Home-Assistant-App-Update. Normale Änderungen an `bot.py` und `community_features.py` nicht mehr.
+
+### Neue Bot-Version veröffentlichen
+
+1. Ändere `bot.py` / `community_features.py` und erhöhe `VERSION` in `community_features.py` (z. B. 1.0.7).
+2. GitHub Actions führt Python-Syntax- und Offline-Updater-Tests aus und veröffentlicht bei Erfolg das Release-Manifest `bot_releases/latest.json` mit einem festen Commit und SHA-256-Prüfsummen.
+3. In Discord mit `/bot_update` prüfen und installieren. **Keine ZIP-Datei und kein `ha store reload` nötig.**
+
+Es gibt **keine automatische Selbstaktualisierung ohne Admin-Bestätigung**. Die vorherige Version bleibt im persistierenden App-Speicher für einen Rückfall erhalten.
