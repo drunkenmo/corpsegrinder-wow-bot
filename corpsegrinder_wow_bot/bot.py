@@ -994,9 +994,9 @@ async def create_planned_group(
         rolle: app_commands.Choice[str], notiz: str = ""):
     if not allowed(i):
         return await answer(i, "Nur auf Corpsegrinder verfügbar.")
-    target = channel(i.guild, "pve-gruppensuche")
+    target = channel(i.guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        return await answer(i, "Kanal #pve-gruppensuche ist nicht vorhanden.")
+        return await answer(i, "Kanal #dungeons ist nicht vorhanden.")
     instanz = instanz.strip()
     if not 2 <= len(instanz) <= 90:
         return await answer(i, "Instanzname: 2 bis 90 Zeichen.")
@@ -1114,9 +1114,9 @@ async def reschedule_planned_group(
 
 async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
     """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
-    target = channel(guild, "pve-gruppensuche")
+    target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        raise ValueError("Kanal #pve-gruppensuche fehlt.")
+        raise ValueError("Kanal #dungeons fehlt.")
     if role not in PLAN_ROLES or not 2 <= len(instance) <= 90 or len(note) > 160:
         raise ValueError("Instanz-/Rollen-Auswahl ungültig.")
     if when < int(datetime.now(timezone.utc).timestamp()) + 30:
@@ -1485,12 +1485,13 @@ def planner_list_embed(user_id=None):
 
 
 async def ensure_planner_dashboard(guild):
-    target = channel(guild, "pve-gruppensuche")
+    target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
-        logging.warning("Dungeon-Planer: #pve-gruppensuche fehlt")
+        logging.warning("Dungeon-Planer: #dungeons fehlt")
         return None, False
     existing = None
-    post_id = setting(PLANNER_STORAGE_KEY)
+    old_post_id = setting(PLANNER_STORAGE_KEY)
+    post_id = old_post_id
     if post_id:
         try:
             candidate = await target.fetch_message(int(post_id))
@@ -1517,6 +1518,20 @@ async def ensure_planner_dashboard(guild):
         await existing.edit(embed=planner_dashboard_embed(),
                             view=PlannerDashboardView())
     save_setting(PLANNER_STORAGE_KEY, existing.id)
+    # Nur den alten, eigenen Dungeon-Panelpost aus #pve-gruppensuche entfernen.
+    # Bereits erstellte Gruppentermine und fremde Nachrichten bleiben bestehen.
+    if old_post_id and str(old_post_id) != str(existing.id):
+        old_channel = channel(guild, "pve-gruppensuche")
+        if isinstance(old_channel, discord.TextChannel):
+            try:
+                previous = await old_channel.fetch_message(int(old_post_id))
+                if previous.author.id == bot.user.id and any(
+                        PLANNER_MARKER in (embed.footer.text or "")
+                        for embed in previous.embeds):
+                    await previous.delete()
+                    logging.info("Altes Dungeon-Panel aus PvE-Gruppensuche entfernt")
+            except (discord.HTTPException, ValueError):
+                logging.warning("Altes Dungeon-Panel konnte nicht gelöscht werden")
     # Zusätzlich ohne fremde Kanal-Themen zu überschreiben einen Link anbieten.
     if not target.topic:
         try:
@@ -1568,7 +1583,7 @@ async def set_planner_dashboard(interaction: discord.Interaction):
             "Bitte die Schreib- und Leserechte des Bots prüfen.", ephemeral=True)
     if message is None:
         return await interaction.followup.send(
-            "#pve-gruppensuche nicht gefunden.", ephemeral=True)
+            "#dungeons nicht gefunden.", ephemeral=True)
     note = "✅ Angepinnt" if pinned else "⚠️ Nicht angepinnt: Bitte Nachricht selbst anpinnen."
     await interaction.followup.send(
         f"🏰 Dungeon-Steuerzentrale: {message.jump_url}\n{note}",
