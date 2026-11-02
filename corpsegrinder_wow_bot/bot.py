@@ -900,4 +900,174 @@ async def plan_signup(interaction, group_id, task):
 
 
 
+
+COMMON_DUNGEONS = (
+    "Flammenschlund", "Höhlen des Wehklagens", "Die Todesminen",
+    "Burg Schattenfang", "Tiefschwarze Grotte", "Gnomeregan",
+    "Kral der Klingenhauer", "Scharlachrotes Kloster", "Uldaman",
+    "Zul'Farrak", "Maraudon", "Versunkener Tempel", "Schwarzfelstiefen",
+    "Stratholme", "Scholomance", "Düsterbruch", "Untere Schwarzfelsspitze",
+    "Obere Schwarzfelsspitze"
+)
+
+
+async def suggest_dungeons(i, current):
+    matching = [name for name in COMMON_DUNGEONS
+                if current.casefold() in name.casefold()]
+    return [app_commands.Choice(name=name, value=name) for name in matching[:20]]
+
+
+@bot.tree.command(
+    name="gruppe_planen",
+    description="Instanztermin mit 1 Tank, 1 Heiler und 3 DD erstellen",
+    guild=SERVER)
+@app_commands.describe(
+    instanz="Welche Instanz? Beispiel: Flammenschlund",
+    tag="heute, morgen, übermorgen oder TT.MM.JJJJ",
+    uhrzeit="Deutsche Uhrzeit, zum Beispiel 20:00",
+    rolle="Mit welcher Rolle spielst du mit?",
+    notiz="Optional: Level, Treffpunkt, Hinweise")
+@app_commands.choices(rolle=[app_commands.Choice(name=r, value=r)
+                              for r in PLAN_ROLES])
+@app_commands.autocomplete(instanz=suggest_dungeons)
+async def create_planned_group(
+        i: discord.Interaction, instanz: str, tag: str, uhrzeit: str,
+        rolle: app_commands.Choice[str], notiz: str = ""):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    target = channel(i.guild, "pve-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(i, "Kanal #pve-gruppensuche ist nicht vorhanden.")
+    instanz = instanz.strip()
+    if not 2 <= len(instanz) <= 90:
+        return await answer(i, "Instanzname: 2 bis 90 Zeichen.")
+    if len(notiz) > 160:
+        return await answer(i, "Notiz: höchstens 160 Zeichen.")
+    try:
+        when, display = parse_plan_time(tag, uhrzeit)
+    except ValueError as exc:
+        return await answer(i, str(exc))
+    await i.response.defer(ephemeral=True, thinking=True)
+    # Die anlegende Person wird unmittelbar mit der gewählten Aufgabe eingetragen.
+    db.execute(
+        "INSERT INTO planned_groups (guild,owner,instance,start_utc,display_time,note) "
+        "VALUES (?,?,?,?,?,?)",
+        (GUILD_ID, i.user.id, instanz, when, display, notiz.strip()))
+    group_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.execute(
+        "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
+        (group_id, i.user.id, rolle.value))
+    db.commit()
+    plan = load_plan(group_id)
+    try:
+        message = await target.send(
+            embed=planned_embed(plan),
+            view=PlannedView(group_id),
+            allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
+        db.commit()
+        logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
+        return await i.followup.send(
+            "Der Termin konnte nicht veröffentlicht werden. Bitte Bot-Rechte in #pve-gruppensuche prüfen.",
+            ephemeral=True)
+    db.execute("UPDATE planned_groups SET channel=?,message=? WHERE id=?",
+               (target.id, message.id, group_id))
+    db.commit()
+    bot.add_view(PlannedView(group_id), message_id=message.id)
+    await i.followup.send(
+        f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
+        f"am {display} erstellt. Du bist als **{rolle.value}** angemeldet.\n"
+        + message.jump_url, ephemeral=True)
+
+
+@bot.tree.command(name="termine",
+                  description="Nächste geplante Dungeon-Gruppen anzeigen",
+                  guild=SERVER)
+async def upcoming_plans(i: discord.Interaction):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    rows = db.execute(
+        "SELECT id,instance,start_utc,channel,message FROM planned_groups "
+        "WHERE guild=? AND status='open' AND start_utc>? "
+        "ORDER BY start_utc LIMIT 8",
+        (GUILD_ID, int(datetime.now(timezone.utc).timestamp()) - 3600)).fetchall()
+    if not rows:
+        return await answer(i, "Noch keine Termine geplant. Erstelle einen mit /gruppe_planen.")
+    parts = []
+    for group_id, instance, when, channel_id, message_id in rows:
+        counts = plan_counts(group_id)
+        slots = f"🛡️ {counts['Tank']}/1 · 💚 {counts['Heiler']}/1 · 💥 {counts['DD']}/3"
+        link = (f"https://discord.com/channels/{GUILD_ID}/{channel_id}/{message_id}"
+                if channel_id and message_id else "")
+        part = f"**#{group_id} {discord.utils.escape_markdown(instance[:65])}** · <t:{when}:f>\n{slots}"
+        parts.append(part + (f"\n[Zur Anmeldung]({link})" if link else ""))
+    await answer(i, "\n\n".join(parts))
+
+
+@bot.tree.command(name="termin_absagen",
+                  description="Eigenen Dungeon-Termin absagen (oder als Admin)",
+                  guild=SERVER)
+async def cancel_planned_group(i: discord.Interaction, termin_id: int):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    async with plan_lock(termin_id):
+        plan = load_plan(termin_id)
+        if not plan:
+            return await i.followup.send("Termin nicht gefunden.", ephemeral=True)
+        if i.user.id != plan[2] and not admin(i):
+            return await i.followup.send(
+                "Nur der Organisator oder ein Administrator kann diesen Termin absagen.",
+                ephemeral=True)
+        if plan[9] == "cancelled":
+            return await i.followup.send("Termin bereits abgesagt.", ephemeral=True)
+        db.execute("UPDATE planned_groups SET status='cancelled' WHERE id=?", (termin_id,))
+        db.commit()
+        try:
+            await refresh_planned_message(load_plan(termin_id))
+            result = "Der Termin wurde als abgesagt markiert."
+        except discord.HTTPException:
+            logging.exception("Terminabsage gespeichert, Anzeige konnte nicht aktualisiert werden")
+            result = "Termin abgesagt, aber Discord konnte die Nachricht nicht aktualisieren."
+        await i.followup.send(result, ephemeral=True)
+
+
+@bot.tree.command(name="termin_verschieben",
+                  description="Deinen Dungeon-Termin auf eine andere Uhrzeit verschieben",
+                  guild=SERVER)
+@app_commands.describe(
+    termin_id="Termin-Nummer aus der Gruppenkarte",
+    tag="morgen, übermorgen oder TT.MM.JJJJ",
+    uhrzeit="Neue deutsche Uhrzeit, z. B. 19:30")
+async def reschedule_planned_group(
+        i: discord.Interaction, termin_id: int, tag: str, uhrzeit: str):
+    if not allowed(i):
+        return await answer(i, "Nur auf Corpsegrinder verfügbar.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    async with plan_lock(termin_id):
+        plan = load_plan(termin_id)
+        if not plan or plan[9] == "cancelled":
+            return await i.followup.send("Termin nicht vorhanden oder abgesagt.", ephemeral=True)
+        if i.user.id != plan[2] and not admin(i):
+            return await i.followup.send(
+                "Nur Organisator oder Administrator können diesen Termin verschieben.",
+                ephemeral=True)
+        try:
+            when, display = parse_plan_time(tag, uhrzeit)
+        except ValueError as exc:
+            return await i.followup.send(str(exc), ephemeral=True)
+        db.execute("UPDATE planned_groups SET start_utc=?,display_time=? WHERE id=?",
+                   (when, display, termin_id))
+        db.commit()
+        try:
+            await refresh_planned_message(load_plan(termin_id))
+            result = "Termin verschoben auf " + display + ". Alle bisherigen Anmeldungen bleiben erhalten."
+        except discord.HTTPException:
+            result = "Termin verschoben, aber Discord konnte die Karte noch nicht aktualisieren."
+        await i.followup.send(result, ephemeral=True)
+
+
+
 bot.run(TOKEN, log_handler=None)
