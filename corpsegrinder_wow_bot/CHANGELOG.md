@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.12 – Das große Corpsegrinder-Horde-Update
+
+- Neuer Warcraft-/Lagerfeuer-Look: Willkommen mit originalem Corpsegrinder-Banner, neue Rollenwahl und humorvolle Bildpanels für Dungeon- und Levelgruppen.
+- Dynamische Gruppenzentralen zeigen die nächsten drei Termine inklusive Belegung; die Buttons bleiben aufrufbar.
+- Private Gruppen-Erinnerungen 15 Minuten vor Spielbeginn. Jeder Spieler kann sie über /erinnerungen oder in #rollenwahl aus- und einschalten.
+- Sobald ein Dungeon 5/5 Spieler erreicht, erhalten alle Teilnehmer eine Nachricht, falls Benachrichtigungen aktiv sind.
+- Geplante PvE-Sprachkanäle entstehen 15 Minuten vor Start nur für vollständige Dungeon-/Levelgruppen (5/5). Wird die Gruppe später vor dem Start voll, öffnet der Raum sofort.
+- Sprachräume haben fünf Plätze und den jeweiligen Dungeon/das Levelgebiet samt Termin im Namen; ungenutzte Räume werden nach einer Stunde automatisch bereinigt, genutzte Räume nach Verlassen des letzten Spielers.
+- Gruppenkarten erhalten eine Stunde nach Start den Status Abgelaufen; fünf Minuten danach wird die Discord-Nachricht entfernt (Daten bleiben archiviert).
+- Organisatoren und Administratoren können ihre Gruppen über den neuen Abschließen-Button sofort aus den aktiven Übersichten nehmen; fünf Minuten danach verschwindet die Karte.
+- Der separate alte Bereich 🔒 WOW FOREVER | GILDE und nur seine drei bekannten Kanäle werden beim ersten Start gezielt gelöscht. Andere Bereiche und unbekannte Unterkanäle werden geschützt.
+- Alle Zeitsteuerungen und Erinnerungslieferungen werden in SQLite gespeichert, funktionieren also nach Neustarts weiter.
+- Alle gewöhnlichen Änderungen werden wie gewohnt mit /bot_update eingespielt.
+
 ## 1.0.11 – Dungeon-Planer verlegt, Levelgruppen und automatischer Voice-Beitritt
 - Neue Dungeon-Termine und angeheftetes Dungeon-Dashboard erscheinen nun in #dungeons (PvE-Textkanal). Das alte, vom Bot erstellte Panel in #pve-gruppensuche wird beim Wechsel gezielt entfernt; bestehende Termin-Karten bleiben erhalten.
 - Neue Levelgruppen-Steuerzentrale in #pve-gruppensuche mit Gebietswahl (Horde-Classic-Gebiete und eigenes Ziel), Levelbereich, Tag/Stunde/Minuten und optionalem Hinweis.

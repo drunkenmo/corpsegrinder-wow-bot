@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.11"
+VERSION = "1.0.12"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -28,21 +28,37 @@ def visual_name(name):
 
 def welcome_embed():
     embed = discord.Embed(
-        title="⚔️ Willkommen bei CORPSEGRINDER!",
+        title="🍻 CORPSEGRINDER · FÜR DIE HORDE!",
         description=(
-            "**LOK'TAR OGAR – FÜR DIE HORDE!**\n\n"
-            "Ob Gildenmitglied oder Community-Gast: Hier spielen wir gemeinsam **WoW Forever**. "
-            "Du bist auch ohne Gildenmitgliedschaft willkommen."
+            "**ALTE SÄCKE. KALTES BIER. SEIT 2004.** 🔥\n\n"
+            "Es war einmal im Classic-Release-Jahr 2004: mittelmäßiges DSL, "
+            "ordentlich Bier und erschreckend wenig Ahnung. "
+            "Ein paar Orks, Tauren und Trolle zogen los – und sind irgendwie "
+            "immer noch gemeinsam unterwegs.\n\n"
+            "Willkommen am Lagerfeuer! Hier spielen alte Gildenfreunde und neue "
+            "Horde-Mitstreiter zusammen. Eine Gildenmitgliedschaft brauchst du nicht."
         ),
-        colour=discord.Colour.dark_red())
-    embed.add_field(name="🎭 1. Rollen wählen",
-                    value="Gehe zu **#rollenwahl**. Wähle PvE/PvP, Tank/Heiler/DD und deine Klassen.", inline=False)
-    embed.add_field(name="🛡️ 2. Mitspieler finden",
-                    value="Nutze **#pve-gruppensuche** oder **#pvp-gruppensuche**.", inline=False)
-    embed.add_field(name="🍻 3. Gemeinsam Spaß haben",
-                    value="Bleib respektvoll, vermeide Spam und hilf anderen Horde-Spielern.", inline=False)
-    embed.set_footer(text="Corpsegrinder • Willkommen • corpsegrinder:welcome")
+        colour=discord.Colour.from_rgb(153, 46, 29))
+    embed.set_image(
+        url="https://raw.githubusercontent.com/drunkenmo/corpsegrinder-wow-bot/main/assets/welcome.png")
+    embed.add_field(
+        name="🎭 DEINE ROLLEN",
+        value="PvE/PvP, Tank, Heiler, DD, Klassen und Benachrichtigungen wählen.",
+        inline=False)
+    embed.add_field(
+        name="⚔️ DEIN NÄCHSTES ABENTEUER",
+        value="In **#dungeons** Instanzgruppe planen oder in "
+              "**#pve-gruppensuche** Mitspieler zum Leveln treffen.",
+        inline=False)
+    embed.add_field(
+        name="📖 UNSERE STORY",
+        value="Die echte Geschichte der alten Säcke steht hier im Willkommen-Kanal. "
+              "Lest sie ruhig – sie ist fast so alt wie unser Internetanschluss.",
+        inline=False)
+    embed.set_footer(
+        text="Corpsegrinder • Willkommen • corpsegrinder:welcome")
     return embed
+
 
 def announcement_intro_embed():
     embed = discord.Embed(
@@ -70,17 +86,22 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🛠️ Corpsegrinder Bot – Update " + VERSION,
+        title="🔥 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Neue Levelgruppen und Dungeon-Planer am richtigen Platz!**\n\n"
-            "🏰 Der Dungeon-Planer erscheint jetzt in **#dungeons**; neue "
-            "Dungeon-Termine werden ebenfalls dort veröffentlicht.\n\n"
-            "🌿 In **#pve-gruppensuche** gibt es einen eigenen Levelgruppen-Planer "
-            "mit Gebiet, Levelbereich, Datum und Uhrzeit. Mitspieler können sich "
-            "mit einem Klick für bis zu fünf Plätze anmelden.\n\n"
-            "🔊 Der Ersteller eines temporären PvE-/PvP-Sprachkanals wird automatisch "
-            "in seinen Raum verschoben, sofern der Bot **Mitglieder verschieben** darf."
+            "**Das große Horde-Community-Update!** 🍻\n\n"
+            "🎨 Neue Warcraft-Karten, Banner und dynamische Gruppenzentralen "
+            "mit den nächsten **3 Terminen** sowie eine schönere Rollenwahl.\n\n"
+            "🔔 **15 Minuten vor Gruppenbeginn** erhalten angemeldete Spieler "
+            "eine persönliche Erinnerung. Diese lässt sich über **/erinnerungen** "
+            "oder im Rollenmenü deaktivieren.\n\n"
+            "🎉 Bei **5/5** Dungeon-Spielern erhalten alle eine Vollmeldung. "
+            "Ist die Gruppe 15 Minuten vor Start vollständig, öffnet "
+            "der Bot automatisch einen privaten **5-Platz-Sprach-Treffpunkt**.\n\n"
+            "⌛ Eine Stunde nach Start wird die Gruppe als **Abgelaufen** markiert "
+            "und fünf Minuten später gelöscht. Organisatoren können Gruppen "
+            "auch vorzeitig abschließen. Sprachkanäle bleiben, solange jemand drin ist.\n\n"
+            "🏠 Der bisherige separate Gildenbereich wird auf Wunsch entfernt."
         ),
-        colour=discord.Colour.green())
+        colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
     return embed
