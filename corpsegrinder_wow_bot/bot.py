@@ -927,34 +927,50 @@ def planned_embed(plan):
     members = plan_members(group_id)
     counts = plan_counts(group_id)
     full = all(counts[r] == PLAN_LIMITS[r] for r in PLAN_ROLES)
+    now = int(datetime.now(timezone.utc).timestamp())
     if status == "cancelled":
-        caption, color = "❌ Termin abgesagt", discord.Colour.red()
-    elif not plan_open(plan):
-        caption, color = "⌛ Termin vorbei", discord.Colour.dark_grey()
+        caption, color = "❌ ABGESAGT", discord.Colour.red()
+    elif status == "completed":
+        caption, color = "✅ ABGESCHLOSSEN", discord.Colour.green()
+    elif status in ("expired", "archived") or now >= when + 3600:
+        caption, color = "⌛ ABGELAUFEN", discord.Colour.dark_grey()
+    elif now >= when:
+        caption, color = "⚔️ DUNGEON LÄUFT", discord.Colour.orange()
     elif full:
-        caption, color = "✅ Gruppe vollständig", discord.Colour.green()
+        caption, color = "🎉 GRUPPE VOLLSTÄNDIG", discord.Colour.gold()
     else:
-        caption, color = "🔎 Mitspieler gesucht", discord.Colour.blue()
+        caption, color = "🔎 MITSTREITER GESUCHT", discord.Colour.from_rgb(145, 37, 28)
     safe_instance = discord.utils.escape_markdown(instance[:90])
-    safe_note = discord.utils.escape_markdown(note[:160])
     embed = discord.Embed(
-        title="🏰 " + safe_instance,
+        title="⚔️ " + safe_instance.upper(),
         description=(
-            f"**{caption}** · Termin **#{group_id}**\n"
+            f"**{caption}**  ·  Dungeon **#{group_id}**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 **{display}**\n"
-            f"🕒 <t:{when}:F> · <t:{when}:R>\n"
-            f"👑 Organisiert von <@{owner}>"
-            + (f"\n📝 {safe_note}" if note else "")),
-        colour=color
-    )
+            f"⏳ <t:{when}:R> · 🔔 Erinnerung 15 Min. vorher\n"
+            f"👑 Organisiert von <@{owner}>\n"
+            + (f"📜 {discord.utils.escape_markdown(note[:160])}\n" if note else "")
+        ),
+        colour=color)
+    filled = len(members)
+    embed.add_field(
+        name=f"⚔️ SCHLACHTGRUPPE · {filled}/5",
+        value=("🟥" * filled + "⬛" * (5-filled)),
+        inline=False)
     for role, emoji in (("Tank", "🛡️"), ("Heiler", "💚"), ("DD", "💥")):
         players = [f"<@{user}>" for user, task in members if task == role]
         embed.add_field(
             name=f"{emoji} {role} · {len(players)}/{PLAN_LIMITS[role]}",
             value="\n".join(players) if players else "*Noch frei*",
             inline=True)
+    meta = event_meta("dungeon", group_id, create=False)
+    if meta and meta[4]:
+        embed.add_field(
+            name="🔊 Euer Sprach-Treffpunkt",
+            value=f"<#{meta[4]}> · **5 Plätze** · ab 15 Min. vor Termin",
+            inline=False)
     embed.set_footer(
-        text="Auf eine Rolle klicken = anmelden/wechseln · ❌ = abmelden")
+        text="Für die Horde! • Rolle anklicken = anmelden/wechseln • Abmelden • Organisator: Abschließen")
     return embed
 
 
@@ -977,6 +993,14 @@ class PlannedView(discord.ui.View):
             await plan_signup(interaction, group_id, None)
         button.callback = leave
         self.add_item(button)
+        finish = discord.ui.Button(
+            label="Abschließen", emoji="✅",
+            style=discord.ButtonStyle.secondary, row=1,
+            custom_id=f"corpse_plan_{group_id}_finish")
+        async def completed(interaction):
+            await finish_scheduled_group(interaction, "dungeon", group_id)
+        finish.callback = completed
+        self.add_item(finish)
 
 
 async def refresh_planned_message(plan):
@@ -1713,34 +1737,52 @@ def level_open(record):
 def level_card(record):
     group_id, _, owner, area, low, high, when, display, note, _, _, status = record
     members = level_players(group_id)
+    now = int(datetime.now(timezone.utc).timestamp())
     if status == "cancelled":
-        state, colour = "❌ Abgesagt", discord.Colour.red()
-    elif not level_open(record):
-        state, colour = "⌛ Vergangen", discord.Colour.dark_grey()
-    elif len(members) >= 5:
-        state, colour = "✅ Gruppe vollständig", discord.Colour.green()
+        label, color = "❌ ABGESAGT", discord.Colour.red()
+    elif status == "completed":
+        label, color = "✅ ABGESCHLOSSEN", discord.Colour.green()
+    elif status in ("expired", "archived") or now >= when + 3600:
+        label, color = "⌛ ABGELAUFEN", discord.Colour.dark_grey()
+    elif now >= when:
+        label, color = "🌿 QUESTGRUPPE LÄUFT", discord.Colour.orange()
+    elif len(members) == 5:
+        label, color = "🎉 GRUPPE VOLLSTÄNDIG", discord.Colour.gold()
     else:
-        state, colour = "🌿 Questgruppe sucht Mitspieler", discord.Colour.from_rgb(66, 167, 104)
+        label, color = "🌿 MITSTREITER GESUCHT", discord.Colour.from_rgb(46, 142, 83)
     embed = discord.Embed(
-        title="🌿 LEVELGRUPPE · " + discord.utils.escape_markdown(area[:90]),
+        title="🌿 " + discord.utils.escape_markdown(area[:90]).upper(),
         description=(
-            f"**{state}** · Gruppe **#{group_id}**\n"
-            f"📅 **{display}** · <t:{when}:R>\n"
-            f"🎚️ **Level {low}–{high}**\n"
+            f"**{label}**  ·  Levelgruppe **#{group_id}**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 **{display}**  ·  <t:{when}:R>\n"
+            f"🎚️ **Level {low}–{high}**  ·  🔔 Erinnerung 15 Min. vorher\n"
             f"👑 Organisiert von <@{owner}>\n"
             + (f"📝 {discord.utils.escape_markdown(note[:160])}\n" if note else "")
         ),
-        colour=colour
-    )
+        colour=color)
     embed.add_field(
-        name=f"👥 Mitspieler · {len(members)}/5",
-        value=("\n".join(f"• <@{user_id}>" for user_id in members)
-               if members else "*Noch keine Anmeldungen*"),
+        name=f"👥 QUELLEN-TRUPP · {len(members)}/5",
+        value=("🟩" * len(members) + "⬛" * (5-len(members))),
         inline=False)
-    if len(members) < 5 and level_open(record):
-        embed.add_field(name="Freie Plätze", value=f"✨ {5-len(members)} Spieler gesucht!", inline=False)
+    embed.add_field(
+        name="🍃 DIE ABENTEURER",
+        value=("\n".join(f"• <@{user}>" for user in members)
+               if members else "*Noch keine Anmeldung*"),
+        inline=False)
+    if level_open(record) and len(members) < 5:
+        embed.add_field(
+            name="Noch Platz am Lagerfeuer",
+            value=f"✨ **{5-len(members)}** freie Plätze",
+            inline=False)
+    meta = event_meta("level", group_id, create=False)
+    if meta and meta[4]:
+        embed.add_field(
+            name="🔊 Euer Treffpunkt",
+            value=f"<#{meta[4]}> · max. 5 Mitspieler",
+            inline=False)
     embed.set_footer(
-        text="Beitreten und Abmelden über die Buttons • Gemeinsam questen, ohne feste Klassenpflicht")
+        text="Corpsegrinder • Dabei sein / Abmelden • Organisator: Abschließen")
     return embed
 
 
@@ -1761,12 +1803,19 @@ class LevelGroupView(discord.ui.View):
     async def leave(self, interaction, button):
         await join_level_group(interaction, self.group_id, False)
 
+    @discord.ui.button(label="Abschließen", emoji="✅",
+                       custom_id="corpse_level_finish_placeholder",
+                       style=discord.ButtonStyle.secondary)
+    async def finish(self, interaction, button):
+        await finish_scheduled_group(interaction, "level", self.group_id)
+
 
 def level_group_view(group_id):
     view = LevelGroupView(group_id)
     for item in view.children:
         if isinstance(item, discord.ui.Button):
-            prefix = "join" if item.label == "Dabei sein" else "leave"
+            prefix = ("join" if item.label == "Dabei sein"
+                      else "finish" if item.label == "Abschließen" else "leave")
             item.custom_id = f"corpse_level_{group_id}_{prefix}"
     return view
 
