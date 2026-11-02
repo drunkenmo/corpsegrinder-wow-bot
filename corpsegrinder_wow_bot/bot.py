@@ -3154,7 +3154,7 @@ def read_official_blizzard_page(url):
         raise ValueError("Blizzard-URL außerhalb der erlaubten Domains.")
     request = Request(url, headers={
         "User-Agent": "Mozilla/5.0 (compatible; CorpsegrinderForeverNews/1.0; Discord bot)",
-        "Accept": "text/html,application/xhtml+xml",
+        "Accept": "application/json, text/html, application/xhtml+xml",
         "Accept-Language": "de-DE,de;q=0.9",
     })
     with urlopen(request, timeout=20) as response:
