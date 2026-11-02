@@ -209,6 +209,8 @@ async def publish_panel(guild):
 @bot.event
 async def on_ready():
     logging.info("Angemeldet als %s", bot.user)
+    # Bei erneuter Verbindung erneut verwaiste temporäre Räume prüfen.
+    background(cleanup_leftover_voice_channels())
     if getattr(bot, "initialized", False):
         return
     bot.add_view(RoleView())
@@ -217,7 +219,6 @@ async def on_ready():
     await bot.tree.sync(guild=SERVER)
     bot.initialized = True
     mark_ready()
-    background(cleanup_leftover_voice_channels())
     background(apply_all_wow_role_styles_once())
     await post_version_news_once()
 
@@ -545,7 +546,6 @@ async def style_all_wow_roles(guild):
                     name=styled_name,
                     colour=discord.Colour(colour),
                     reason="Corpsegrinder 1.0.8: fehlende WoW-Rolle")
-                changed.append(styled_name)
             except discord.HTTPException:
                 skipped.append(plain_name + " (Rolle fehlt/Erstellen nicht erlaubt)")
                 continue
