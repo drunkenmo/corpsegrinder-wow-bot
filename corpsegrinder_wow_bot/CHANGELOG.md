@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.13 – #forever-news: Offizielle Blizzard-Neuigkeiten
+- Neuer Textkanal #forever-news in der WoW-Start-Kategorie direkt unter #ankündigungen, vor #rollenwahl.
+- Ausschließlich deutsche offizielle Blizzard-Artikel zu World of Warcraft: Forever; andere Retail-, Midnight- und Classic-Nachrichten ausgeschlossen.
+- Automatische Prüfung alle 30 Minuten via offizieller Blizzard-News-Übersicht.
+- Beim ersten Start werden passende Meldungen aus den letzten 48 Stunden anhand des ursprünglichen Veröffentlichungsdatums nachgetragen. Fehlen aktuelle Artikel, bleibt nur die angepinnte Info-Karte.
+- Permanente SQLite-Artikel-ID-Speicherung verhindert wiederholte Veröffentlichungen nach Neustarts.
+- /forever_news_pruefen (Admin) prüft manuell; /forever_news_status zeigt letzte Prüfung und Artikelzahl.
+- Fehler beim Quellenabruf werden protokolliert, ohne erfundene Meldungen zu posten.
+- Kein Home-Assistant-App-Update nötig; /bot_update installiert die Änderung.
+
 ## 1.0.12 – Das große Corpsegrinder-Horde-Update
 
 - Neuer Warcraft-/Lagerfeuer-Look: Willkommen mit originalem Corpsegrinder-Banner, neue Rollenwahl und humorvolle Bildpanels für Dungeon- und Levelgruppen.
