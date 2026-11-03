@@ -987,6 +987,156 @@ class CharacterMainSelectView(discord.ui.View):
             ephemeral=True)
 
 
+class CharacterEditModal(discord.ui.Modal, title="Charakter bearbeiten"):
+    def __init__(self, owner_id, original_name):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+        self.original_name = original_name
+        row = owned_character(owner_id, original_name)
+        if row is None:
+            raise ValueError("Charakter nicht mehr im Profil.")
+        self.ingame_name = discord.ui.TextInput(
+            label="Ingame-Name", default=row[0],
+            min_length=2, max_length=40, required=True)
+        self.character_class = discord.ui.TextInput(
+            label="Klasse (z. B. Krieger, Schamane)",
+            default=row[1], min_length=4, max_length=30, required=True)
+        self.add_item(self.ingame_name)
+        self.add_item(self.character_class)
+
+    async def on_submit(self, interaction):
+        if not allowed(interaction) or interaction.user.id!=self.owner_id:
+            return await interaction.response.send_message(
+                "Du kannst nur deine eigenen Charaktere bearbeiten.",
+                ephemeral=True)
+        try:
+            name,klass=edit_character_profile(
+                interaction.user.id, self.original_name,
+                str(self.ingame_name.value), str(self.character_class.value))
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                "⚠️ "+str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        await sync_optional_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        await interaction.followup.send(
+            "✅ **"+discord.utils.escape_markdown(name)+"** · **"+
+            discord.utils.escape_markdown(klass)+"** gespeichert.\n"
+            "Änderungen an deinem Hauptcharakter erscheinen bei "
+            "aktiviertem Sprachchat-Nickname auch im Sprachkanal.",
+            embed=profile_embed(interaction.user.id),
+            view=CharacterProfileActionsView(interaction.user.id),
+            ephemeral=True)
+
+
+class CharacterEditSelectView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        options=[
+            discord.SelectOption(label=name,value=name,description=klass)
+            for name,klass,_level in user_characters(owner_id)[:25]]
+        selected=discord.ui.Select(
+            placeholder="Welchen Charakter bearbeiten?",
+            min_values=1,max_values=1,options=options)
+        selected.callback=self.edit_selected
+        self.add_item(selected)
+
+    async def interaction_check(self, interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Diese Charakterauswahl gehört jemand anderem.",ephemeral=True)
+        return False
+
+    async def edit_selected(self, interaction):
+        selected=self.children[0].values[0]
+        try:
+            modal=CharacterEditModal(self.owner_id,selected)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc),ephemeral=True)
+        await interaction.response.send_modal(modal)
+
+
+class CharacterDeleteConfirmView(discord.ui.View):
+    def __init__(self,owner_id,name):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        self.name=name
+
+    async def interaction_check(self,interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Du kannst nur deine eigenen Charaktere löschen.",ephemeral=True)
+        return False
+
+    @discord.ui.button(label="Ja, endgültig löschen",emoji="🗑️",
+                       style=discord.ButtonStyle.danger)
+    async def confirm(self,interaction,button):
+        try:
+            removed=delete_character_profile(interaction.user.id,self.name)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc),ephemeral=True)
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        if main_character(interaction.user.id):
+            await sync_optional_character_nickname(interaction.user)
+        else:
+            await restore_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        self.stop()
+        await interaction.followup.send(
+            "🗑️ **"+discord.utils.escape_markdown(removed)+
+            "** gelöscht. Eine bestehende Gruppenanmeldung bleibt "
+            "erhalten; ein anderer Hauptcharakter wird bei Bedarf angezeigt.",
+            embed=profile_embed(interaction.user.id),
+            view=CharacterProfileActionsView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(label="Abbrechen",style=discord.ButtonStyle.secondary)
+    async def cancel(self,interaction,button):
+        self.stop()
+        await interaction.response.edit_message(
+            content="✅ Löschen abgebrochen. Dein Charakter bleibt gespeichert.",
+            view=None)
+
+
+class CharacterDeleteSelectView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        options=[
+            discord.SelectOption(label=name,value=name,description=klass)
+            for name,klass,_level in user_characters(owner_id)[:25]]
+        select=discord.ui.Select(
+            placeholder="Welchen Charakter löschen?",
+            min_values=1,max_values=1,options=options)
+        select.callback=self.select_delete
+        self.add_item(select)
+
+    async def interaction_check(self,interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Du kannst nur deine eigenen Charaktere löschen.",ephemeral=True)
+        return False
+
+    async def select_delete(self,interaction):
+        name=self.children[0].values[0]
+        if not owned_character(interaction.user.id,name):
+            return await interaction.response.send_message(
+                "Charakter nicht mehr gefunden.",ephemeral=True)
+        await interaction.response.send_message(
+            "⚠️ **"+discord.utils.escape_markdown(name)+
+            "** wirklich löschen? Falls dies dein Hauptcharakter ist, "
+            "wird automatisch einer deiner übrigen Charaktere zum Main. "
+            "Du kannst auch abbrechen.",
+            view=CharacterDeleteConfirmView(self.owner_id,name),
+            ephemeral=True)
+
+
 class CharacterProfileActionsView(discord.ui.View):
     def __init__(self, owner_id):
         super().__init__(timeout=180)
@@ -1013,6 +1163,46 @@ class CharacterProfileActionsView(discord.ui.View):
             "👑 Wähle den Charakter, mit dem du hauptsächlich spielst.",
             view=CharacterMainSelectView(interaction.user.id),
             ephemeral=True)
+
+    @discord.ui.button(
+        label="Bearbeiten", emoji="✏️",
+        style=discord.ButtonStyle.secondary)
+    async def edit_profile(self, interaction, button):
+        if not user_characters(interaction.user.id):
+            return await interaction.response.send_message(
+                "Registriere zuerst einen Charakter in #rollenwahl.",
+                ephemeral=True)
+        await interaction.response.send_message(
+            "✏️ Wähle deinen Charakter. Danach kannst du **Name und Klasse** "
+            "bearbeiten (ohne Level).",
+            view=CharacterEditSelectView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Löschen", emoji="🗑️",
+        style=discord.ButtonStyle.danger)
+    async def delete_profile(self, interaction, button):
+        if not user_characters(interaction.user.id):
+            return await interaction.response.send_message(
+                "Du hast noch keinen Charakter.",ephemeral=True)
+        await interaction.response.send_message(
+            "🗑️ Welchen Charakter möchtest du löschen?",
+            view=CharacterDeleteSelectView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Im Sprachchat anzeigen", emoji="🔊",
+        style=discord.ButtonStyle.success, row=1)
+    async def show_in_voice(self, interaction, button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        message=await toggle_character_server_nick(interaction.user)
+        await interaction.followup.send(
+            message+"\n\n**Discord-Hinweis:** Der Servernickname wird "
+            "in allen Sprach- und Textkanälen dieses Servers angezeigt. "
+            "Die Einstellung ist freiwillig und lässt sich mit demselben "
+            "Button wieder ausschalten.",
+            ephemeral=True)
+
 
 
 async def toggle_character_server_nick(member):
