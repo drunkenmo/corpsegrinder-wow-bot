@@ -151,6 +151,11 @@ def role_panel():
         value="News-Rollen im Menü auswählen. Erinnerungen und "
               "Gruppenmeldungen kannst du separat ein- oder ausschalten.",
         inline=False)
+    embed.add_field(
+        name="🎭 DEIN INGAME-CHARAKTER",
+        value="Direkt unter diesem Menü steht die **Charakterregistrierung**. "
+              "Ingame-Name und Klasse reichen – ohne Level, ohne Freigabe.",
+        inline=False)
     embed.set_footer(
         text="Erneut klicken = abwählen • Meine Auswahl = private Übersicht")
     return embed
@@ -310,6 +315,7 @@ async def on_ready():
     if getattr(bot, "initialized", False):
         return
     bot.add_view(RoleView())
+    bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
     bot.add_view(LevelDashboardView())
     for (group_id, message_id) in db.execute(
@@ -356,8 +362,16 @@ async def on_member_join(member):
             logging.warning("Community-Rolle konnte nicht vergeben werden")
     greeting = channel(member.guild, "willkommen")
     if isinstance(greeting, discord.TextChannel):
-        await greeting.send("⚔️ Willkommen bei **Corpsegrinder**, " + member.mention + "! Für die Horde! Wähle deine Rollen in #rollenwahl.",
-                            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        roles_channel = channel(member.guild, "rollenwahl")
+        destination = roles_channel.mention if roles_channel else "#rollenwahl"
+        await greeting.send(
+            "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
+            "! Für die Horde! 🍻\n"
+            "Starte in " + destination +
+            ": **Rollen auswählen → Charakter registrieren**. "
+            "Du brauchst nur **Ingame-Name und Klasse**, keine Freigabe.",
+            allowed_mentions=discord.AllowedMentions(
+                users=True,roles=False,everyone=False))
 
 # Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
 # Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
@@ -563,6 +577,8 @@ async def setup(i: discord.Interaction):
         if not setting("role_post"):
             current = "Rollenmenü"
             await publish_panel(i.guild)
+        current = "Charakter-Registrierung"
+        await publish_character_panel(i.guild)
         await i.followup.send("Einrichtung abgeschlossen. Andere Kanäle wurden nicht verändert.", ephemeral=True)
     except discord.HTTPException as exc:
         logging.exception("Einrichtung: %s", current)
@@ -575,7 +591,10 @@ async def update_roles(i: discord.Interaction):
     await i.response.defer(ephemeral=True, thinking=True)
     try:
         response = await publish_panel(i.guild)
-        await i.followup.send(response + " Bestehende Rollen bleiben erhalten.", ephemeral=True)
+        await publish_character_panel(i.guild)
+        await i.followup.send(
+            response + " Charakter-Registrierung ist ebenfalls verfügbar. "
+            "Bestehende Rollen bleiben erhalten.", ephemeral=True)
     except discord.HTTPException:
         logging.exception("Rollenmenü")
         await i.followup.send("Fehler beim Aktualisieren. Bot-Berechtigungen in #rollenwahl prüfen.", ephemeral=True)
@@ -1316,7 +1335,11 @@ async def refresh_community_panels_on_start():
     try:
         await publish_panel(guild)
     except (discord.HTTPException, RuntimeError):
-        logging.exception("Rollenwahl-Panel 1.0.12 konnte nicht aktualisiert werden")
+        logging.exception("Rollenwahl-Panel konnte nicht aktualisiert werden")
+    try:
+        await publish_character_panel(guild)
+    except (discord.HTTPException, RuntimeError):
+        logging.exception("Charakter-Panel 1.0.17 konnte nicht aktualisiert werden")
     target = channel(guild, "willkommen")
     if isinstance(target, discord.TextChannel):
         try:
