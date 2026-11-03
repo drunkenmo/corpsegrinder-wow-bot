@@ -1,9 +1,9 @@
 {
-  "version": "1.0.17",
+  "version": "1.0.18",
   "min_bootstrap": "1.0.6",
-  "commit": "456cc4daf0bd9483436e51a2bfba459470de1889",
+  "commit": "da00d92d617f914b95ca7eb5eca2e804e1835e57",
   "files": {
-    "bot.py": "3c1faf062876fcef03d9bdbfc83d20ce8cc100cab703c0eeafb3af39c460fd0a",
-    "community_features.py": "b9319976e83ee1f1b612744db042f151c8f14504824a3a2bff2109677bea3eef"
+    "bot.py": "a63058e72c10b26e70e5dca6fbf0c868f16650a5209aba8dd1dfa856b86db06e",
+    "community_features.py": "5e4a5fa8284b0586385662770072f52700310955099e03f19237ad8ce55f08a0"
   }
 }
