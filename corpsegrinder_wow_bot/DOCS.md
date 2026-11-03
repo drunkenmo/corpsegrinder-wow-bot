@@ -254,3 +254,18 @@ Die SQLite-Tabelle `characters` bleibt unverändert, inklusive der Alt-Spalten `
 Das neue Charakterpanel hat einen eindeutigen Discord-Marker `corpsegrinder:character-panel` und ist über `character_panel_message_v117` persistiert. Der Bot lädt die zugehörigen dauerhaften Buttons bei jedem Start und aktualisiert dieselbe Nachricht. Als Administrator kannst du jederzeit `/rollenmenue_erneuern` verwenden; dabei wird auch das Charakterpanel erneuert. Der gewünschte Komfort-Workflow benötigt keine neuen Python-Abhängigkeiten.
 
 Bei Slash-Kommandos kann die Discord-App unmittelbar nach einem Update noch die alte Auswahlliste im Cache zeigen; die App neu öffnen, falls `/charakter` weiterhin ein Level verlangt.
+
+## Charaktere bearbeiten, löschen und im Sprachchat anzeigen (Version 1.0.18)
+
+In **#rollenwahl** auf **Meine Charaktere** klicken. Im privaten Profil stehen jetzt vier Funktionen:
+
+1. **👑 Hauptcharakter ändern:** Wie bisher einen anderen registrierten Charakter als Main wählen.
+2. **✏️ Bearbeiten:** Einen eigenen Charakter auswählen und **Ingame-Name und Klasse** in einem Eingabedialog ändern. Der Bot schreibt den Namen auch in gespeicherten Gruppen-Charakterzuordnungen um; Teilnahmen und Rollen bleiben erhalten. Es werden weder Level noch Berufe abgefragt.
+3. **🗑️ Löschen:** Einen eigenen Charakter auswählen und die Aktion bestätigen. Es gibt einen separaten Abbrechen-Button. Der Rest der Charaktere und die Gruppenanmeldungen bleiben bestehen. Wird der Main gelöscht, bestimmt der Bot bei vorhandenen Twinks einen verbleibenden Main. Gruppen, die den gelöschten Charakter ausgewählt hatten, verwenden wieder den jeweiligen aktuellen Hauptcharakter.
+4. **🔊 Im Sprachchat anzeigen:** Der Bot versucht, den **Discord-Servernickname** freiwillig auf den Hauptcharakternamen zu setzen, **ohne** Discord-Username dahinter. Der Name erscheint damit auch in allen Discord-Sprachkanälen dieses Servers. Erneutes Klicken stellt den vorherigen Nickname wieder her, sofern der Bot ihn noch selbst verwaltet.
+
+Auch das öffentliche Charakter-Panel hat den Button **Sprachchat-Name an/aus**. Die gespeicherten Daten in `character_nickname_preferences` bleiben erhalten. Eine bestehende aktivierte Einstellung wird bei Änderung des Mains aktualisiert, aber nicht, wenn ein Mitglied seinen Nickname inzwischen selbst manuell geändert hat.
+
+**Discord-Berechtigungen:** Der Bot benötigt *Nicknames verwalten* und eine Rolle über dem betreffenden Mitglied. **Der Serverinhaber ist nicht umbenennbar durch Bots**. Falls du Serverinhaber bist, ändere deinen eigenen serverbezogenen Anzeigenamen in Discord selbst auf `Grumok`; der Bot weist bei einem Fehlschlag darauf hin. Diese Einstellung beeinflusst nicht deinen globalen Discord-Benutzernamen.
+
+Im Hauptprofil werden die aktiven Charaktere weiterhin ohne Stufenangabe angezeigt. Vorhandene historische Charakter-Level und Berufe werden weder abgefragt noch beim Bearbeiten gelöscht.
