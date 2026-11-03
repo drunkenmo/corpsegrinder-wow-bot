@@ -824,6 +824,62 @@ def save_character_without_level(user_id, name, klass):
 
 
 
+def edit_character_profile(user_id, original_name, new_name, klass):
+    """Edit owned character in-place, preserving old data and event signups."""
+    current = owned_character(user_id, original_name)
+    if current is None:
+        raise ValueError("Der ausgewählte Charakter wurde nicht gefunden.")
+    normalized = normalize_character_name(new_name)
+    official_class = next(
+        (value for value in CLASSES if value.casefold() == klass.strip().casefold()),
+        None)
+    if not official_class:
+        raise ValueError("Unbekannte Klasse. Wähle eine der acht Horde-Klassen: "
+                         + ", ".join(CLASSES) + ".")
+    conflict = owned_character(user_id, normalized)
+    if conflict and conflict[0].casefold() != current[0].casefold():
+        raise ValueError("Du hast bereits einen Charakter mit diesem Namen.")
+    # Persist old level/profession columns untouched for older DB versions.
+    db.execute(
+        "UPDATE characters SET name=?,klass=? WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,official_class,GUILD_ID,user_id,current[0]))
+    db.execute(
+        "UPDATE main_characters SET name=? WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,GUILD_ID,user_id,current[0]))
+    db.execute(
+        "UPDATE group_character_choices SET name=? WHERE user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,user_id,current[0]))
+    db.commit()
+    return normalized, official_class
+
+
+def delete_character_profile(user_id, character_name):
+    """Delete only own profile; group membership and other characters stay."""
+    current = owned_character(user_id, character_name)
+    if current is None:
+        raise ValueError("Der ausgewählte Charakter wurde nicht gefunden.")
+    db.execute(
+        "DELETE FROM characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,current[0]))
+    db.execute(
+        "DELETE FROM main_characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,current[0]))
+    # A deleted character should not appear as an orphan in group cards:
+    # historical signups remain, now falling back to another main if present.
+    db.execute(
+        "DELETE FROM group_character_choices WHERE user=? "
+        "AND name=? COLLATE NOCASE",
+        (user_id,current[0]))
+    db.commit()
+    ensure_main_character(user_id)
+    return current[0]
+
+
 # --- Einfache Charakter-Einrichtung für neue und bestehende Mitglieder -------
 # Neues Panel in #rollenwahl, statt einem Slash-Befehl als Einstieg.
 # Der Button bleibt nach Bot-Neustarts erhalten (timeout=None + custom_id).
