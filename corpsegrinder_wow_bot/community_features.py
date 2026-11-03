@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.21"
+VERSION = "1.0.22"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -32,10 +32,10 @@ WELCOME_FEATURES = (
     ("🎭 ERSTE SCHRITTE", (
         ("rollenwahl", "Rollen wählen (PvE/PvP, Tank, Heiler, DD, News) und "
          "den **Ingame-Namen + Klasse** registrieren – ohne Level oder Freigabe"),
-        ("allgemein", "Mit der Horde chatten, Fragen stellen und Leute kennenlernen"),
+        ("lagerfeuer", "Am Lagerfeuer mit der Horde quatschen und Leute kennenlernen"),
     )),
     ("⚔️ MITSPIELER FINDEN", (
-        ("dungeons", "Dungeon-Termine planen, mit Tank/Heiler/DD anmelden, "
+        ("dungeon-planer", "Dungeon-Termine planen, mit Tank/Heiler/DD anmelden, "
          "einen Charakter auswählen und Erinnerungen bekommen"),
         ("pve-gruppensuche", "Gemeinsam leveln und Questgruppen erstellen"),
         ("pvp-gruppensuche", "Mitspieler für PvP finden"),
@@ -49,7 +49,7 @@ WELCOME_FEATURES = (
     )),
     ("🎮 MEHR AUS DER COMMUNITY", (
         ("charaktere-und-berufe", "Über Charaktere und Berufe sprechen"),
-        ("handel-und-crafting", "Handel, Herstellung und Materialien"),
+        ("handel-und-crafting", "Per Bot-Handelsbörse suchen, anbieten und Handwerksaufträge einstellen"),
         ("screenshots", "Eure WoW-Momente teilen"),
     )),
 )
@@ -76,8 +76,8 @@ def welcome_embed(guild=None, extra_tip=""):
             f"**1.** In {channel_link('rollenwahl')} deine Rollen auswählen.\n"
             "**2.** Dort **Charakter registrieren** anklicken und "
             "**Ingame-Namen + Klasse** eintragen (Hauptcharakter und Twinks möglich).\n"
-            f"**3.** In {channel_link('allgemein')} Hallo sagen oder "
-            f"in {channel_link('dungeons')} direkt Mitspieler suchen.\n\n"
+            f"**3.** In {channel_link('lagerfeuer')} Hallo sagen oder "
+            f"in {channel_link('dungeon-planer')} direkt Mitspieler suchen.\n\n"
             "📌 **Diese Übersicht bleibt aktuell**, wenn wir neue Bot-Funktionen "
             "hinzufügen. Du musst nicht nach neuen Anleitungen suchen."
         ),
@@ -140,17 +140,21 @@ def update_embed():
     embed = discord.Embed(
         title="🌋 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "🇩🇪 **Blizzard-Klassenänderungen endlich direkt auf Deutsch!**\n\n"
-            "🔵 Im Kanal **#forever-news** stehen bei offiziellen "
-            "Entwicklungsnotizen nun direkt die wichtigsten erkannten "
-            "Buffs, Nerfs und Zahlen, sortiert nach Klassen.\n"
-            "✅ Die Werte stammen aus Blizzards Originalbeiträgen. "
-            "Bei unklaren Formulierungen wird nichts erfunden.\n"
-            "♻️ Bereits veröffentlichte Bluepost-Karten werden mit "
-            "der neuen deutschen Übersicht aktualisiert.\n\n"
-            "Die ausführlichen englischen Notizen bleiben als Quelle "
-            "verlinkt; es handelt sich um eine geprüfte Auswahl, "
-            "nicht um eine vollständige Übersetzung."
+            "**Neuer Stammtisch und Handelsplatz für die Horde!** 🍻\n\n"
+            "🔥 Der bisherige Kanal **#allgemein** heißt jetzt "
+            "**#lagerfeuer**.\n"
+            "🏰 **#dungeons** wird zu **#dungeon-planer**.\n"
+            "Die vorhandenen Kanäle werden umbenannt, nicht neu erstellt. "
+            "Alle alten Beiträge, Gruppentermine und Berechtigungen bleiben "
+            "erhalten.\n\n"
+            "⚒️ In **#handel-und-crafting** gibt es jetzt eine neue "
+            "**Horde-Handelsbörse** mit Buttons für **Suche**, **Biete** "
+            "und **Handwerksauftrag**. "
+            "Mitglieder können den Ersteller kontaktieren, eigene "
+            "Einträge anzeigen und mit **Erledigt** abschließen.\n\n"
+            "📌 Die angeheftete Handelsübersicht zeigt aktuelle Einträge. "
+            "Alles funktioniert über den bestehenden Bot – "
+            "ohne weitere Plugins oder zusätzliche Kanäle."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)

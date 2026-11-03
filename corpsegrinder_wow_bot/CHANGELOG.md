@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.22 – Lagerfeuer, Dungeon-Planer und Horde-Handelsbörse
+
+- **Bestehende Kanäle umbenennen:** `#allgemein` → `#lagerfeuer`, `#dungeons` → `#dungeon-planer`. Der Bot verwendet die vorhandenen Discord-Kanäle und IDs; Nachrichten, Pins, Rollen, Einstellungen, Termine und Sprachkanäle bleiben erhalten. Bei vorhandenen Namenskonflikten wird nichts gelöscht oder zusammengeführt.
+- Alle Verweise in Willkommensanleitung, Buttons, Beitrittsbegrüßung, Dungeonplaner und Termin-Sprachkanälen sind aktualisiert. Eine Rückwärtskompatibilität für die alten Kanalnamen greift, wenn die Discord-Rechte zum Umbenennen fehlen.
+- Der Bot richtet im bestehenden `#handel-und-crafting` eine **angeheftete Händler-Tafel** mit den Buttons **Suche**, **Biete**, **Handwerksauftrag** und **Meine Einträge** ein.
+- Einträge werden mit Titel, Details und optionalem Ingame-Preis/Materialien veröffentlicht und erhalten die Schaltflächen **Kontakt** und **Erledigt**. Abschließen kann nur der Ersteller oder ein Admin.
+- Aktive Angebote stehen in einer aktualisierten Übersicht; jeder Nutzer kann bis zu 6 gleichzeitig offene Einträge veröffentlichen. Daten und Buttons überleben einen Neustart. **Keine Echtgeldgeschäfte**, externe API oder zusätzlichen Kanäle nötig.
+- Admin-Kommandos: `/kanalnamen_aktualisieren` und `/handel_aktualisieren`. Neue und bestehende Bereiche werden bei Botstart aktualisiert, ohne alte Nachrichten zu entfernen.
+- Offline-Tests für Migration, gesicherte Daten, persistente Handelsbuttons und Kanallinks.
+
+
 ## 1.0.21 – Deutsche Blizzard-Klassenänderungen direkt im News-Kanal
 
 - Offizielle englische Blizzard-Blueposts werden zusätzlich auf klar erkennbare konkrete Werteänderungen untersucht (beispielsweise Schaden, Bedrohung, Abklingzeit und Dauer).

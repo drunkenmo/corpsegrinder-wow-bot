@@ -36,8 +36,8 @@ class VoiceAndLevelTests(unittest.TestCase):
 
     def test_dungeon_planer_is_in_dungeons(self):
         s, _ = inspect_code()
-        self.assertIn('target = channel(guild, "dungeons")', s)
-        self.assertIn('async def ensure_planner_dashboard(guild):\n    target = channel(guild, "dungeons")', s)
+        self.assertIn('target = channel(guild, "dungeon-planer")', s)
+        self.assertIn('async def ensure_planner_dashboard(guild):\n    target = channel(guild, "dungeon-planer")', s)
         self.assertIn('old_channel = channel(guild, "pve-gruppensuche")', s)
 
     def test_level_group_tables_exist(self):
