@@ -269,3 +269,72 @@ Auch das öffentliche Charakter-Panel hat den Button **Sprachchat-Name an/aus**.
 **Discord-Berechtigungen:** Der Bot benötigt *Nicknames verwalten* und eine Rolle über dem betreffenden Mitglied. **Der Serverinhaber ist nicht umbenennbar durch Bots**. Falls du Serverinhaber bist, ändere deinen eigenen serverbezogenen Anzeigenamen in Discord selbst auf `Grumok`; der Bot weist bei einem Fehlschlag darauf hin. Diese Einstellung beeinflusst nicht deinen globalen Discord-Benutzernamen.
 
 Im Hauptprofil werden die aktiven Charaktere weiterhin ohne Stufenangabe angezeigt. Vorhandene historische Charakter-Level und Berufe werden weder abgefragt noch beim Bearbeiten gelöscht.
+
+## Neue Mitglieder, Willkommens-Handbuch und Serverstruktur (Bot 1.0.19)
+
+### Gewünschte Kanalreihenfolge
+
+```text
+🌋 WOW FOREVER | START
+   #willkommen         (erster Kanal, Anleitung)
+   #rollenwahl         (Rollen und Charakterregistrierung)
+   #allgemein          (Community-Chat)
+   #ankündigungen      (Server-News)
+   #forever-news       (automatische WoW-Forever-News)
+   #addons             (Addon-Empfehlungen/-Updates)
+
+⚔️ WOW FOREVER | PVE
+   #pve-gruppensuche
+   #dungeons
+   #raids-und-termine
+   #pve-guides
+   PvE – Leveln
+   PvE – Dungeon
+   PvE – Raid
+   ➕ PvE-Gruppe erstellen
+
+🏹 WOW FOREVER | PVP
+   #pvp-gruppensuche
+   #schlachtfelder
+   #welt-pvp
+   #pvp-guides
+   PvP – Gruppe
+   ➕ PvP-Gruppe erstellen
+
+🔨 WOW FOREVER | CHARAKTERE
+   #charaktere-und-berufe
+   #handel-und-crafting
+   #screenshots
+```
+
+Bei Botstart wird die Start-Kategorie oben einsortiert und werden die bekannten Kanäle in der logischen Reihenfolge angeordnet, **ohne andere Kanäle zu löschen**. Bereits vorhandene Rollen, Gruppenanmeldungen, Kanalinhalte und Berechtigungen bleiben erhalten. Der Bot benötigt zum Verschieben **Kanäle verwalten**. Unbekannte, eigene Kanäle werden nicht gelöscht.
+
+### Automatisch aktualisierbare Willkommensseite
+
+Die Willkommensseite in `#willkommen` bleibt dieselbe, möglichst **angeheftete** Discord-Nachricht. Im Gegensatz zu einer Flut neuer Nachrichten wird sie bei jedem Bot-Neustart / Funktionsupdate durch `publish_info` bearbeitet. Der Marker `corpsegrinder:welcome` und die gespeicherte ID `welcome_post` schützen vor doppelten Nachrichten. Die Texte für die Funktionsbereiche sind zentral als `WELCOME_FEATURES` in `community_features.py` abgelegt; bei neuen Features kann diese Tabelle mit erweitert werden. Der Fuß zeigt jeweils die aktuelle Bot-Version.
+
+Im Willkommenstext stehen konkrete Schnellstart-Schritte, Kanalverweise und Funktionsbeschreibungen für Charakterregistrierung, Rollenwahl, Dungeon-/Levelgruppen, Sprachräume, Forever-News, Addons, PvP, Raids, Guides und Community.
+
+**Admin-Befehle:**
+- `/willkommen_aktualisieren` – dieselbe Willkommenskarte sofort bearbeiten und Kanalordnung prüfen
+- `/willkommenshinweis text:<Nachricht>` – individuellen, persistenten Hinweis ergänzen
+- `/willkommenshinweis text:aus` – Hinweis entfernen
+- `/startkanaele_einrichten` – bestehende Startinformationen erneut erstellen/auffrischen
+
+Neue Mitglieder erhalten ihre persönliche kurze Begrüßung in `#allgemein` mit Verweisen zu `#willkommen` und `#rollenwahl`. Damit bleibt die angeheftete Willkommens-Anleitung übersichtlich.
+
+### Den tatsächlichen Discord-Startbildschirm für neue Mitglieder einrichten
+
+**Der Bot kann keine Discord-App auf einem bestimmten Kanal öffnen und den Community-Onboarding-Server-Leitfaden nicht automatisch für dich konfigurieren.** Die Kategorie-Sortierung allein setzt keinen erzwungenen Startkanal.
+
+Für einen echten ersten Orientierungsschirm sind zusätzliche **manuelle Discord-Einstellungen** nötig, am besten am Desktop:
+
+1. Falls noch nicht geschehen, den Server als **Community** aktivieren.
+2. Unter **Servereinstellungen → Onboarding** die **Standardkanäle** festlegen, die alle neuen Mitglieder sofort sehen: mindestens `#willkommen`, `#rollenwahl` und `#allgemein`.
+3. Den **Server-Leitfaden** aktivieren und als **Begrüßungsschild** eine kurze Corpsegrinder-Einführung setzen.
+4. Drei neue-Mitglieder-Aufgaben einrichten: **#willkommen lesen**, **Rollen und Ingame-Charakter registrieren**, **In #allgemein begrüßen oder Gruppe suchen**.
+5. `#willkommen` als normalen, sichtbaren Kanal belassen, wenn er ganz oben in der Kanalliste stehen soll. Optional als Ressourcen-Seite verwenden, wenn Discord die Darstellung als Info-Handbuch stärker hervorheben soll – dabei wird der Kanal allerdings aus der normalen Kanalliste entfernt.
+
+Discord-Hilfedokumentation: https://support.discord.com/hc/de/articles/11074987197975-Community-Onboarding-FAQ-H%C3%A4ufig-gestellte-Fragen und https://support.discord.com/hc/de/articles/13497665141655-FAQ-zum-Server-Leitfaden
+
+Der Server-Leitfaden ist Discord-nativ; für zukünftige neue Funktionskarten erweitert der Bot weiterhin die angeheftete `#willkommen`-Seite.
