@@ -145,10 +145,10 @@ class VisibleUiTests(unittest.TestCase):
 
     def test_panel_and_welcome_refer_to_name_class_only(self):
         self.assertIn("Ingame-Name und Klasse",BOT)
-        self.assertIn("🎭 DEIN INGAME-CHARAKTER",FEATURES)
-        self.assertIn("keine Level-Eingabe",FEATURES)
-        self.assertIn('VERSION = "1.0.18"',FEATURES)
-        self.assertIn("Rollen auswählen → Charakter registrieren",BOT)
+        self.assertIn("🎭 ERSTE SCHRITTE",FEATURES)
+        self.assertIn("ohne Level oder Freigabe",FEATURES)
+        self.assertIn('VERSION = "1.0.19"',FEATURES)
+        self.assertIn("Rollen wählen und **Ingame-Name + Klasse** registrieren",BOT)
 
 
 if __name__=="__main__":
