@@ -777,31 +777,170 @@ def profile_embed(user_id):
     return embed
 
 
-@bot.tree.command(name="charakter", description="Charakter anlegen oder aktualisieren", guild=SERVER)
-@app_commands.describe(name="Charaktername", klasse="Klasse", level="Stufe", beruf1="Beruf 1", beruf2="Beruf 2")
+@bot.tree.command(name="charakter", description="Deinen Ingame-Charakter oder Twink anlegen/aktualisieren", guild=SERVER)
+@app_commands.describe(name="Ingame-Charaktername", klasse="Klasse", level="Stufe",
+                       beruf1="Beruf 1", beruf2="Beruf 2")
 @app_commands.choices(klasse=[app_commands.Choice(name=name, value=name) for name in CLASSES])
 async def character(i: discord.Interaction, name: str, klasse: app_commands.Choice[str],
-                    level: app_commands.Range[int, 1, 80], beruf1: str = "", beruf2: str = ""):
+                    level: app_commands.Range[int, 1, 80],
+                    beruf1: str = "", beruf2: str = ""):
     if not allowed(i):
-        return
-    db.execute("INSERT OR REPLACE INTO characters VALUES (?,?,?,?,?,?,?)",
-               (GUILD_ID, i.user.id, name[:40], klasse.value, level, beruf1[:50], beruf2[:50]))
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    try:
+        name = normalize_character_name(name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
+    existing = owned_character(i.user.id,name)
+    if not existing and len(user_characters(i.user.id)) >= MAX_USER_CHARACTERS:
+        return await answer(i,"Maximal 25 Charaktere pro Mitglied. "
+                            "Lösche zuerst einen nicht mehr benötigten Twink.")
+    db.execute(
+        "INSERT OR REPLACE INTO characters(guild,user,name,klass,level,beruf1,beruf2) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (GUILD_ID,i.user.id,name,klasse.value,level,
+         beruf1[:50],beruf2[:50]))
     db.commit()
-    await answer(i, "Charakter " + name[:40] + " gespeichert.")
+    ensure_main_character(i.user.id)
+    await sync_optional_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(i,(
+        f"✅ **{discord.utils.escape_markdown(name)}** gespeichert! "
+        + ("Du kannst diesen Charakter über **/hauptcharakter** als Main "
+           "festlegen. Für Gruppen wird dein gewählter Ingame-Name angezeigt."
+           if existing or len(user_characters(i.user.id)) > 1
+           else "Dein erster Charakter ist automatisch dein Hauptcharakter.")
+        + "\n**/meine_charaktere** zeigt dein Profil."))
 
-@bot.tree.command(name="meine_charaktere", description="Deine Charaktere anzeigen", guild=SERVER)
+
+@bot.tree.command(name="meine_charaktere",
+                  description="Hauptcharakter und Twinks privat anzeigen",guild=SERVER)
 async def my_characters(i: discord.Interaction):
-    rows = db.execute("SELECT name,klass,level,beruf1,beruf2 FROM characters WHERE guild=? AND user=?",
-                      (GUILD_ID, i.user.id)).fetchall()
-    await answer(i, "\n".join(f"**{n}** · {k} · Stufe {level} · {b1 or '–'} / {b2 or '–'}"
-                             for n, k, level, b1, b2 in rows) or "Noch keine Charaktere.")
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    ensure_main_character(i.user.id)
+    await i.response.send_message(embed=profile_embed(i.user.id),ephemeral=True)
 
-@bot.tree.command(name="charakter_loeschen", description="Eigenen Charakter löschen", guild=SERVER)
+
+async def autocomplete_own_characters(
+        interaction: discord.Interaction, current: str):
+    return [
+        app_commands.Choice(
+            name=f"{name} · {klass} · Stufe {level}",value=name)
+        for name,klass,level in user_characters(interaction.user.id)[:25]
+        if current.casefold() in name.casefold()
+    ][:25]
+
+
+@bot.tree.command(name="hauptcharakter",
+                  description="Deinen Hauptcharakter wählen",guild=SERVER)
+@app_commands.describe(name="Welchen deiner Charaktere möchtest du als Main?")
+@app_commands.autocomplete(name=autocomplete_own_characters)
+async def set_main_character(i: discord.Interaction, name: str):
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    try:
+        row = select_main_character(i.user.id,name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
+    await sync_optional_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(
+        i,f"👑 **{discord.utils.escape_markdown(row[0])}** ist jetzt dein "
+          "Hauptcharakter. Bei deinen nächsten Gruppenanmeldungen wird er "
+          "vorausgewählt.")
+
+
+@bot.tree.command(name="charakter_loeschen",
+                  description="Eigenen Charakter aus dem Profil löschen",
+                  guild=SERVER)
+@app_commands.autocomplete(name=autocomplete_own_characters)
 async def delete_character(i: discord.Interaction, name: str):
-    cursor = db.execute("DELETE FROM characters WHERE guild=? AND user=? AND name=?",
-                        (GUILD_ID, i.user.id, name))
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    row = owned_character(i.user.id,name)
+    if not row:
+        return await answer(i,"Charakter nicht gefunden.")
+    db.execute(
+        "DELETE FROM characters WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
+        (GUILD_ID,i.user.id,row[0]))
+    db.execute(
+        "DELETE FROM main_characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,i.user.id,row[0]))
     db.commit()
-    await answer(i, "Charakter gelöscht." if cursor.rowcount else "Charakter nicht gefunden.")
+    ensure_main_character(i.user.id)
+    if main_character(i.user.id):
+        await sync_optional_character_nickname(i.user)
+    else:
+        await restore_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(
+        i,"🗑️ **"+discord.utils.escape_markdown(row[0])+
+        "** entfernt. Gespeicherte Gruppenanmeldungen bleiben bestehen; "
+        "bei Bedarf kannst du dort einen anderen Charakter auswählen.")
+
+
+async def restore_character_nickname(member):
+    entry = db.execute(
+        "SELECT original_nick,assigned_nick "
+        "FROM character_nickname_preferences WHERE guild=? AND user=?",
+        (GUILD_ID,member.id)).fetchone()
+    if not entry:
+        return False
+    # Do not erase a manually chosen nickname that changed since the Bot set it.
+    if member.nick == entry[1]:
+        try:
+            await member.edit(nick=entry[0],
+                              reason="Corpsegrinder: freiwilliger Ingame-Name deaktiviert")
+        except (discord.Forbidden,discord.HTTPException):
+            return False
+    db.execute(
+        "DELETE FROM character_nickname_preferences WHERE guild=? AND user=?",
+        (GUILD_ID,member.id))
+    db.commit()
+    return True
+
+
+@bot.tree.command(name="ingame_nickname",
+                  description="Servernamen freiwillig auf Hauptcharakter umstellen",guild=SERVER)
+@app_commands.describe(aktiv="Aktivieren oder wieder zum vorherigen Namen zurückkehren")
+async def set_character_nickname(i: discord.Interaction, aktiv: bool):
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    if not aktiv:
+        if await restore_character_nickname(i.user):
+            return await answer(
+                i,"✅ Dein vorheriger Servername ist wiederhergestellt "
+                  "(sofern er noch vom Bot gesetzt war).")
+        return await answer(
+            i,"Kein aktiver Bot-Nickname vorhanden oder der Bot darf "
+              "deinen Namen nicht zurückstellen.")
+    main = main_character(i.user.id)
+    if not main:
+        return await answer(
+            i,"Trage zunächst mit **/charakter** deinen Ingame-Namen ein.")
+    old = db.execute(
+        "SELECT original_nick FROM character_nickname_preferences "
+        "WHERE guild=? AND user=?",(GUILD_ID,i.user.id)).fetchone()
+    proposed = ingame_server_nickname(main,i.user)
+    try:
+        await i.user.edit(nick=proposed,
+                          reason="Corpsegrinder: freiwilliger Ingame-Servername")
+    except discord.Forbidden:
+        return await answer(
+            i,"Der Bot darf deinen Servernamen nicht ändern. "
+              "Prüfe **Nicknames verwalten** und die Rollenposition des Bots.")
+    except discord.HTTPException:
+        return await answer(i,"Discord konnte den Nickname gerade nicht ändern.")
+    db.execute(
+        "INSERT OR REPLACE INTO character_nickname_preferences "
+        "(guild,user,original_nick,assigned_nick) VALUES (?,?,?,?)",
+        (GUILD_ID,i.user.id,old[0] if old else i.user.nick,proposed))
+    db.commit()
+    await answer(
+        i,f"✅ Servernickname: **{discord.utils.escape_markdown(proposed)}**. "
+          "Mit **/ingame_nickname aktiv:false** kannst du ihn wieder ausschalten.")
+
 
 @bot.tree.command(name="gruppe_erstellen", description="PvE/PvP-Gruppe erstellen", guild=SERVER)
 @app_commands.choices(art=[app_commands.Choice(name=x, value=x) for x in INTERESTS])
