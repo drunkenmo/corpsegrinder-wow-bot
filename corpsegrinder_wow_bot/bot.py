@@ -1224,10 +1224,16 @@ async def toggle_character_server_nick(member):
         await member.edit(
             nick=new_nick,
             reason="Corpsegrinder: freiwilliger Ingame-Servernickname")
-    except (discord.Forbidden,discord.HTTPException):
-        return ("⚠️ Der Bot darf deinen Servernamen nicht ändern. "
-                "Benötigt werden **Nicknames verwalten** und eine "
-                "ausreichend hohe Bot-Rollenposition.")
+    except discord.Forbidden:
+        return ("⚠️ Der Bot darf deinen Discord-Servernickname nicht ändern. "
+                "Das geht **nicht beim Serverinhaber** und auch nicht bei "
+                "Mitgliedern mit gleich hoher oder höherer Rolle. "
+                "Du kannst deinen eigenen Servernickname über "
+                "**Serverprofil bearbeiten** manuell auf deinen Ingame-Namen setzen. "
+                "Sonst braucht der Bot **Nicknames verwalten** und "
+                "eine ausreichend hohe Rollenposition.")
+    except discord.HTTPException:
+        return "⚠️ Discord konnte den Servernamen momentan nicht aktualisieren."
     db.execute(
         "INSERT OR REPLACE INTO character_nickname_preferences "
         "(guild,user,original_nick,assigned_nick) VALUES (?,?,?,?)",
@@ -1272,7 +1278,7 @@ class CharacterPanelView(discord.ui.View):
             ephemeral=True)
 
     @discord.ui.button(
-        label="Servername an/aus", emoji="✏️",
+        label="Sprachchat-Name an/aus", emoji="🔊",
         style=discord.ButtonStyle.secondary,
         custom_id="corpse_character_nick_v117")
     async def nickname(self, interaction, button):
@@ -1280,7 +1286,9 @@ class CharacterPanelView(discord.ui.View):
             return await answer(interaction,"Nur auf Corpsegrinder.")
         await interaction.response.defer(ephemeral=True,thinking=True)
         message = await toggle_character_server_nick(interaction.user)
-        await interaction.followup.send(message,ephemeral=True)
+        await interaction.followup.send(
+            message+"\nDer Name gilt für diesen Discord-Server, "
+            "auch in Sprachkanälen.",ephemeral=True)
 
 
 def character_panel_embed():
@@ -1292,10 +1300,10 @@ def character_panel_embed():
             "Klicks – ohne Slash-Befehle und ohne Freigabe.\n\n"
             "🎭 **Charakter registrieren:** Klasse wählen, Namen eingeben. "
             "Für weitere Charaktere einfach erneut verwenden.\n"
-            "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen "
-            "oder deinen Main ändern.\n"
-            "✏️ **Servername an/aus:** freiwillig deinen Discord-Servernamen "
-            "an den Hauptcharakter anpassen.\n\n"
+            "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen, "
+            "Name/Klasse bearbeiten oder mit Bestätigung löschen.\n"
+            "🔊 **Sprachchat-Name an/aus:** freiwillig deinen Servernamen "
+            "auf deinen Hauptcharakter setzen oder wiederherstellen.\n\n"
             "In Dungeon- und Levelgruppen steht dein **Ingame-Name zuerst**, "
             "danach dein anklickbarer Discord-Account. "
             "**Keine Stufe nötig.**"),
@@ -1416,27 +1424,18 @@ async def set_main_character(i: discord.Interaction, name: str):
 async def delete_character(i: discord.Interaction, name: str):
     if not allowed(i):
         return await answer(i,"Nur auf Corpsegrinder verfügbar.")
-    row = owned_character(i.user.id,name)
-    if not row:
-        return await answer(i,"Charakter nicht gefunden.")
-    db.execute(
-        "DELETE FROM characters WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
-        (GUILD_ID,i.user.id,row[0]))
-    db.execute(
-        "DELETE FROM main_characters WHERE guild=? AND user=? "
-        "AND name=? COLLATE NOCASE",
-        (GUILD_ID,i.user.id,row[0]))
-    db.commit()
-    ensure_main_character(i.user.id)
+    try:
+        removed=delete_character_profile(i.user.id,name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
     if main_character(i.user.id):
         await sync_optional_character_nickname(i.user)
     else:
         await restore_character_nickname(i.user)
     await refresh_user_character_cards(i.user.id)
     await answer(
-        i,"🗑️ **"+discord.utils.escape_markdown(row[0])+
-        "** entfernt. Gespeicherte Gruppenanmeldungen bleiben bestehen; "
-        "bei Bedarf kannst du dort einen anderen Charakter auswählen.")
+        i,"🗑️ **"+discord.utils.escape_markdown(removed)+
+        "** entfernt. Deine Gruppenanmeldungen bleiben bestehen.")
 
 
 async def restore_character_nickname(member):
