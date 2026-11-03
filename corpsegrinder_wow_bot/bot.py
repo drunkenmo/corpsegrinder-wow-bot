@@ -737,10 +737,9 @@ async def refresh_user_character_cards(user_id):
 
 
 def ingame_server_nickname(main, member):
-    # Discord limits server nicknames to 32 chars.
-    game_name = main[0][:30]
-    discord_name = member.name[:15]
-    return (f"{game_name} | {discord_name}")[:32]
+    """Discord shows the server nickname in text AND voice channels."""
+    # The in-game name, not the Discord username, is the primary identifier.
+    return main[0][:32]
 
 
 async def sync_optional_character_nickname(member):
@@ -755,6 +754,11 @@ async def sync_optional_character_nickname(member):
         return
     new_nick = ingame_server_nickname(main,member)
     if member.nick == new_nick:
+        return
+    # Never undo a manual nickname change. Only manage what this bot set.
+    if member.nick != preference[1]:
+        logging.info("Manuell geänderter Discord-Nickname für %s bleibt erhalten",
+                     member.id)
         return
     try:
         await member.edit(nick=new_nick,
@@ -791,8 +795,8 @@ def profile_embed(user_id):
             value=f"**{discord.utils.escape_markdown(klass)}**",
             inline=False)
     embed.set_footer(
-        text="/hauptcharakter wählt deinen Main · "
-             "/ingame_nickname optional · Charaktere bleiben privat verwaltbar")
+        text="Profil bearbeiten/löschen über die Buttons · "
+             "Ingame-Name im Sprachchat optional anzeigen")
     return embed
 
 
