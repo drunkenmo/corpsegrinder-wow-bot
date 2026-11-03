@@ -47,7 +47,7 @@ def load_welcome():
             Embed=FakeEmbed,
             Colour=SimpleNamespace(from_rgb=lambda *args:0),
             utils=SimpleNamespace(escape_markdown=lambda s:s.replace("*","\\*"))),
-        "VERSION":"1.0.19",
+        "VERSION":extract_constant(FEATURE_TREE,"VERSION"),
         "WELCOME_FEATURES":extract_constant(FEATURE_TREE,"WELCOME_FEATURES")
     }
     compiled=compile(ast.fix_missing_locations(
@@ -82,7 +82,7 @@ class LayoutAndGuideTests(unittest.TestCase):
         self.assertIn("<#100>",embed.description)
         self.assertIn("Ingame-Namen + Klasse",embed.description)
         self.assertIn("corpsegrinder:welcome",embed.footer)
-        self.assertIn("Version 1.0.19",embed.footer)
+        self.assertIn("Version "+extract_constant(FEATURE_TREE,"VERSION"),embed.footer)
         self.assertIn("Sondertermin Samstag",str(embed.fields))
         for name in ("forever-news","addons","dungeons","pve-gruppensuche"):
             self.assertIn(name,[chan for _sec,entries in extract_constant(

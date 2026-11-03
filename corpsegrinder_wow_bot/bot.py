@@ -49,6 +49,7 @@ db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT 
 db.execute("CREATE TABLE IF NOT EXISTS blizzard_news_posts (article_id INTEGER PRIMARY KEY, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_community_posts (canonical_url TEXT PRIMARY KEY, source TEXT NOT NULL, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, title TEXT NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_forum_posts (post_id INTEGER PRIMARY KEY, version INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, updated_utc INTEGER NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS forever_forum_card_formats (post_id INTEGER PRIMARY KEY, render_version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_news_card_versions (canonical_url TEXT PRIMARY KEY, version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
 
@@ -5310,6 +5311,7 @@ def extract_forever_forum_staff_posts(document, topic_id, now):
         results.append({
             "id": post_id, "version": version, "updated": when,
             "title": title, "classes": classes,
+            "cooked": post.get("cooked") or "",
             "url": f"{FOREVER_FORUM_ROOT}/t/{topic_id}/{number}",
         })
     return results
@@ -5355,24 +5357,279 @@ def gather_forever_forum_news():
     return sorted(posts.values(), key=lambda p: p["updated"])
 
 
+
+# --- Deutsche, faktenbasierte Klassenzusammenfassungen (1.0.21) ------------
+# Keine externe KI/API und keine vermeintlich vollständige Übersetzung:
+# Nur eindeutig erkannte Änderungen mit unveränderten Zahlen werden gezeigt.
+FOREVER_GERMAN_SPELLS = {
+    "defensive stance": "Verteidigungshaltung",
+    "bear form": "Bärengestalt",
+    "righteous fury": "Zorn der Gerechtigkeit",
+    "slam": "Zerschmettern",
+    "wrath": "Zorn",
+    "thorns": "Dornen",
+    "rejuvenation": "Verjüngung",
+    "tranquility": "Gelassenheit",
+    "wild growth": "Wildwuchs",
+    "flash of light": "Lichtblitz",
+    "consecration": "Weihe",
+    "renew": "Erneuerung",
+    "power word: shield": "Machtwort: Schild",
+    "blood fury": "Kochendes Blut",
+    "furious howl": "Wutgeheul",
+}
+FOREVER_GERMAN_CLASS_ICONS = {
+    "Krieger": "⚔️", "Paladin": "✨", "Jäger": "🏹",
+    "Schurke": "🗡️", "Priester": "🌟", "Schamane": "🌩️",
+    "Magier": "🔮", "Hexenmeister": "🔥", "Druide": "🌿",
+}
+
+
+class ForeverClassBulletParser(HTMLParser):
+    """Get leaf bullets below class sections in Discourse's nested HTML.
+
+    Blizzard uses <li><strong>Warrior</strong><ul>...</ul></li> in many
+    notes, and sometimes class headings instead. General bugfixes are ignored.
+    """
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.heading = None
+        self.heading_parts = []
+        self.heading_class = None
+        self.changes = defaultdict(list)
+
+    @staticmethod
+    def class_name(text):
+        normalized = re.sub(r"\s+", " ", text).strip().casefold().rstrip(":")
+        return next((de for en, de in FOREVER_FORUM_CLASS_NAMES
+                     if normalized == en), None)
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag == "li":
+            if self.stack:
+                self.stack[-1]["children"] = True
+            self.stack.append({"parts": [], "children": False})
+        elif tag in ("h2", "h3", "h4") and not self.stack:
+            self.heading = tag
+            self.heading_parts = []
+
+    def handle_data(self, data):
+        if self.stack:
+            self.stack[-1]["parts"].append(data)
+        elif self.heading:
+            self.heading_parts.append(data)
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag == "li" and self.stack:
+            item = self.stack.pop()
+            if item["children"]:
+                return
+            sentence = re.sub(r"\s+", " ", " ".join(item["parts"])).strip()
+            if len(sentence) < 12:
+                return
+            owner = next(
+                (cls for parent in reversed(self.stack)
+                 if (cls := self.class_name(" ".join(parent["parts"])))
+                 is not None), self.heading_class)
+            if owner:
+                self.changes[owner].append(sentence)
+        elif tag == self.heading:
+            label = " ".join(self.heading_parts)
+            cls = self.class_name(label)
+            if cls:
+                self.heading_class = cls
+            elif self.heading == "h2" and "classes" not in label.casefold():
+                self.heading_class = None
+            self.heading = None
+
+
+def german_forever_ability(text):
+    """Use established German spell names; leave unverified names unchanged."""
+    text = re.sub(r"(?:'s|’s)$", "", text.strip(" .:–-"))
+    for english, german in sorted(
+            FOREVER_GERMAN_SPELLS.items(), key=lambda item: -len(item[0])):
+        text = re.sub(r"\b" + re.escape(english) + r"\b",
+                      german, text, flags=re.IGNORECASE)
+    return text[:95]
+
+
+def german_forever_quantity(text):
+    result = text.strip()
+    for english, german in (
+            ("seconds", "Sekunden"), ("second", "Sekunde"),
+            ("minutes", "Minuten"), ("minute", "Minute"),
+            ("stacks", "Stapel"), ("points", "Punkte"),
+            ("yards", "Meter")):
+        result = re.sub(r"\b" + english + r"\b", german, result, flags=re.I)
+    result = re.sub(r"(\d+(?:[.,]\d+)?)%", r"\1 %", result)
+    return re.sub(r"(?<=\d)\.(?=\d)", ",", result)
+
+
+def german_forever_change(sentence):
+    """Translate verified numeric change patterns, not arbitrary patch prose."""
+    clean = re.sub(r"\s+", " ", sentence).strip()
+    if len(clean) > 320 or "developers" in clean.casefold():
+        return None
+    stats = (
+        r"(?:base |buff |holy |weapon |spell |critical |movement |"
+        r"attack |maximum |mana |rage |pet |healing )?"
+        r"(?:damage|healing|threat|cooldown|duration|"
+        r"attack power|mana cost|rage cost|cast time|"
+        r"critical strike chance|movement speed|"
+        r"health|maximum stacks|stacks|range|bonus)"
+        r"(?: bonus| increase| generation| generated| reduction)?"
+    )
+    pattern = (
+        r"^(?P<ability>[^.;]{2,115}?)"
+        r"(?:'s|’s)?\s+(?P<stat>" + stats + r")"
+        r"\s+(?:(?:has been|is|was|now)\s+)?"
+        r"(?P<verb>increased|reduced|decreased|lowered|raised)"
+        r"\s*(?P<prep>to|by|~)?\s*"
+        r"(?P<new>\d[\d.,%/]*(?:\s+(?:seconds?|minutes?|"
+        r"stacks?|points?|yards?))?)"
+        r"(?:\s*\(was\s+(?P<old>[^)]+)\))?\.?$"
+    )
+    match = re.match(pattern, clean, flags=re.I)
+    if match is None:
+        # Handle "Frostbolt's damage has been increased by 20%" above;
+        # otherwise never invent what a numerical value describes.
+        critical = re.match(
+            r"^(?P<ability>[^.;]{2,110}?)\s+"
+            r"(?:can now|is now able to)\s+(?:land\s+)?critical hits\.?$",
+            clean, flags=re.I)
+        if critical:
+            return ("🛠️ " + german_forever_ability(
+                critical.group("ability")) + ": kann jetzt kritisch treffen.")
+        return None
+    ability = german_forever_ability(match.group("ability"))
+    stat = match.group("stat").casefold()
+    verb = match.group("verb").casefold()
+    increased = verb in ("increased", "raised")
+    if "cooldown" in stat:
+        property_name = "Abklingzeit"
+        inverse = True
+    elif "mana cost" in stat:
+        property_name = "Manakosten"
+        inverse = True
+    elif "rage cost" in stat:
+        property_name = "Wutkosten"
+        inverse = True
+    elif "cast time" in stat:
+        property_name = "Zauberzeit"
+        inverse = True
+    elif "threat" in stat:
+        property_name = "Bedrohung"
+        inverse = False
+    elif "damage" in stat:
+        property_name = "Schaden"
+        inverse = False
+    elif "healing" in stat:
+        property_name = "Heilung"
+        inverse = False
+    elif "duration" in stat:
+        property_name = "Dauer"
+        inverse = False
+    elif "critical strike" in stat:
+        property_name = "kritische Trefferchance"
+        inverse = False
+    elif "attack power" in stat:
+        property_name = "Angriffskraft"
+        inverse = False
+    elif "movement speed" in stat:
+        property_name = "Bewegungsgeschwindigkeit"
+        inverse = False
+    elif "stacks" in stat:
+        property_name = "maximale Stapel"
+        inverse = False
+    elif "health" in stat:
+        property_name = "Gesundheit"
+        inverse = False
+    elif "range" in stat:
+        property_name = "Reichweite"
+        inverse = False
+    elif "bonus" in stat:
+        property_name = "Bonus"
+        inverse = False
+    else:
+        return None
+    # Buff/nerf only when the direction of the gameplay change is unambiguous.
+    benefit = increased != inverse
+    icon = "🟢" if benefit else "🔻"
+    new = german_forever_quantity(match.group("new"))
+    old = match.group("old")
+    prep = match.group("prep") or "by"
+    mode = "auf" if prep == "to" else "um"
+    change = "erhöht" if increased else "verringert"
+    result = f"{icon} {ability}: {property_name} {mode} {new} {change}"
+    if old:
+        result += " (vorher " + german_forever_quantity(old) + ")"
+    return result + "."
+
+
+def german_forever_class_digest(cooked, max_per_class=5):
+    """Select a bounded, readable German excerpt from official class bullets."""
+    if not cooked:
+        return {}
+    parser = ForeverClassBulletParser()
+    parser.feed(cooked)
+    result = {}
+    for _, cls in FOREVER_FORUM_CLASS_NAMES:
+        translated = []
+        for line in parser.changes.get(cls, ()):
+            summary = german_forever_change(line)
+            if summary and summary not in translated:
+                translated.append(summary[:155])
+            if len(translated) >= max_per_class:
+                break
+        if translated:
+            result[cls] = translated
+    return result
+
+
 def forever_forum_embed(post):
-    msg = (
-        "Blizzard hat einen **offiziellen Entwicklerbeitrag zu WoW Forever** "
-        "veröffentlicht oder aktualisiert.\n\n")
-    if post["classes"]:
-        msg += "⚔️ **Erwähnte Klassen:** " + ", ".join(post["classes"]) + "\n\n"
-    msg += (
-        "Im Original stehen die konkreten Änderungen, einschließlich "
-        "gegebenenfalls Buffs, Nerfs und Fehlerkorrekturen. "
-        "Bitte die Werte direkt bei Blizzard nachlesen.")
+    digest = german_forever_class_digest(post.get("cooked") or "")
+    if digest:
+        description = (
+            "🇩🇪 **Klassenänderungen von Blizzard – auf Deutsch.**\n"
+            "Die nachfolgenden Werte sind eine **Auswahl eindeutig erkannter "
+            "Änderungen**, keine vollständige Übersetzung. "
+            "Unklare Formulierungen bleiben bewusst außen vor.\n\n"
+            "🟢 Verstärkung · 🔻 Abschwächung · 🛠️ Fehlerbehebung")
+        headline = "🔵 Blizzard · Klassenänderungen auf Deutsch"
+    else:
+        description = (
+            "Offizielle WoW-Forever-Entwicklungsnotizen. "
+            "Für diesen Beitrag konnten keine eindeutig übersetzbaren "
+            "Klassenänderungen erkannt werden.")
+        headline = "🔵 Blizzard · Offizielle Forever-Neuigkeiten"
     card = discord.Embed(
-        title="🔵 Blizzard-Bluepost · " + post["title"][:170],
-        description=msg, url=post["url"], colour=discord.Colour.blue(),
+        title=headline,
+        description=description, url=post["url"],
+        colour=discord.Colour.blue(),
         timestamp=datetime.fromtimestamp(post["updated"], timezone.utc))
+    total_chars = len(description) + len(headline)
+    for cls, notes in digest.items():
+        label = FOREVER_GERMAN_CLASS_ICONS.get(cls, "⚔️") + " " + cls
+        lines = []
+        for note in notes:
+            if len("\n".join(lines + [note])) > 530:
+                break
+            lines.append(note)
+        text = "\n".join(lines)
+        if total_chars + len(text) + len(label) > 5450:
+            break
+        card.add_field(name=label, value=text, inline=False)
+        total_chars += len(text) + len(label)
     card.add_field(
-        name="Offizielle Quelle",
-        value=f"[Entwicklerbeitrag lesen]({post['url']})", inline=False)
-    card.set_footer(text="Blizzard-Forum · Post " + str(post["id"]))
+        name="Original bei Blizzard",
+        value=f"[Vollständige Patchnotes und weitere Werte]({post['url']})",
+        inline=False)
+    card.set_footer(
+        text="Blizzard-Forum · deutscher Faktenauszug · Post " +
+        str(post["id"]))
     return card
 
 
@@ -5385,11 +5642,15 @@ async def check_forever_forum_news(target):
             "SELECT post_id,version,discord_message_id FROM forever_forum_posts"
         ).fetchall()
     }
+    formats = dict(db.execute(
+        "SELECT post_id,render_version FROM forever_forum_card_formats"
+    ).fetchall())
     created = revised = 0
     for post in incoming:
         prior = existing.get(post["id"])
         if prior and prior[0] >= post["version"]:
-            continue
+            if formats.get(post["id"], 0) >= 21:
+                continue
         message = None
         if prior:
             try:
@@ -5410,6 +5671,9 @@ async def check_forever_forum_news(target):
             "INSERT OR REPLACE INTO forever_forum_posts "
             "(post_id,version,discord_message_id,updated_utc) VALUES (?,?,?,?)",
             (post["id"], post["version"], message.id, post["updated"]))
+        db.execute(
+            "INSERT OR REPLACE INTO forever_forum_card_formats "
+            "(post_id,render_version) VALUES (?,21)", (post["id"],))
         db.commit()
     return created, revised
 

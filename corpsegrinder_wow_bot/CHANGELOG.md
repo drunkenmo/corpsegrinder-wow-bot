@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.21 – Deutsche Blizzard-Klassenänderungen direkt im News-Kanal
+
+- Offizielle englische Blizzard-Blueposts werden zusätzlich auf klar erkennbare konkrete Werteänderungen untersucht (beispielsweise Schaden, Bedrohung, Abklingzeit und Dauer).
+- Der Bot zeigt im bestehenden Discord-News-Embed eine begrenzte **deutschsprachige Auswahl** der Buffs/Nerfs mit Originalzahlen, nach Klassen sortiert. Unzuverlässig übersetzbare Sätze werden nicht als vermeintliche Fakten ausgegeben.
+- Erster Teil bekannter Fähigkeiten erhält deutsche Namen; bei nicht sicher zugeordneten Bezeichnungen wird der Originalname beibehalten.
+- Bestehende Bluepost-Karten von 1.0.20 werden einmalig ohne Doppelpostings auf das neue Format gebracht. Die SQLite-Datenbank und alle übrigen Bot-Funktionen bleiben erhalten.
+- Kein Cloud-Übersetzungsdienst und kein API-Schlüssel nötig. Die verlinkten Originalnotizen enthalten weiterhin alle Details; die Discord-Karte ist ausdrücklich keine vollständige Übersetzung.
+
+
 ## 1.0.20 – Offizielle Blizzard-Blueposts und Entwicklernotizen
 
 - Der Bot überwacht neben Blizzard-News, Wowhead und Community-Feeds jetzt auch die öffentliche WoW-Forever-Entwicklungskategorie im offiziellen Blizzard-Forum sowie den bekannten Beta-Entwicklungsnotizen-Thread.
