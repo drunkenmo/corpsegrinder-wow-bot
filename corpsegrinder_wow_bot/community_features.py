@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.13"
+VERSION = "1.0.14"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -86,19 +86,21 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="📰 Corpsegrinder Bot – Update " + VERSION,
+        title="🧩 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**NEU: #forever-news – Offizielle Blizzard-Nachrichten!**\n\n"
-            "Direkt unter **#ankündigungen** und über **#rollenwahl** "
-            "erscheint ein neuer Textkanal nur für **World of Warcraft: Forever**.\n\n"
-            "🔎 Der Bot prüft alle **30 Minuten** die offiziellen deutschen "
-            "Blizzard-Neuigkeiten und veröffentlicht nur eindeutig Forever-bezogene "
-            "Artikel mit geprüftem Veröffentlichungsdatum.\n\n"
-            "📅 Beim ersten Start werden passende Artikel der letzten "
-            "**48 Stunden** nachgetragen, sofern es welche gibt. "
-            "Jeder Artikel wird nur einmal gepostet.\n\n"
-            "Admin: **/forever_news_pruefen** · Status: **/forever_news_status**"
+            "**Forever-News + eigener Addon-Kanal!**\n\n"
+            "📰 In **#forever-news** erscheinen nun auch relevante Meldungen aus "
+            "Wowheads eigenem Forever-Bereich und den Community-Feeds von "
+            "WoW Forever GG. Offizielle Blizzard-News werden weiterhin extra "
+            "gekennzeichnet. Drei echte Wowhead-Lesetipps füllen den Einstieg.\n\n"
+            "🧩 Direkt darunter eröffnet **#addons** mit einer kompakten "
+            "Empfehlungsliste von Questie, Leatrix, Auctionator, Baganator, "
+            "TomTom und DBM.\n\n"
+            "🔄 Alle 6 Stunden prüft der Bot auf explizite **Forever-Dateien** "
+            "bei CurseForge und meldet neue Versionen. Neu entdeckte Addons "
+            "werden von Empfehlungen unterschieden.\n\n"
+            "Admin: **/forever_news_pruefen** und **/addons_pruefen**."
         ),
-        colour=discord.Colour.dark_red())
+        colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
     return embed
