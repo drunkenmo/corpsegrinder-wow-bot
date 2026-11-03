@@ -76,8 +76,8 @@ def welcome_embed(guild=None, extra_tip=""):
             f"**1.** In {channel_link('rollenwahl')} deine Rollen auswählen.\n"
             "**2.** Dort **Charakter registrieren** anklicken und "
             "**Ingame-Namen + Klasse** eintragen (Hauptcharakter und Twinks möglich).\n"
-            f"**3.** In {channel_link('allgemein')} Hallo sagen oder "
-            f"in {channel_link('dungeons')} direkt Mitspieler suchen.\n\n"
+            f"**3.** In {channel_link('lagerfeuer')} Hallo sagen oder "
+            f"in {channel_link('dungeon-planer')} direkt Mitspieler suchen.\n\n"
             "📌 **Diese Übersicht bleibt aktuell**, wenn wir neue Bot-Funktionen "
             "hinzufügen. Du musst nicht nach neuen Anleitungen suchen."
         ),
