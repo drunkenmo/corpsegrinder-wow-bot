@@ -130,6 +130,10 @@ class TestAddons(unittest.TestCase):
         <h4>WoW Classic</h4><span>1.15.9 Latest release R Classic</span>"""
         fn=self.env["extract_curseforge_forever_version"]
         self.assertEqual(fn(page),"1.60.25-forever")
+        self.assertEqual(
+            fn("<h4>WoW Forever</h4> QuestForever 0.4.10 "
+               "Latest release R Forever Oct 14, 2026"),
+            "QuestForever 0.4.10")
         self.assertIsNone(fn(
             "<h4>WoW Retail</h4>12.1.5 Latest release R Retail"))
         self.assertEqual(fn("R v4.3.12-release 1.60.1 Forever"),
