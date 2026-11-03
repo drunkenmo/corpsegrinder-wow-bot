@@ -196,3 +196,30 @@ Der Bot verwendet eine regelbasierte Darstellung ohne externen Übersetzungsdien
 Zurückliegende Community-Meldungen, die noch über die Feeds/Artikel erreichbar sind, werden anhand ihrer Discord-Nachrichten-ID *in-place* bearbeitet. Die Tabelle `forever_news_card_versions` verhindert doppelte Änderungen und zusätzliche Nachrichtenspam. Sobald neue Feed-Inhalte verfügbar werden, werden bislang nicht umformatierte ältere Posts bei einer späteren Prüfung erneut berücksichtigt.
 
 Die automatisch gespeicherte SQLite-Datenbank und sämtliche bereits erstellten Kanäle und Rollen bleiben unverändert.
+
+## Ingame-Namen und Hauptcharakter/Twinks (Version 1.0.16)
+
+Der Bot verwendet die **bestehende** `characters`-Tabelle (aus dem Slash-Befehl `/charakter`). Zusätzliche Informationen liegen in `main_characters` und `group_character_choices`, um ältere Charaktere und Gruppenanmeldungen nicht zu beschädigen.
+
+### Dein Charakterprofil
+1. Mit `/charakter name:Grumok klasse:Krieger level:35` einen Charakter registrieren oder aktualisieren. Ein zweiter Eintrag, etwa `Zaraku`, ist ein Twink. Bis zu 25 Charaktere können angelegt werden.
+2. `/meine_charaktere` zeigt eine **nur für dich sichtbare** Übersicht.
+3. `/hauptcharakter name:Grumok` wählt den Hauptcharakter aus. Die Autovervollständigung listet die eigenen Charaktere.
+4. `/charakter_loeschen` entfernt einen Eintrag. Bestehende Gruppenanmeldungen bleiben erhalten. Ein zuvor für einen Gruppentermin ausdrücklich gewählter, danach gelöschter Charakter erscheint als Hinweis, bis ein neuer ausgewählt wird.
+
+### Dungeon- und Levelgruppen
+- Bei einem einzigen eingetragenen Charakter wird dieser beim Klick auf `Tank`, `Heiler`, `DD` oder `Dabei sein` direkt übernommen.
+- Bei mehreren Charakteren öffnet Discord ein privates Dropdown. Der gewählte Charakter wird dauerhaft zu **dieser konkreten Gruppenanmeldung** gespeichert.
+- Wer noch keinen Charakter registriert hat, erhält einen Hinweis zu `/charakter` statt eine Anmeldung mit einem unbekannten Ingame-Namen.
+- Bei der **Erstellung** einer neuen Dungeon- oder Levelgruppe erscheint in Schritt 2 der Assistenten ebenfalls eine Charakterauswahl. Das erste Profil beziehungsweise der Hauptcharakter wird vorausgewählt. Ohne Profil bleibt die alte Erstellung weiterhin möglich, die Karte weist dann auf den fehlenden Charakter hin.
+- Ein Spieler kann über den neuen Button `🎭 Charakter ändern` den Charakter für eine bestehende Anmeldung wechseln, ohne den Gruppenplatz aufzugeben. Die Rolle im Dungeon bleibt dabei gleich.
+- Die **Gruppenkarte** zeigt vorrangig `Grumok · Krieger · Stufe 35`, darunter `@Discord-Mitglied` als klickbare Zuordnung. Für ältere Gruppen ohne gespeicherte Charakterauswahl wird der derzeitige Hauptcharakter angezeigt, sofern registriert.
+- Änderungen am globalen Hauptcharakter ändern **nicht** die bei einer Gruppenanmeldung ausdrücklich gespeicherte Charakterwahl.
+- Erinnerung und Terminbestätigungen nennen den ausgewählten Ingame-Namen. Die bestehenden Gruppen-Erinnerungen, automatische Sprachräume, Ablaufregeln und Gruppengrößen gelten unverändert.
+- **Kein Multiboxing-Sonderfall:** Der Bot speichert pro Discord-ID maximal eine Anmeldung je Gruppe, auch wenn das Mitglied mehrere Ingame-Charaktere besitzt.
+- **Keine Ingame-Verifizierung:** Die Spieler pflegen ihre Charaktere selbst; der Bot verknüpft sie nur mit der Discord-Mitglieds-ID.
+
+### Freiwilliger Discord-Servernickname
+`/ingame_nickname aktiv:true` setzt den Servernickname freiwillig auf `Grumok | Discordname` (mit Discord-Längenbegrenzung). Der vorherige Nickname wird gespeichert. `/ingame_nickname aktiv:false` stellt ihn wieder her, **wenn der aktuelle Name noch dem vom Bot gesetzten entspricht**. Von Mitgliedern später manuell geänderte Servernamen werden nicht überschrieben. Wird ein aktiver Main gewechselt, versucht der Bot den freiwilligen Nickname anzupassen. Erforderlich sind Discord-Bot-Rechte **Nicknames verwalten** und eine ausreichend hohe Rollenposition.
+
+Bei Berechtigungsfehlern bleibt das Profil bestehen und der Bot zeigt eine Fehlermeldung statt die gesamte Anmeldung abzubrechen.

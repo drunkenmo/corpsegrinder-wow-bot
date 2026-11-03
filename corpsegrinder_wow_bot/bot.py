@@ -30,6 +30,11 @@ if not TOKEN or not GUILD_ID:
 
 db = sqlite3.connect("/data/corpsegrinder.sqlite")
 db.execute("CREATE TABLE IF NOT EXISTS characters (guild INTEGER, user INTEGER, name TEXT COLLATE NOCASE, klass TEXT, level INTEGER, beruf1 TEXT, beruf2 TEXT, PRIMARY KEY(guild,user,name))")
+# Charaktere bleiben in der vorhandenen Tabelle. Zusätzliche Zuordnungen
+# liegen in eigenen Tabellen; bestehende Profile und Anmeldungen bleiben intakt.
+db.execute("CREATE TABLE IF NOT EXISTS main_characters (guild INTEGER NOT NULL, user INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(guild,user))")
+db.execute("CREATE TABLE IF NOT EXISTS group_character_choices (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(kind,group_id,user))")
+db.execute("CREATE TABLE IF NOT EXISTS character_nickname_preferences (guild INTEGER NOT NULL, user INTEGER NOT NULL, original_nick TEXT, assigned_nick TEXT NOT NULL, PRIMARY KEY(guild,user))")
 db.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT,guild INTEGER,owner INTEGER,kind TEXT,activity TEXT,when_text TEXT,channel INTEGER,message INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,role TEXT,PRIMARY KEY(group_id,user))")
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
@@ -579,31 +584,363 @@ async def update_roles(i: discord.Interaction):
 async def my_roles(i: discord.Interaction):
     await answer(i, own_roles(i.user))
 
-@bot.tree.command(name="charakter", description="Charakter anlegen oder aktualisieren", guild=SERVER)
-@app_commands.describe(name="Charaktername", klasse="Klasse", level="Stufe", beruf1="Beruf 1", beruf2="Beruf 2")
+# --- Charakterprofile und Ingame-Namen (Corpsegrinder 1.0.16) ----------------
+# Ein Discord-Mitglied bleibt genau ein Teilnehmer, unabhängig von Twinks.
+# Ingame-Charaktere sind Selbstauskünfte; ein Game-Login ist nicht nötig.
+MAX_USER_CHARACTERS = 25
+
+
+def normalize_character_name(name):
+    value = (name or "").strip()
+    # Discord-Markdown oder Mentions dürfen niemals als Charaktername
+    # durch die Speicherung zu einer fremden Nachricht werden.
+    if not (2 <= len(value) <= 40) or not re.fullmatch(
+            r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 '-]{1,39}", value,
+            flags=re.UNICODE):
+        raise ValueError(
+            "Charaktername: 2–40 Zeichen, Buchstaben, Zahlen und ggf. "
+            "Bindestrich, Apostroph oder Leerzeichen; kein @, # oder Markdown.")
+    return value
+
+
+def user_characters(user_id):
+    rows = db.execute(
+        "SELECT name,klass,level FROM characters "
+        "WHERE guild=? AND user=? ORDER BY name COLLATE NOCASE LIMIT 26",
+        (GUILD_ID, user_id)).fetchall()
+    main = db.execute(
+        "SELECT name FROM main_characters WHERE guild=? AND user=?",
+        (GUILD_ID, user_id)).fetchone()
+    preferred = main[0].casefold() if main else None
+    return sorted(rows, key=lambda row: (
+        0 if row[0].casefold()==preferred else 1, row[0].casefold()))
+
+
+def owned_character(user_id, character_name):
+    if not character_name:
+        return None
+    return db.execute(
+        "SELECT name,klass,level FROM characters "
+        "WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,character_name)).fetchone()
+
+
+def main_character(user_id):
+    rows = user_characters(user_id)
+    return rows[0] if rows else None
+
+
+def select_main_character(user_id, character_name):
+    row = owned_character(user_id, character_name)
+    if row is None:
+        raise ValueError(
+            "Dieser Charakter gehört nicht zu deinem Profil. "
+            "Bitte zuerst /charakter verwenden.")
+    db.execute(
+        "INSERT OR REPLACE INTO main_characters (guild,user,name) VALUES (?,?,?)",
+        (GUILD_ID,user_id,row[0]))
+    db.commit()
+    return row
+
+
+def ensure_main_character(user_id):
+    if not db.execute(
+            "SELECT 1 FROM main_characters WHERE guild=? AND user=?",
+            (GUILD_ID,user_id)).fetchone():
+        main = main_character(user_id)
+        if main:
+            select_main_character(user_id,main[0])
+
+
+def remember_group_character(kind, group_id, user_id, name):
+    if kind not in ("dungeon","level"):
+        raise ValueError("Unbekannte Gruppe")
+    row = owned_character(user_id,name)
+    if row is None:
+        raise ValueError("Charakter nicht im eigenen Profil.")
+    db.execute(
+        "INSERT OR REPLACE INTO group_character_choices "
+        "(kind,group_id,user,name) VALUES (?,?,?,?)",
+        (kind,group_id,user_id,row[0]))
+
+
+def forget_group_character(kind, group_id, user_id):
+    db.execute(
+        "DELETE FROM group_character_choices "
+        "WHERE kind=? AND group_id=? AND user=?",
+        (kind,group_id,user_id))
+
+
+def chosen_character(kind, group_id, user_id):
+    saved = db.execute(
+        "SELECT name FROM group_character_choices "
+        "WHERE kind=? AND group_id=? AND user=?",
+        (kind,group_id,user_id)).fetchone()
+    if saved:
+        # Preserve the choice made for the event, even when the player
+        # subsequently changes the global main character.
+        return owned_character(user_id,saved[0]) or (saved[0],None,None)
+    return main_character(user_id)
+
+
+def character_member_line(kind, group_id, user_id):
+    row = chosen_character(kind,group_id,user_id)
+    if not row:
+        return f"<@{user_id}> · *Noch kein Charakter eingetragen*"
+    name,klass,level = row
+    name = discord.utils.escape_markdown(name[:40])
+    if klass is None:
+        return f"**{name}** · *Charakter aus Profil entfernt*\n<@{user_id}>"
+    return (f"**{name}** · {discord.utils.escape_markdown(klass)} "
+            f"· Stufe {int(level)}\n<@{user_id}>")
+
+
+async def refresh_user_character_cards(user_id):
+    """Redraw existing signup cards after a character is added/edited/deleted."""
+    for kind,table,signups in (
+            ("dungeon","planned_groups","planned_signups"),
+            ("level","level_groups","level_signups")):
+        rows = db.execute(
+            f"SELECT id FROM {table} WHERE guild=? AND status='open' "
+            "AND id IN (SELECT group_id FROM " + signups + " WHERE user=?) "
+            "AND start_utc>? ORDER BY start_utc LIMIT 30",
+            (GUILD_ID,user_id,int(datetime.now(timezone.utc).timestamp())-3600)
+        ).fetchall()
+        for (group_id,) in rows:
+            try:
+                group = event_record(kind,group_id)
+                if group:
+                    await refresh_event_card(kind,group)
+            except (discord.HTTPException,ValueError):
+                logging.warning(
+                    "Charaktername konnte in %s-Gruppe #%s nicht "
+                    "aktualisiert werden",kind,group_id)
+
+
+def ingame_server_nickname(main, member):
+    # Discord limits server nicknames to 32 chars.
+    game_name = main[0][:30]
+    discord_name = member.name[:15]
+    return (f"{game_name} | {discord_name}")[:32]
+
+
+async def sync_optional_character_nickname(member):
+    preference = db.execute(
+        "SELECT original_nick,assigned_nick FROM character_nickname_preferences "
+        "WHERE guild=? AND user=?",
+        (GUILD_ID,member.id)).fetchone()
+    if not preference:
+        return
+    main = main_character(member.id)
+    if not main:
+        return
+    new_nick = ingame_server_nickname(main,member)
+    if member.nick == new_nick:
+        return
+    try:
+        await member.edit(nick=new_nick,
+                          reason="Corpsegrinder: freiwilliger Ingame-Servername")
+    except (discord.Forbidden,discord.HTTPException):
+        logging.info("Discord-Servernickname für %s nicht änderbar",member.id)
+        return
+    db.execute(
+        "UPDATE character_nickname_preferences SET assigned_nick=? "
+        "WHERE guild=? AND user=?",
+        (new_nick,GUILD_ID,member.id))
+    db.commit()
+
+
+def profile_embed(user_id):
+    rows = user_characters(user_id)
+    embed = discord.Embed(
+        title="⚔️ Dein Corpsegrinder-Charakterprofil",
+        description=("**Hauptcharakter + Twinks** – bei Dungeons und "
+                     "Levelgruppen meldest du dich mit dem gewählten "
+                     "Ingame-Charakter an.\n"
+                     "Ein Discord-Account belegt dabei höchstens einen Platz."),
+        colour=discord.Colour.from_rgb(154,47,29))
+    if not rows:
+        embed.add_field(
+            name="Noch kein Charakter eingetragen",
+            value="Nutze **/charakter**, um deinen ersten Charakter "
+                  "mit Klasse und Stufe einzutragen.",
+            inline=False)
+    for index,(name,klass,level) in enumerate(rows[:25]):
+        head = "👑 Hauptcharakter" if index==0 else "🌿 Twink"
+        embed.add_field(
+            name=head+" · "+discord.utils.escape_markdown(name),
+            value=(f"**{discord.utils.escape_markdown(klass)}** · "
+                   f"Stufe **{level}**"),inline=False)
+    embed.set_footer(
+        text="/hauptcharakter wählt deinen Main · "
+             "/ingame_nickname optional · Charaktere bleiben privat verwaltbar")
+    return embed
+
+
+@bot.tree.command(name="charakter", description="Deinen Ingame-Charakter oder Twink anlegen/aktualisieren", guild=SERVER)
+@app_commands.describe(name="Ingame-Charaktername", klasse="Klasse", level="Stufe",
+                       beruf1="Beruf 1", beruf2="Beruf 2")
 @app_commands.choices(klasse=[app_commands.Choice(name=name, value=name) for name in CLASSES])
 async def character(i: discord.Interaction, name: str, klasse: app_commands.Choice[str],
-                    level: app_commands.Range[int, 1, 80], beruf1: str = "", beruf2: str = ""):
+                    level: app_commands.Range[int, 1, 80],
+                    beruf1: str = "", beruf2: str = ""):
     if not allowed(i):
-        return
-    db.execute("INSERT OR REPLACE INTO characters VALUES (?,?,?,?,?,?,?)",
-               (GUILD_ID, i.user.id, name[:40], klasse.value, level, beruf1[:50], beruf2[:50]))
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    try:
+        name = normalize_character_name(name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
+    existing = owned_character(i.user.id,name)
+    if not existing and len(user_characters(i.user.id)) >= MAX_USER_CHARACTERS:
+        return await answer(i,"Maximal 25 Charaktere pro Mitglied. "
+                            "Lösche zuerst einen nicht mehr benötigten Twink.")
+    db.execute(
+        "INSERT OR REPLACE INTO characters(guild,user,name,klass,level,beruf1,beruf2) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (GUILD_ID,i.user.id,name,klasse.value,level,
+         beruf1[:50],beruf2[:50]))
     db.commit()
-    await answer(i, "Charakter " + name[:40] + " gespeichert.")
+    ensure_main_character(i.user.id)
+    await sync_optional_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(i,(
+        f"✅ **{discord.utils.escape_markdown(name)}** gespeichert! "
+        + ("Du kannst diesen Charakter über **/hauptcharakter** als Main "
+           "festlegen. Für Gruppen wird dein gewählter Ingame-Name angezeigt."
+           if existing or len(user_characters(i.user.id)) > 1
+           else "Dein erster Charakter ist automatisch dein Hauptcharakter.")
+        + "\n**/meine_charaktere** zeigt dein Profil."))
 
-@bot.tree.command(name="meine_charaktere", description="Deine Charaktere anzeigen", guild=SERVER)
+
+@bot.tree.command(name="meine_charaktere",
+                  description="Hauptcharakter und Twinks privat anzeigen",guild=SERVER)
 async def my_characters(i: discord.Interaction):
-    rows = db.execute("SELECT name,klass,level,beruf1,beruf2 FROM characters WHERE guild=? AND user=?",
-                      (GUILD_ID, i.user.id)).fetchall()
-    await answer(i, "\n".join(f"**{n}** · {k} · Stufe {level} · {b1 or '–'} / {b2 or '–'}"
-                             for n, k, level, b1, b2 in rows) or "Noch keine Charaktere.")
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    ensure_main_character(i.user.id)
+    await i.response.send_message(embed=profile_embed(i.user.id),ephemeral=True)
 
-@bot.tree.command(name="charakter_loeschen", description="Eigenen Charakter löschen", guild=SERVER)
+
+async def autocomplete_own_characters(
+        interaction: discord.Interaction, current: str):
+    return [
+        app_commands.Choice(
+            name=f"{name} · {klass} · Stufe {level}",value=name)
+        for name,klass,level in user_characters(interaction.user.id)[:25]
+        if current.casefold() in name.casefold()
+    ][:25]
+
+
+@bot.tree.command(name="hauptcharakter",
+                  description="Deinen Hauptcharakter wählen",guild=SERVER)
+@app_commands.describe(name="Welchen deiner Charaktere möchtest du als Main?")
+@app_commands.autocomplete(name=autocomplete_own_characters)
+async def set_main_character(i: discord.Interaction, name: str):
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    try:
+        row = select_main_character(i.user.id,name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
+    await sync_optional_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(
+        i,f"👑 **{discord.utils.escape_markdown(row[0])}** ist jetzt dein "
+          "Hauptcharakter. Bei deinen nächsten Gruppenanmeldungen wird er "
+          "vorausgewählt.")
+
+
+@bot.tree.command(name="charakter_loeschen",
+                  description="Eigenen Charakter aus dem Profil löschen",
+                  guild=SERVER)
+@app_commands.autocomplete(name=autocomplete_own_characters)
 async def delete_character(i: discord.Interaction, name: str):
-    cursor = db.execute("DELETE FROM characters WHERE guild=? AND user=? AND name=?",
-                        (GUILD_ID, i.user.id, name))
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    row = owned_character(i.user.id,name)
+    if not row:
+        return await answer(i,"Charakter nicht gefunden.")
+    db.execute(
+        "DELETE FROM characters WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
+        (GUILD_ID,i.user.id,row[0]))
+    db.execute(
+        "DELETE FROM main_characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,i.user.id,row[0]))
     db.commit()
-    await answer(i, "Charakter gelöscht." if cursor.rowcount else "Charakter nicht gefunden.")
+    ensure_main_character(i.user.id)
+    if main_character(i.user.id):
+        await sync_optional_character_nickname(i.user)
+    else:
+        await restore_character_nickname(i.user)
+    await refresh_user_character_cards(i.user.id)
+    await answer(
+        i,"🗑️ **"+discord.utils.escape_markdown(row[0])+
+        "** entfernt. Gespeicherte Gruppenanmeldungen bleiben bestehen; "
+        "bei Bedarf kannst du dort einen anderen Charakter auswählen.")
+
+
+async def restore_character_nickname(member):
+    entry = db.execute(
+        "SELECT original_nick,assigned_nick "
+        "FROM character_nickname_preferences WHERE guild=? AND user=?",
+        (GUILD_ID,member.id)).fetchone()
+    if not entry:
+        return False
+    # Do not erase a manually chosen nickname that changed since the Bot set it.
+    if member.nick == entry[1]:
+        try:
+            await member.edit(nick=entry[0],
+                              reason="Corpsegrinder: freiwilliger Ingame-Name deaktiviert")
+        except (discord.Forbidden,discord.HTTPException):
+            return False
+    db.execute(
+        "DELETE FROM character_nickname_preferences WHERE guild=? AND user=?",
+        (GUILD_ID,member.id))
+    db.commit()
+    return True
+
+
+@bot.tree.command(name="ingame_nickname",
+                  description="Servernamen freiwillig auf Hauptcharakter umstellen",guild=SERVER)
+@app_commands.describe(aktiv="Aktivieren oder wieder zum vorherigen Namen zurückkehren")
+async def set_character_nickname(i: discord.Interaction, aktiv: bool):
+    if not allowed(i):
+        return await answer(i,"Nur auf Corpsegrinder verfügbar.")
+    if not aktiv:
+        if await restore_character_nickname(i.user):
+            return await answer(
+                i,"✅ Dein vorheriger Servername ist wiederhergestellt "
+                  "(sofern er noch vom Bot gesetzt war).")
+        return await answer(
+            i,"Kein aktiver Bot-Nickname vorhanden oder der Bot darf "
+              "deinen Namen nicht zurückstellen.")
+    main = main_character(i.user.id)
+    if not main:
+        return await answer(
+            i,"Trage zunächst mit **/charakter** deinen Ingame-Namen ein.")
+    old = db.execute(
+        "SELECT original_nick FROM character_nickname_preferences "
+        "WHERE guild=? AND user=?",(GUILD_ID,i.user.id)).fetchone()
+    proposed = ingame_server_nickname(main,i.user)
+    try:
+        await i.user.edit(nick=proposed,
+                          reason="Corpsegrinder: freiwilliger Ingame-Servername")
+    except discord.Forbidden:
+        return await answer(
+            i,"Der Bot darf deinen Servernamen nicht ändern. "
+              "Prüfe **Nicknames verwalten** und die Rollenposition des Bots.")
+    except discord.HTTPException:
+        return await answer(i,"Discord konnte den Nickname gerade nicht ändern.")
+    db.execute(
+        "INSERT OR REPLACE INTO character_nickname_preferences "
+        "(guild,user,original_nick,assigned_nick) VALUES (?,?,?,?)",
+        (GUILD_ID,i.user.id,old[0] if old else i.user.nick,proposed))
+    db.commit()
+    await answer(
+        i,f"✅ Servernickname: **{discord.utils.escape_markdown(proposed)}**. "
+          "Mit **/ingame_nickname aktiv:false** kannst du ihn wieder ausschalten.")
+
 
 @bot.tree.command(name="gruppe_erstellen", description="PvE/PvP-Gruppe erstellen", guild=SERVER)
 @app_commands.choices(art=[app_commands.Choice(name=x, value=x) for x in INTERESTS])
@@ -635,7 +972,11 @@ async def leave_group(i: discord.Interaction, gruppen_id: int):
 @bot.tree.command(name="gruppe_anzeigen", description="Anmeldungen anzeigen", guild=SERVER)
 async def show_group(i: discord.Interaction, gruppen_id: int):
     result = db.execute("SELECT user,role FROM signups WHERE group_id=?", (gruppen_id,)).fetchall()
-    await answer(i, "\n".join("<@" + str(user) + "> – " + r for user, r in result) or "Noch keine Anmeldungen.")
+    await answer(
+        i,"\n".join(
+            f"**{discord.utils.escape_markdown(main_character(user)[0])}** "
+            f"· <@{user}> – {r}" if main_character(user) else f"<@{user}> – {r}"
+            for user,r in result) or "Noch keine Anmeldungen.")
 
 
 async def post_version_news_once():
@@ -1044,10 +1385,11 @@ def planned_embed(plan):
         value=("🟥" * filled + "⬛" * (5-filled)),
         inline=False)
     for role, emoji in (("Tank", "🛡️"), ("Heiler", "💚"), ("DD", "💥")):
-        players = [f"<@{user}>" for user, task in members if task == role]
+        players = [character_member_line("dungeon",group_id,user)
+                   for user, task in members if task == role]
         embed.add_field(
             name=f"{emoji} {role} · {len(players)}/{PLAN_LIMITS[role]}",
-            value="\n".join(players) if players else "*Noch frei*",
+            value="\n\n".join(players) if players else "*Noch frei*",
             inline=True)
     meta = event_meta("dungeon", group_id, create=False)
     if meta and meta[4]:
@@ -1056,8 +1398,104 @@ def planned_embed(plan):
             value=f"<#{meta[4]}> · **5 Plätze** · ab 15 Min. vor Termin",
             inline=False)
     embed.set_footer(
-        text="Für die Horde! • Rolle anklicken = anmelden/wechseln • Abmelden • Organisator: Abschließen")
+        text="Für die Horde! • Rolle & Ingame-Charakter wählen • Charakter ändern • Abmelden")
     return embed
+
+
+class GroupCharacterPicker(discord.ui.View):
+    """Ephemeral dropdown; selections are validated again under the group lock."""
+    def __init__(self, owner_id, kind, group_id, role=None):
+        super().__init__(timeout=180)
+        self.owner_id = owner_id
+        self.kind = kind
+        self.group_id = group_id
+        self.role = role
+        chars = user_characters(owner_id)[:25]
+        options = [
+            discord.SelectOption(
+                label=name[:100],value=name,
+                description=f"{klass} · Stufe {level}"[:100],
+                emoji="👑" if index==0 else "⚔️")
+            for index,(name,klass,level) in enumerate(chars)]
+        select = discord.ui.Select(
+            placeholder="Mit welchem Ingame-Charakter spielst du?",
+            min_values=1,max_values=1,options=options,
+            custom_id=f"corpse_charchoice_{kind}_{group_id}")
+        select.callback = self.choose_character
+        self.add_item(select)
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id==self.owner_id and allowed(interaction):
+            return True
+        await interaction.response.send_message(
+            "Diese private Charakterauswahl gehört einem anderen Spieler.",
+            ephemeral=True)
+        return False
+
+    async def choose_character(self, interaction):
+        name = self.children[0].values[0]
+        if self.kind=="dungeon":
+            await plan_signup(interaction,self.group_id,self.role,character_name=name)
+        else:
+            await join_level_group(
+                interaction,self.group_id,True,character_name=name)
+
+
+async def offer_group_character_picker(interaction, kind, group_id, role=None):
+    chars = user_characters(interaction.user.id)
+    if not chars:
+        await answer(
+            interaction,
+            "⚔️ Trage erst einen Ingame-Charakter über **/charakter** ein. "
+            "Danach kannst du dich mit diesem Namen für die Gruppe anmelden.")
+        return True
+    if len(chars)>MAX_USER_CHARACTERS:
+        await answer(
+            interaction,
+            "Du hast mehr als 25 Charaktere. Bitte entferne nicht mehr "
+            "genutzte Twinks über **/charakter_loeschen**.")
+        return True
+    if len(chars)>1:
+        embed=discord.Embed(
+            title="⚔️ Welcher Charakter kommt mit?",
+            description=(
+                "Wähle deinen Charakter für diese Gruppe. "
+                "**Nur du** siehst diese Auswahl; "
+                "auf der Gruppenkarte erscheint der Ingame-Name "
+                "und darunter dein anklickbarer Discord-Account."),
+            colour=discord.Colour.gold())
+        await interaction.response.send_message(
+            embed=embed,
+            view=GroupCharacterPicker(
+                interaction.user.id,kind,group_id,role),
+            ephemeral=True)
+        return True
+    return False
+
+
+async def change_group_character(interaction,kind,group_id):
+    if not allowed(interaction):
+        return await answer(interaction,"Nur auf Corpsegrinder.")
+    if kind=="dungeon":
+        current = dict(plan_members(group_id)).get(interaction.user.id)
+        group = load_plan(group_id)
+        if not plan_open(group) or current is None:
+            return await answer(
+                interaction,"Du musst für diese Dungeon-Gruppe angemeldet sein.")
+    else:
+        current = None
+        group = level_record(group_id)
+        if not level_open(group) or interaction.user.id not in level_players(group_id):
+            return await answer(
+                interaction,"Du musst für diese Levelgruppe angemeldet sein.")
+    if await offer_group_character_picker(
+            interaction,kind,group_id,current):
+        return
+    character_name = user_characters(interaction.user.id)[0][0]
+    if kind=="dungeon":
+        await plan_signup(interaction,group_id,current,character_name)
+    else:
+        await join_level_group(interaction,group_id,True,character_name)
 
 
 class PlannedView(discord.ui.View):
@@ -1087,6 +1525,14 @@ class PlannedView(discord.ui.View):
             await finish_scheduled_group(interaction, "dungeon", group_id)
         finish.callback = completed
         self.add_item(finish)
+        character = discord.ui.Button(
+            label="Charakter ändern", emoji="🎭",
+            style=discord.ButtonStyle.secondary, row=1,
+            custom_id=f"corpse_plan_{group_id}_character")
+        async def switch_character(interaction):
+            await change_group_character(interaction,"dungeon",group_id)
+        character.callback = switch_character
+        self.add_item(character)
 
 
 async def refresh_planned_message(plan):
@@ -1100,45 +1546,73 @@ async def refresh_planned_message(plan):
         allowed_mentions=discord.AllowedMentions.none())
 
 
-async def plan_signup(interaction, group_id, task):
+async def plan_signup(interaction, group_id, task, character_name=None):
     if not allowed(interaction):
         return await answer(interaction, "Dieser Termin gehört zu Corpsegrinder.")
+    if task is not None:
+        if character_name is None:
+            if await offer_group_character_picker(
+                    interaction,"dungeon",group_id,task):
+                return
+            character_name = user_characters(interaction.user.id)[0][0]
+        elif not owned_character(interaction.user.id, character_name):
+            return await answer(
+                interaction, "Charakter nicht mehr vorhanden. "
+                "Bitte wähle einen deiner eigenen Charaktere.")
     await interaction.response.defer(ephemeral=True, thinking=True)
     async with plan_lock(group_id):
         plan = load_plan(group_id)
         if not plan_open(plan):
             return await interaction.followup.send(
                 "Der Termin ist nicht mehr offen.", ephemeral=True)
-        current = dict(plan_members(group_id)).get(interaction.user.id)
+        me = interaction.user.id
+        current = dict(plan_members(group_id)).get(me)
         if task is None:
             if current is None:
                 return await interaction.followup.send(
                     "Du bist noch nicht angemeldet.", ephemeral=True)
             db.execute(
                 "DELETE FROM planned_signups WHERE group_id=? AND user=?",
-                (group_id, interaction.user.id))
+                (group_id,me))
+            forget_group_character("dungeon",group_id,me)
             result = "Du bist abgemeldet."
         else:
-            if task == current:
+            selected = owned_character(me,character_name)
+            if selected is None:
                 return await interaction.followup.send(
-                    "Du bist bereits als " + task + " angemeldet.", ephemeral=True)
-            if plan_counts(group_id)[task] >= PLAN_LIMITS[task]:
+                    "Dein ausgewählter Charakter wurde gelöscht. "
+                    "Bitte erneut auswählen.",ephemeral=True)
+            previous = db.execute(
+                "SELECT name FROM group_character_choices "
+                "WHERE kind='dungeon' AND group_id=? AND user=?",
+                (group_id,me)).fetchone()
+            if task == current and previous and (
+                    previous[0].casefold()==selected[0].casefold()):
+                return await interaction.followup.send(
+                    "Du bist bereits als **"+task+"** mit **"+
+                    discord.utils.escape_markdown(selected[0])+
+                    "** angemeldet.",ephemeral=True)
+            if task != current and plan_counts(group_id)[task]>=PLAN_LIMITS[task]:
                 return await interaction.followup.send(
                     "Dieser Platz ist bereits belegt. Wähle eine andere Rolle.",
                     ephemeral=True)
             db.execute(
-                "INSERT OR REPLACE INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
-                (group_id, interaction.user.id, task))
-            result = "Du bist jetzt als " + task + " angemeldet."
+                "INSERT OR REPLACE INTO planned_signups(group_id,user,role) "
+                "VALUES (?,?,?)",(group_id,me,task))
+            remember_group_character("dungeon",group_id,me,selected[0])
+            result = (
+                "✅ Du spielst **"+discord.utils.escape_markdown(selected[0])+
+                "** als **"+task+"**.")
         db.commit()
         try:
             await refresh_planned_message(plan)
             result += " Die Übersicht wurde aktualisiert."
         except discord.HTTPException:
-            logging.exception("Termin #%s gespeichert, Embed nicht aktualisiert", group_id)
-            result += " Gespeichert, aber Discord konnte die Anzeige nicht aktualisieren."
-        await event_changed("dungeon", group_id)
-        await interaction.followup.send(result, ephemeral=True)
+            logging.exception(
+                "Termin #%s gespeichert, Embed nicht aktualisiert",group_id)
+            result += " Gespeichert, aber Discord konnte die Karte nicht aktualisieren."
+        await event_changed("dungeon",group_id)
+        await interaction.followup.send(result,ephemeral=True)
 
 
 
@@ -1302,7 +1776,8 @@ async def reschedule_planned_group(
 
 
 
-async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
+async def create_plan_record_and_post(guild, user_id, instance, when, display,
+                                      role, note="", character_name=None):
     """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
     target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
@@ -1319,6 +1794,16 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
     db.execute(
         "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
         (group_id, user_id, role))
+    # Der Ersteller meldet sich direkt mit seinem Hauptcharakter an.
+    # Falls noch kein Profil existiert, bleibt die Gruppe nutzbar und
+    # zeigt bis zur Registrierung einen klaren Hinweis statt eines Fantasienamens.
+    creator_main = (owned_character(user_id,character_name)
+                    if character_name else main_character(user_id))
+    if character_name and not creator_main:
+        db.rollback()
+        raise ValueError("Gewählter Charakter ist nicht mehr vorhanden.")
+    if creator_main:
+        remember_group_character("dungeon",group_id,user_id,creator_main[0])
     db.commit()
     plan = load_plan(group_id)
     try:
@@ -1328,6 +1813,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
             allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM group_character_choices WHERE kind='dungeon' AND group_id=?", (group_id,))
         db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
         db.commit()
         raise
@@ -1400,6 +1886,7 @@ def wizard_state(user_id):
         "owner": user_id,
         "instance": None,
         "role": None,
+        "character": main_character(user_id)[0] if main_character(user_id) else None,
         "day": None,
         "hour": "20",
         "minute": "00",
@@ -1422,6 +1909,12 @@ def wizard_embed(state, step=1, notice=None):
         colour=discord.Colour.gold()
     )
     embed.add_field(name="🏰 Instanz", value=state["instance"] or "Noch nicht gewählt", inline=False)
+    embed.add_field(
+        name="🎭 Dein Ingame-Charakter",
+        value=(discord.utils.escape_markdown(state.get("character") or "")
+               if state.get("character") else
+               "Keiner hinterlegt – mit /charakter anlegen"),
+        inline=True)
     embed.add_field(
         name="🎭 Deine Rolle",
         value={"Tank": "🛡️ Tank", "Heiler": "💚 Heiler", "DD": "💥 DD"}
@@ -1569,16 +2062,25 @@ class WizardStepTwo(PrivateWizard):
                 default=(state["minute"] == f"{n:02d}"))
                 for n in (0, 15, 30, 45)],
             row=2))
+        roster=user_characters(state["owner"])[:MAX_USER_CHARACTERS]
+        if roster:
+            self.add_item(WizardSelect(
+                state,"character","🎭 Mit welchem Charakter spielst du?",
+                [discord.SelectOption(
+                    label=name,value=name,
+                    description=f"{klass} · Stufe {level}",
+                    default=(state.get("character")==name))
+                    for name,klass,level in roster],row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
-                       style=discord.ButtonStyle.secondary, row=3)
+                       style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
         await interaction.response.edit_message(
             embed=wizard_embed(self.state, 1),
             view=WizardStepOne(self.state))
 
     @discord.ui.button(label="Termin veröffentlichen", emoji="✅",
-                       style=discord.ButtonStyle.success, row=3)
+                       style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction, button):
         state = self.state
         if state["published"]:
@@ -1603,7 +2105,8 @@ class WizardStepTwo(PrivateWizard):
             try:
                 message, group_id = await create_plan_record_and_post(
                     interaction.guild, interaction.user.id, state["instance"],
-                    when, display, state["role"], state["note"])
+                    when, display, state["role"], state["note"],
+                    character_name=state.get("character"))
             except (discord.HTTPException, ValueError) as exc:
                 logging.exception("Konnte Dungeon-Termin über Assistent nicht erstellen")
                 return await interaction.followup.send(
@@ -1882,8 +2385,9 @@ def level_card(record):
         inline=False)
     embed.add_field(
         name="🍃 DIE ABENTEURER",
-        value=("\n".join(f"• <@{user}>" for user in members)
-               if members else "*Noch keine Anmeldung*"),
+        value=("\n\n".join(
+            character_member_line("level",group_id,user)
+            for user in members) if members else "*Noch keine Anmeldung*"),
         inline=False)
     if level_open(record) and len(members) < 5:
         embed.add_field(
@@ -1897,7 +2401,7 @@ def level_card(record):
             value=f"<#{meta[4]}> · max. 5 Mitspieler",
             inline=False)
     embed.set_footer(
-        text="Corpsegrinder • Dabei sein / Abmelden • Organisator: Abschließen")
+        text="Corpsegrinder • Ingame-Charakter wählen • Dabei sein / Abmelden")
     return embed
 
 
@@ -1924,13 +2428,21 @@ class LevelGroupView(discord.ui.View):
     async def finish(self, interaction, button):
         await finish_scheduled_group(interaction, "level", self.group_id)
 
+    @discord.ui.button(label="Charakter ändern", emoji="🎭",
+                       custom_id="corpse_level_character_placeholder",
+                       style=discord.ButtonStyle.secondary)
+    async def character(self, interaction, button):
+        await change_group_character(interaction,"level",self.group_id)
+
 
 def level_group_view(group_id):
     view = LevelGroupView(group_id)
     for item in view.children:
         if isinstance(item, discord.ui.Button):
             prefix = ("join" if item.label == "Dabei sein"
-                      else "finish" if item.label == "Abschließen" else "leave")
+                      else "finish" if item.label == "Abschließen"
+                      else "character" if item.label == "Charakter ändern"
+                      else "leave")
             item.custom_id = f"corpse_level_{group_id}_{prefix}"
     return view
 
@@ -1946,45 +2458,77 @@ async def refresh_level_card(record):
         allowed_mentions=discord.AllowedMentions.none())
 
 
-async def join_level_group(interaction, group_id, joining):
+async def join_level_group(interaction, group_id, joining, character_name=None):
     if not allowed(interaction):
         return await answer(interaction, "Dieser Termin gehört nicht zu Corpsegrinder.")
+    if joining:
+        if character_name is None:
+            if await offer_group_character_picker(
+                    interaction,"level",group_id):
+                return
+            character_name=user_characters(interaction.user.id)[0][0]
+        elif not owned_character(interaction.user.id,character_name):
+            return await answer(
+                interaction,"Dieser Charakter ist nicht in deinem Profil.")
     await interaction.response.defer(ephemeral=True, thinking=True)
     async with level_lock(group_id):
-        group = level_record(group_id)
+        group=level_record(group_id)
         if not level_open(group):
             return await interaction.followup.send(
-                "Diese Levelgruppe ist nicht mehr offen.", ephemeral=True)
-        players = level_players(group_id)
-        me = interaction.user.id
-        if joining and me in players:
-            return await interaction.followup.send(
-                "Du bist bereits angemeldet.", ephemeral=True)
+                "Diese Levelgruppe ist nicht mehr offen.",ephemeral=True)
+        players=level_players(group_id)
+        me=interaction.user.id
         if not joining and me not in players:
             return await interaction.followup.send(
-                "Du bist nicht angemeldet.", ephemeral=True)
+                "Du bist nicht angemeldet.",ephemeral=True)
         if joining:
-            if len(players) >= 5:
+            selected=owned_character(me,character_name)
+            if selected is None:
                 return await interaction.followup.send(
-                    "Die Gruppe ist voll (5/5).", ephemeral=True)
-            db.execute("INSERT OR IGNORE INTO level_signups(group_id,user) VALUES (?,?)",
-                       (group_id, me))
-            response = "✅ Du bist jetzt für diese Levelgruppe angemeldet!"
+                    "Dein Charakter wurde inzwischen gelöscht.",ephemeral=True)
+            previous=db.execute(
+                "SELECT name FROM group_character_choices "
+                "WHERE kind='level' AND group_id=? AND user=?",
+                (group_id,me)).fetchone()
+            if me in players and previous and (
+                    previous[0].casefold()==selected[0].casefold()):
+                return await interaction.followup.send(
+                    "Du bist mit **"+
+                    discord.utils.escape_markdown(selected[0])+
+                    "** bereits angemeldet.",ephemeral=True)
+            if me not in players:
+                if len(players)>=5:
+                    return await interaction.followup.send(
+                        "Die Gruppe ist voll (5/5).",ephemeral=True)
+                db.execute(
+                    "INSERT OR IGNORE INTO level_signups(group_id,user) "
+                    "VALUES (?,?)",(group_id,me))
+            remember_group_character("level",group_id,me,selected[0])
+            response=(
+                "✅ Du bist jetzt mit **"+
+                discord.utils.escape_markdown(selected[0])+
+                "** für diese Levelgruppe angemeldet!")
         else:
-            db.execute("DELETE FROM level_signups WHERE group_id=? AND user=?",
-                       (group_id, me))
-            response = "❌ Du bist aus der Levelgruppe ausgetragen."
+            db.execute(
+                "DELETE FROM level_signups WHERE group_id=? AND user=?",
+                (group_id,me))
+            forget_group_character("level",group_id,me)
+            response="❌ Du bist aus der Levelgruppe ausgetragen."
         db.commit()
         try:
             await refresh_level_card(group)
         except discord.HTTPException:
-            logging.exception("Levelgruppe #%s gespeichert, Nachricht nicht aktualisiert", group_id)
-            response += " Die Übersicht konnte gerade nicht aktualisiert werden."
-        await event_changed("level", group_id)
-        await interaction.followup.send(response, ephemeral=True)
+            logging.exception(
+                "Levelgruppe #%s gespeichert, Karte nicht aktualisiert",group_id)
+            response+=" Die Karte konnte gerade nicht aktualisiert werden."
+        await event_changed("level",group_id)
+        await interaction.followup.send(response,ephemeral=True)
 
 
-async def publish_level_group(guild, user_id, area, low, high, when, display, note=""):
+
+
+async def publish_level_group(guild, user_id, area, low, high, when, display,
+                              note="", character_name=None):
     dest = channel(guild, "pve-gruppensuche")
     if not isinstance(dest, discord.TextChannel):
         raise ValueError("Kanal #pve-gruppensuche fehlt.")
@@ -1999,6 +2543,13 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
     group_id = cursor.lastrowid
     db.execute("INSERT INTO level_signups(group_id,user) VALUES (?,?)",
                (group_id, user_id))
+    creator_main = (owned_character(user_id,character_name)
+                    if character_name else main_character(user_id))
+    if character_name and not creator_main:
+        db.rollback()
+        raise ValueError("Gewählter Charakter ist nicht mehr vorhanden.")
+    if creator_main:
+        remember_group_character("level",group_id,user_id,creator_main[0])
     db.commit()
     group = level_record(group_id)
     try:
@@ -2008,6 +2559,7 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
             allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         db.execute("DELETE FROM level_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM group_character_choices WHERE kind='level' AND group_id=?", (group_id,))
         db.execute("DELETE FROM level_groups WHERE id=?", (group_id,))
         db.commit()
         raise
@@ -2027,6 +2579,7 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
 def level_wizard_state(user_id):
     return {
         "owner": user_id, "area": None, "range": None,
+        "character": main_character(user_id)[0] if main_character(user_id) else None,
         "day": None, "hour": "20", "minute": "00", "note": "",
         "published": False, "message_url": None,
     }
@@ -2051,6 +2604,12 @@ def level_wizard_embed(state, step=1, notice=None):
         name="🌍 Levelgebiet",
         value=state["area"] or "*Bitte auswählen*",
         inline=False)
+    embed.add_field(
+        name="🎭 Dein Ingame-Charakter",
+        value=(discord.utils.escape_markdown(state.get("character") or "")
+               if state.get("character") else
+               "Keiner hinterlegt – mit /charakter anlegen"),
+        inline=True)
     current_range = state["range"]
     embed.add_field(
         name="🎚️ Levelbereich",
@@ -2194,16 +2753,26 @@ class LevelWizardTwo(LevelPrivateWizard):
                 default=(state["minute"] == f"{m:02d}"))
                 for m in (0, 15, 30, 45)],
             "⏱️ Minuten", row=2))
+        roster=user_characters(state["owner"])[:MAX_USER_CHARACTERS]
+        if roster:
+            self.add_item(LevelWizardSelect(
+                state,"character",
+                [discord.SelectOption(
+                    label=name,value=name,
+                    description=f"{klass} · Stufe {level}",
+                    default=(state.get("character")==name))
+                    for name,klass,level in roster],
+                "🎭 Dein Ingame-Charakter",row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
-                       style=discord.ButtonStyle.secondary, row=3)
+                       style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
         await interaction.response.edit_message(
             embed=level_wizard_embed(self.state, 1),
             view=LevelWizardOne(self.state))
 
     @discord.ui.button(label="Levelgruppe veröffentlichen", emoji="✅",
-                       style=discord.ButtonStyle.success, row=3)
+                       style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction, button):
         state = self.state
         if state["published"]:
@@ -2228,7 +2797,8 @@ class LevelWizardTwo(LevelPrivateWizard):
             try:
                 message, group_id = await publish_level_group(
                     interaction.guild, interaction.user.id,
-                    state["area"], low, high, when, display, state["note"])
+                    state["area"], low, high, when, display, state["note"],
+                    character_name=state.get("character"))
             except (discord.HTTPException, ValueError):
                 logging.exception("Levelgruppe konnte nicht gepostet werden")
                 return await interaction.followup.send(
@@ -2646,6 +3216,14 @@ async def event_dm(user_id, title, body, kind, group, voice_id=None):
             name="🗓️ Gruppenstart",
             value=f"<t:{event_start(kind, group)}:F>",
             inline=False)
+        game_character = chosen_character(kind,group[0],user_id)
+        if game_character:
+            embed.add_field(
+                name="🎭 Dein Ingame-Charakter",
+                value=(f"**{discord.utils.escape_markdown(game_character[0])}**"
+                       + (f" · {discord.utils.escape_markdown(game_character[1])}"
+                          if game_character[1] else "")),
+                inline=False)
         url = event_link(kind, group)
         if url:
             embed.add_field(name="📜 Zur Anmeldung", value=f"[Gruppenkarte öffnen]({url})", inline=False)

@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.15"
+VERSION = "1.0.16"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -86,21 +86,26 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="📰 Corpsegrinder Bot – Update " + VERSION,
+        title="⚔️ Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Forever-News direkt in Discord lesen!**\n\n"
-            "Die neuen Nachrichtenkarten zeigen den **deutschen Überblick direkt "
-            "im Kanal** – ohne Schaltfläche »Ausführlicher lesen«, ohne zusätzliche "
-            "Fenster oder private Ansichten.\n\n"
-            "🔎 Der Bot bereitet belegbare Angaben zu Builds, Zaubern, "
-            "Gegenständen, Klassen und Talenten übersichtlich auf und verlinkt "
-            "den englischen Originalartikel nur noch als optionale Quelle.\n\n"
-            "♻️ Bereits veröffentlichte Community-Meldungen werden soweit die "
-            "Quelle noch erreichbar ist **an Ort und Stelle** aktualisiert, "
-            "statt erneut in den Kanal gepostet.\n\n"
-            "ℹ️ Ohne zuverlässige Detailangaben zeigt der Bot ausdrücklich "
-            "nur einen kurzen Überblick, statt Fakten oder Übersetzungen "
-            "zu erfinden."
+            "**Ingame-Namen statt nur Discord-Namen!**\n\n"
+            "👑 Bestehende Charaktere bleiben erhalten. Mit "
+            "**/charakter** legst du deinen Krieger, Schamanen oder "
+            "andere Twinks an. **/hauptcharakter** legt deinen Main fest; "
+            "**/meine_charaktere** zeigt dein Profil privat.\n\n"
+            "🎭 In **#dungeons** und **#pve-gruppensuche** wählen Spieler "
+            "ihren Charakter direkt bei der Anmeldung. Bei nur einem "
+            "Charakter erfolgt die Auswahl automatisch. "
+            "Auch die Organisatoren können ihren Charakter beim Planen wählen.\n\n"
+            "📋 Auf den Gruppenkarten steht der **Ingame-Name zuerst**, "
+            "darunter der anklickbare Discord-Account. "
+            "Ein Discord-Mitglied belegt weiterhin maximal **einen** Gruppenplatz.\n\n"
+            "🔄 Der neue Button **Charakter ändern** erlaubt einen Wechsel "
+            "ohne Abmeldung. Bereits geplante Gruppen und Profile bleiben erhalten.\n\n"
+            "✏️ Wer möchte, kann den Discord-Servernickname freiwillig "
+            "mit **/ingame_nickname aktiv:true** auf den Main anpassen. "
+            "Zum Rückgängigmachen **aktiv:false** eingeben.\n\n"
+            "Keine Ingame-Verifizierung erforderlich."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
