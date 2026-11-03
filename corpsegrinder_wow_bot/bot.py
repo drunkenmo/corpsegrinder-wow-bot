@@ -3317,39 +3317,53 @@ async def ensure_forever_news_channel(guild):
                 reason="Forever-News direkt unter #ankündigungen einsortieren")
         except discord.Forbidden:
             logging.warning("Forever-News: Kanalposition nicht änderbar.")
-    if setting("forever_news_intro_id") is None:
-        embed = discord.Embed(
-            title="📰 CORPSEGRINDER · FOREVER NEWS",
-            description=(
-                "**Für die Horde!** ⚔️\n\n"
-                "Hier postet der WoW Forever Bot ausschließlich **offizielle "
-                "Blizzard-Meldungen zu World of Warcraft: Forever**.\n\n"
-                "🔎 **Automatische Prüfung:** alle 30 Minuten\n"
-                "📅 **Start:** passende Artikel der letzten 48 Stunden\n"
-                "🔗 **Quelle:** Blizzard Entertainment\n\n"
-                "Keine allgemeinen Retail-, Midnight- oder Classic-News. "
-                "Gibt es keine neuen Forever-Artikel, bleibt der Kanal ruhig."),
-            colour=discord.Colour.dark_red())
-        embed.set_footer(text=FOREVER_NEWS_MARKER)
-        existing = None
+    embed = discord.Embed(
+        title="📰 CORPSEGRINDER · FOREVER NEWS",
+        description=(
+            "**Für die Horde!** ⚔️\n\n"
+            "Hier findet ihr Neuigkeiten ausschließlich zu **WoW Forever**.\n\n"
+            "🔴 **Offizielle Meldungen:** Blizzard Entertainment\n"
+            "🟠 **Community-News:** Wowhead und WoW Forever GG (deutlich gekennzeichnet)\n"
+            "🔎 **Prüfung:** alle 30 Minuten · **keine Doppelpostings**\n\n"
+            "Es gibt eine kleine echte **Wowhead-Startauswahl**. Neue Meldungen "
+            "erscheinen danach automatisch, sofern die Quellen erreichbar sind."
+        ),
+        colour=discord.Colour.dark_red())
+    embed.set_footer(text=FOREVER_NEWS_MARKER)
+    existing = None
+    saved_intro = setting("forever_news_intro_id")
+    if saved_intro:
         try:
-            async for post in target.history(limit=40):
-                if (post.author.id == bot.user.id and
-                        any(FOREVER_NEWS_MARKER in (e.footer.text or "")
-                            for e in post.embeds)):
+            old = await target.fetch_message(int(saved_intro))
+            if old.author.id == bot.user.id and any(
+                    FOREVER_NEWS_MARKER in (e.footer.text or "") for e in old.embeds):
+                existing = old
+        except (discord.HTTPException, ValueError):
+            pass
+    if existing is None:
+        try:
+            async for post in target.history(limit=50):
+                if post.author.id == bot.user.id and any(
+                        FOREVER_NEWS_MARKER in (e.footer.text or "")
+                        for e in post.embeds):
                     existing = post
                     break
         except discord.HTTPException:
             pass
-        if existing is None:
-            existing = await target.send(
-                embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        save_setting("forever_news_intro_id", existing.id)
-        if not existing.pinned:
-            try:
-                await existing.pin(reason="Corpsegrinder: Forever-News Begrüßung")
-            except discord.HTTPException:
-                logging.warning("Forever-News-Intro konnte nicht angeheftet werden.")
+    if existing is None:
+        existing = await target.send(
+            embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    else:
+        # Keeps the original pinned message but updates the source labels.
+        if not existing.embeds or existing.embeds[0].description != embed.description:
+            await existing.edit(embed=embed)
+    save_setting("forever_news_intro_id", existing.id)
+    if not existing.pinned:
+        try:
+            await existing.pin(reason="Corpsegrinder: Forever-News Begrüßung")
+        except discord.HTTPException:
+            logging.warning("Forever-News-Intro konnte nicht angeheftet werden.")
+
     return target
 
 
@@ -3433,7 +3447,7 @@ async def manually_check_forever_news(interaction: discord.Interaction):
         count, result = await check_forever_news()
         await interaction.followup.send(
             f"📰 **Forever-News geprüft.**\n"
-            f"Neue Artikel (letzte 48 Stunden): **{count}**\nStatus: {result}\n"
+            f"Neue Forever-Beiträge: **{count}**\nStatus: {result}\n"
             f"Ziel: **#forever-news**", ephemeral=True)
     except Exception:
         logging.exception("Manuelle Forever-News-Prüfung fehlgeschlagen")
@@ -3450,11 +3464,13 @@ async def forever_news_status(interaction: discord.Interaction):
     if not allowed(interaction):
         return await answer(interaction, "Nur auf Corpsegrinder verfügbar.")
     total = db.execute("SELECT COUNT(*) FROM blizzard_news_posts").fetchone()[0]
+    community_total = db.execute(
+        "SELECT COUNT(*) FROM forever_community_posts").fetchone()[0]
     last = setting("forever_news_checked")
     status = setting("forever_news_last_result") or "Noch kein erfolgreicher Abruf"
     await answer(interaction,
                  f"📰 **Forever-News**\nAutomatisch alle **30 Minuten**\n"
-                 f"Bereits gepostete Blizzard-Artikel: **{total}**\n"
+                 f"Blizzard-Artikel: **{total}** · Community-News: **{community_total}**\n"
                  + (f"Letzter erfolgreicher Check: <t:{last}:F>\n"
                     if last else "") + f"Status: {status}")
 
@@ -4045,7 +4061,9 @@ async def check_forever_addons():
         posted=0
         # Avoid a flood during the initial import; base guide covers the basics.
         first_run=(not setting("addons_initial_import_complete"))
-        max_messages = 3 if first_run else 6
+        max_messages = 5 if first_run else 6
+        initial_curated_sent = 0
+        initial_discovered_sent = 0
         for slug,title,area,summary,version in candidates:
             previous=known.get(slug)
             if previous==version:
@@ -4053,7 +4071,10 @@ async def check_forever_addons():
             is_new=slug not in {item[0] for item in ADDON_SOURCES}
             # When the bot first sees curated addons, store all versions but
             # only post a few fresh Forever-file cards.
-            send_card = not first_run or (posted<max_messages and not is_new)
+            send_card = (not first_run or
+                         (posted < max_messages and (
+                             (not is_new and initial_curated_sent < 3) or
+                             (is_new and initial_discovered_sent < 2))))
             message_id=0
             if send_card:
                 msg=await target.send(
@@ -4062,6 +4083,11 @@ async def check_forever_addons():
                     allowed_mentions=discord.AllowedMentions.none())
                 message_id=msg.id
                 posted+=1
+                if first_run:
+                    if is_new:
+                        initial_discovered_sent += 1
+                    else:
+                        initial_curated_sent += 1
             db.execute(
                 "INSERT INTO forever_addon_files "
                 "(slug,latest_version,message_id,first_seen_utc,last_seen_utc) "
