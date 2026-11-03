@@ -52,6 +52,7 @@ db.execute("CREATE TABLE IF NOT EXISTS forever_forum_posts (post_id INTEGER PRIM
 db.execute("CREATE TABLE IF NOT EXISTS forever_forum_card_formats (post_id INTEGER PRIMARY KEY, render_version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_news_card_versions (canonical_url TEXT PRIMARY KEY, version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS trade_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, details TEXT NOT NULL, conditions TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open', channel_id INTEGER, message_id INTEGER, created_utc INTEGER NOT NULL)")
 
 db.commit()
 db.commit()
@@ -455,6 +456,12 @@ async def on_ready():
     bot.add_view(RoleView())
     bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
+    bot.add_view(TradeDashboardView())
+    for trade_id, post_id in db.execute(
+            "SELECT id,message_id FROM trade_posts WHERE guild=? "
+            "AND status='open' AND message_id IS NOT NULL",
+            (GUILD_ID,)).fetchall():
+        bot.add_view(TradeEntryView(trade_id), message_id=post_id)
     bot.add_view(LevelDashboardView())
     for (group_id, message_id) in db.execute(
             "SELECT id,message FROM level_groups WHERE guild=? AND status='open' "
@@ -474,6 +481,7 @@ async def on_ready():
     initialize_scheduler_meta()
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
+    background(ensure_trade_dashboard_on_start())
     background(ensure_level_dashboard_on_start())
     background(remove_old_guild_category_once())
     background(refresh_community_panels_on_start())
@@ -686,6 +694,328 @@ async def on_voice_state_update(member, before, after):
 async def on_guild_channel_delete(channel):
     if channel.guild.id == GUILD_ID and setting("temp_" + str(channel.id)) == "1":
         forget_temp_channel(channel.id)
+
+
+# --- Handels- und Handwerkerbörse (1.0.22) ---------------------------------
+# Nur Spielgold, Materialien und Ingame-Gegenstände; keine Echtgeldgeschäfte.
+# Bereits bestehende Kanalnachrichten bleiben unverändert.
+TRADE_KINDS = ("Suche", "Biete", "Handwerksauftrag")
+TRADE_ICONS = {"Suche": "🔎", "Biete": "📦", "Handwerksauftrag": "⚒️"}
+TRADE_MARKER = "corpsegrinder:handel-panel-v122"
+TRADE_PANEL_KEY = "trade_panel_v122"
+TRADE_ACTIVE_LIMIT = 6
+
+
+def trade_post(trade_id):
+    return db.execute(
+        "SELECT id,guild,owner,kind,item,details,conditions,status,"
+        "channel_id,message_id,created_utc FROM trade_posts "
+        "WHERE id=? AND guild=?", (trade_id, GUILD_ID)).fetchone()
+
+
+def trade_embed(record):
+    trade_id, _, owner, kind, item, details, conditions, status, *_ = record
+    safe = discord.utils.escape_markdown
+    done = status == "done"
+    result = discord.Embed(
+        title=TRADE_ICONS.get(kind, "📦") + " " + kind + " · " + safe(item),
+        description=safe(details),
+        colour=discord.Colour.dark_grey() if done
+               else discord.Colour.from_rgb(160, 95, 32))
+    result.add_field(
+        name="Gesucht / Angeboten von",
+        value=f"<@{owner}>", inline=True)
+    result.add_field(
+        name="Status", value=("✅ Erledigt" if done else "🟢 Offen"),
+        inline=True)
+    if conditions:
+        result.add_field(
+            name="Preis / Materialien / Bedingungen",
+            value=safe(conditions), inline=False)
+    result.set_footer(
+        text=f"Corpsegrinder Handelsbörse · Eintrag #{trade_id} · "
+             "Nur Ingame-Handel, keine Echtgeldgeschäfte")
+    return result
+
+
+def trade_dashboard_embed():
+    rows = db.execute(
+        "SELECT id,kind,item,channel_id,message_id FROM trade_posts "
+        "WHERE guild=? AND status='open' ORDER BY created_utc DESC,id DESC "
+        "LIMIT 8", (GUILD_ID,)).fetchall()
+    embed = discord.Embed(
+        title="⚒️ CORPSEGRINDER · DER HANDELSPLATZ",
+        description=(
+            "**Lok'tar!** Hier handeln wir Ausrüstung, Materialien "
+            "und die Dienste unserer Handwerker. 🍻\n\n"
+            "🔎 **Suche:** Du brauchst einen Gegenstand oder Materialien.\n"
+            "📦 **Biete:** Du möchtest etwas abgeben oder tauschen.\n"
+            "⚒️ **Handwerksauftrag:** Du suchst jemanden für ein Rezept, "
+            "eine Verzauberung oder einen hergestellten Gegenstand.\n\n"
+            "Klicke unten auf einen Button. Mit **Kontakt** findest du "
+            "den Ersteller; dieser kann seinen Eintrag jederzeit "
+            "als **Erledigt** markieren.\n\n"
+            "💰 Nur Handel mit **Ingame-Gold und Spielgegenständen**. "
+            "Keine Echtgeldgeschäfte, kein Spam."),
+        colour=discord.Colour.gold())
+    if rows:
+        lines = []
+        for ident, kind, item, chan_id, msg_id in rows:
+            name = discord.utils.escape_markdown(item[:55])
+            url = (f"https://discord.com/channels/{GUILD_ID}/{chan_id}/{msg_id}"
+                   if chan_id and msg_id else None)
+            label = TRADE_ICONS.get(kind, "📦") + " " + kind + ": " + name
+            lines.append(f"• [#{ident} · {label}]({url})"
+                         if url else f"• #{ident} · {label}")
+        embed.add_field(
+            name="📌 Aktuelle Gesuche und Angebote",
+            value="\n".join(lines)[:1024], inline=False)
+    else:
+        embed.add_field(
+            name="📌 Noch keine Einträge",
+            value="Der Handelsplatz wartet auf seine ersten Händler!",
+            inline=False)
+    embed.set_footer(text=TRADE_MARKER)
+    return embed
+
+
+class TradeModal(discord.ui.Modal):
+    def __init__(self, kind):
+        super().__init__(title=kind + " erstellen", timeout=300)
+        self.kind = kind
+        self.item = discord.ui.TextInput(
+            label="Gegenstand, Rezept oder Dienstleistung",
+            placeholder="Zum Beispiel Thoriumbarren / Verzauberung",
+            min_length=3, max_length=100, required=True)
+        self.details = discord.ui.TextInput(
+            label="Was genau suchst oder bietest du an?",
+            style=discord.TextStyle.paragraph,
+            placeholder="Menge, Beruf, benötigte Materialien, Realm ...",
+            min_length=5, max_length=500, required=True)
+        self.conditions = discord.ui.TextInput(
+            label="Preis, Tausch oder Materialien (optional)",
+            placeholder="Nur Ingame-Gold oder Spielmaterialien",
+            max_length=150, required=False)
+        self.add_item(self.item)
+        self.add_item(self.details)
+        self.add_item(self.conditions)
+
+    async def on_submit(self, i: discord.Interaction):
+        if not allowed(i):
+            return await i.response.send_message(
+                "Nur auf Corpsegrinder möglich.", ephemeral=True)
+        target = channel(i.guild, "handel-und-crafting")
+        if not isinstance(target, discord.TextChannel):
+            return await i.response.send_message(
+                "Der Handelskanal fehlt. Bitte einen Admin informieren.",
+                ephemeral=True)
+        active = db.execute(
+            "SELECT COUNT(*) FROM trade_posts WHERE guild=? "
+            "AND owner=? AND status='open'", (GUILD_ID, i.user.id)).fetchone()[0]
+        if active >= TRADE_ACTIVE_LIMIT:
+            return await i.response.send_message(
+                f"Du hast bereits {TRADE_ACTIVE_LIMIT} offene Einträge. "
+                "Markiere einen als erledigt, bevor du einen neuen erstellst.",
+                ephemeral=True)
+        await i.response.defer(ephemeral=True, thinking=True)
+        created = int(datetime.now(timezone.utc).timestamp())
+        cursor = db.execute(
+            "INSERT INTO trade_posts "
+            "(guild,owner,kind,item,details,conditions,created_utc) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (GUILD_ID, i.user.id, self.kind, str(self.item.value).strip(),
+             str(self.details.value).strip(),
+             str(self.conditions.value or "").strip(), created))
+        trade_id = cursor.lastrowid
+        db.commit()
+        try:
+            message = await target.send(
+                embed=trade_embed(trade_post(trade_id)),
+                view=TradeEntryView(trade_id),
+                allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            db.execute("DELETE FROM trade_posts WHERE id=?", (trade_id,))
+            db.commit()
+            return await i.followup.send(
+                "Dein Eintrag konnte nicht veröffentlicht werden. "
+                "Bitte die Bot-Berechtigungen prüfen.", ephemeral=True)
+        db.execute(
+            "UPDATE trade_posts SET channel_id=?,message_id=? WHERE id=?",
+            (target.id, message.id, trade_id))
+        db.commit()
+        bot.add_view(TradeEntryView(trade_id), message_id=message.id)
+        try:
+            await refresh_trade_dashboard(target)
+        except discord.HTTPException:
+            logging.exception("Handelsübersicht konnte nicht aktualisiert werden")
+        await i.followup.send(
+            f"✅ {self.kind} #{trade_id} veröffentlicht: {message.jump_url}",
+            ephemeral=True)
+
+
+class TradeEntryView(discord.ui.View):
+    def __init__(self, trade_id):
+        super().__init__(timeout=None)
+        self.trade_id = trade_id
+        contact = discord.ui.Button(
+            label="Kontakt", emoji="💬",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"corpse_trade_contact_{trade_id}_v122")
+        complete = discord.ui.Button(
+            label="Erledigt", emoji="✅",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"corpse_trade_done_{trade_id}_v122")
+        contact.callback = self.contact
+        complete.callback = self.complete
+        self.add_item(contact)
+        self.add_item(complete)
+
+    async def contact(self, i: discord.Interaction):
+        if not allowed(i):
+            return await answer(i, "Nur auf Corpsegrinder möglich.")
+        row = trade_post(self.trade_id)
+        if not row or row[7] != "open":
+            return await answer(i, "Der Eintrag ist nicht mehr offen.")
+        await answer(
+            i, f"💬 **Kontakt zu #{self.trade_id}:** <@{row[2]}>\n"
+               "Schreibe dem Mitglied direkt auf Discord, "
+               "um den Ingame-Tausch abzusprechen.")
+
+    async def complete(self, i: discord.Interaction):
+        if not allowed(i):
+            return await answer(i, "Nur auf Corpsegrinder möglich.")
+        row = trade_post(self.trade_id)
+        if not row:
+            return await answer(i, "Der Eintrag existiert nicht mehr.")
+        if i.user.id != row[2] and not admin(i):
+            return await answer(i, "Nur Ersteller oder Administratoren "
+                                "können diesen Eintrag abschließen.")
+        if row[7] != "open":
+            return await answer(i, "Dieser Eintrag ist schon erledigt.")
+        db.execute(
+            "UPDATE trade_posts SET status='done' WHERE id=? AND status='open'",
+            (self.trade_id,))
+        db.commit()
+        updated = trade_post(self.trade_id)
+        try:
+            await i.message.edit(embed=trade_embed(updated), view=None)
+            target = channel(i.guild, "handel-und-crafting")
+            if isinstance(target, discord.TextChannel):
+                await refresh_trade_dashboard(target)
+        except discord.HTTPException:
+            logging.exception("Handelseintrag aktualisiert, Discord-Karte nicht")
+            return await answer(
+                i, "✅ Gespeichert. Die Discord-Karte konnte noch "
+                   "nicht aktualisiert werden.")
+        await answer(i, f"✅ Eintrag #{self.trade_id} abgeschlossen.")
+
+
+class TradeDashboardView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        for kind in TRADE_KINDS:
+            button = discord.ui.Button(
+                label=kind, emoji=TRADE_ICONS[kind],
+                style=discord.ButtonStyle.primary,
+                custom_id="corpse_trade_create_" +
+                          kind.lower().replace(" ", "_") + "_v122")
+            async def create(i, selected=kind):
+                if not allowed(i):
+                    return await answer(i, "Nur auf Corpsegrinder möglich.")
+                await i.response.send_modal(TradeModal(selected))
+            button.callback = create
+            self.add_item(button)
+        my = discord.ui.Button(
+            label="Meine Einträge", emoji="📜",
+            style=discord.ButtonStyle.secondary,
+            custom_id="corpse_trade_mine_v122")
+        my.callback = self.mine
+        self.add_item(my)
+
+    async def mine(self, i: discord.Interaction):
+        if not allowed(i):
+            return await answer(i, "Nur auf Corpsegrinder möglich.")
+        rows = db.execute(
+            "SELECT id,kind,item,status,channel_id,message_id "
+            "FROM trade_posts WHERE guild=? AND owner=? "
+            "ORDER BY created_utc DESC,id DESC LIMIT 12",
+            (GUILD_ID, i.user.id)).fetchall()
+        if not rows:
+            return await answer(i, "Du hast noch keine Handelseinträge.")
+        lines = []
+        for ident,kind,item,status,chan_id,msg_id in rows:
+            name = discord.utils.escape_markdown(item[:60])
+            link = (f"https://discord.com/channels/{GUILD_ID}/{chan_id}/{msg_id}"
+                    if chan_id and msg_id else None)
+            title = f"#{ident} · {kind} · {name} · " + (
+                "🟢 offen" if status == "open" else "✅ erledigt")
+            lines.append(f"• [{title}]({link})" if link else "• " + title)
+        await answer(i, "**Deine letzten 12 Einträge:**\n" + "\n".join(lines))
+
+
+async def refresh_trade_dashboard(target):
+    """Edit the same pinned dashboard, never create duplicate instructions."""
+    saved = setting(TRADE_PANEL_KEY)
+    message = None
+    if saved:
+        try:
+            found = await target.fetch_message(int(saved))
+            if found.author.id == bot.user.id:
+                message = found
+        except (discord.HTTPException, ValueError):
+            pass
+    if message is None:
+        async for candidate in target.history(limit=75):
+            if (candidate.author.id == bot.user.id and
+                    any(TRADE_MARKER in (emb.footer.text or "")
+                        for emb in candidate.embeds)):
+                message = candidate
+                break
+    if message is None:
+        message = await target.send(
+            embed=trade_dashboard_embed(), view=TradeDashboardView(),
+            allowed_mentions=discord.AllowedMentions.none())
+    else:
+        await message.edit(embed=trade_dashboard_embed(),
+                           view=TradeDashboardView())
+    save_setting(TRADE_PANEL_KEY, message.id)
+    if not message.pinned:
+        try:
+            await message.pin(reason="Corpsegrinder: Handelsbörse")
+        except discord.HTTPException:
+            logging.warning("Handelsübersicht konnte nicht angeheftet werden")
+    return message
+
+
+async def ensure_trade_dashboard_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    target = channel(guild, "handel-und-crafting") if guild else None
+    if isinstance(target, discord.TextChannel):
+        try:
+            await refresh_trade_dashboard(target)
+        except discord.HTTPException:
+            logging.exception("Handelsplatz konnte nicht eingerichtet werden")
+
+
+@bot.tree.command(
+    name="handel_aktualisieren",
+    description="Handelsübersicht erneuern (Admin)", guild=SERVER)
+async def update_trade_dashboard(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    target = channel(i.guild, "handel-und-crafting")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(i, "#handel-und-crafting fehlt.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    try:
+        panel = await refresh_trade_dashboard(target)
+    except discord.HTTPException:
+        return await i.followup.send(
+            "Handelsübersicht nicht aktualisierbar. "
+            "Bot-Berechtigungen prüfen.", ephemeral=True)
+    await i.followup.send(
+        "✅ Handelsübersicht erneuert: " + panel.jump_url, ephemeral=True)
+
 
 @bot.tree.command(name="einrichtung_vorschau", description="Noch fehlende WoW-Rollen und Kanäle", guild=SERVER)
 async def preview(i: discord.Interaction):
