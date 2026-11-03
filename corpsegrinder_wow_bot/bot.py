@@ -595,7 +595,7 @@ def normalize_character_name(name):
     # Discord-Markdown oder Mentions dürfen niemals als Charaktername
     # durch die Speicherung zu einer fremden Nachricht werden.
     if not (2 <= len(value) <= 40) or not re.fullmatch(
-            r"[\wÀ-ÿÄÖÜäöüß][\wÀ-ÿÄÖÜäöüß '-]{1,39}", value,
+            r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 '-]{1,39}", value,
             flags=re.UNICODE):
         raise ValueError(
             "Charaktername: 2–40 Zeichen, Buchstaben, Zahlen und ggf. "
@@ -972,7 +972,11 @@ async def leave_group(i: discord.Interaction, gruppen_id: int):
 @bot.tree.command(name="gruppe_anzeigen", description="Anmeldungen anzeigen", guild=SERVER)
 async def show_group(i: discord.Interaction, gruppen_id: int):
     result = db.execute("SELECT user,role FROM signups WHERE group_id=?", (gruppen_id,)).fetchall()
-    await answer(i, "\n".join("<@" + str(user) + "> – " + r for user, r in result) or "Noch keine Anmeldungen.")
+    await answer(
+        i,"\n".join(
+            f"**{discord.utils.escape_markdown(main_character(user)[0])}** "
+            f"· <@{user}> – {r}" if main_character(user) else f"<@{user}> – {r}"
+            for user,r in result) or "Noch keine Anmeldungen.")
 
 
 async def post_version_news_once():
@@ -1786,6 +1790,12 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
     db.execute(
         "INSERT INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
         (group_id, user_id, role))
+    # Der Ersteller meldet sich direkt mit seinem Hauptcharakter an.
+    # Falls noch kein Profil existiert, bleibt die Gruppe nutzbar und
+    # zeigt bis zur Registrierung einen klaren Hinweis statt eines Fantasienamens.
+    creator_main = main_character(user_id)
+    if creator_main:
+        remember_group_character("dungeon",group_id,user_id,creator_main[0])
     db.commit()
     plan = load_plan(group_id)
     try:
@@ -1795,6 +1805,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
             allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         db.execute("DELETE FROM planned_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM group_character_choices WHERE kind='dungeon' AND group_id=?", (group_id,))
         db.execute("DELETE FROM planned_groups WHERE id=?", (group_id,))
         db.commit()
         raise
@@ -2503,6 +2514,9 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
     group_id = cursor.lastrowid
     db.execute("INSERT INTO level_signups(group_id,user) VALUES (?,?)",
                (group_id, user_id))
+    creator_main = main_character(user_id)
+    if creator_main:
+        remember_group_character("level",group_id,user_id,creator_main[0])
     db.commit()
     group = level_record(group_id)
     try:
@@ -2512,6 +2526,7 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
             allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         db.execute("DELETE FROM level_signups WHERE group_id=?", (group_id,))
+        db.execute("DELETE FROM group_character_choices WHERE kind='level' AND group_id=?", (group_id,))
         db.execute("DELETE FROM level_groups WHERE id=?", (group_id,))
         db.commit()
         raise
@@ -3150,6 +3165,14 @@ async def event_dm(user_id, title, body, kind, group, voice_id=None):
             name="🗓️ Gruppenstart",
             value=f"<t:{event_start(kind, group)}:F>",
             inline=False)
+        game_character = chosen_character(kind,group[0],user_id)
+        if game_character:
+            embed.add_field(
+                name="🎭 Dein Ingame-Charakter",
+                value=(f"**{discord.utils.escape_markdown(game_character[0])}**"
+                       + (f" · {discord.utils.escape_markdown(game_character[1])}"
+                          if game_character[1] else "")),
+                inline=False)
         url = event_link(kind, group)
         if url:
             embed.add_field(name="📜 Zur Anmeldung", value=f"[Gruppenkarte öffnen]({url})", inline=False)
