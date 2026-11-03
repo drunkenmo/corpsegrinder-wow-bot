@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.16 – Ingame-Namen, Hauptcharakter, Twinks und Gruppen-Anmeldung
+
+- Die bestehende `characters`-Datenbank bleibt bestehen; die neuen Zuordnungen für Hauptcharakter, pro-Termin-Charakter und freiwillige Discord-Nicknames werden in eigenen SQLite-Tabellen gespeichert.
+- `/charakter` legt Charaktere an oder aktualisiert sie (max. 25 pro Discord-Mitglied). Der erste eingetragene Charakter wird automatisch Hauptcharakter; bereits vorhandene Profile werden automatisch weiterverwendet.
+- `/hauptcharakter name:<Name>` setzt den Main; `/meine_charaktere` zeigt eine private Übersicht aller Hauptcharaktere und Twinks.
+- Dungeon- und Levelgruppen-Anmeldebuttons fragen bei mehreren Charakteren über ein nur für den jeweiligen Spieler sichtbares Dropdown, welcher Charakter teilnimmt. Bei einem Charakter erfolgt die Auswahl direkt; ohne registrierten Charakter wird die Nutzung von `/charakter` empfohlen.
+- Auch die Dungeon- und Levelgruppen-Erstellungsassistenten besitzen eine Charakterauswahl. Der Hauptcharakter ist vorausgewählt. Bei Slash-Erstellung wird automatisch der Hauptcharakter verwendet; über den neuen Button `Charakter ändern` lässt er sich nachträglich wechseln.
+- Gruppenkarten zeigen die Ingame-Namen mit Klasse und Stufe an erster Stelle, gefolgt vom klickbaren Discord-Account. Auch persönliche Gruppen-Erinnerungen nennen den Ingame-Namen.
+- Die vorhandene Anmeldung eines Spielers bleibt anhand seiner Discord-ID einzigartig: maximal ein Platz pro Dungeon oder Levelgruppe, auch mit mehreren Twinks. Keine Verifizierung der Spieler im Spiel und keine speziellen Multiboxing-Regeln.
+- Bereits vorhandene Gruppen, Anmeldungen und Charaktere bleiben erhalten. Wer neu einen Charakter anlegt, sieht dessen Namen auch in bestehenden offenen Anmeldungen. Individuelle pro-Termin-Auswahlen ändern sich nicht, wenn der globale Hauptcharakter später wechselt.
+- `/ingame_nickname aktiv:true` setzt *auf ausdrücklichen Wunsch* einen Servernickname in der Form `Grumok | Discordname`; `aktiv:false` versucht, den vorherigen Nicknamen wiederherzustellen. Erfordert Nicknames-verwalten-Berechtigung und ausreichende Rollenposition, keine automatische Zwangsumbenennung.
+- Alle Änderungen laufen wie gewohnt über `/bot_update`; keine Home-Assistant-App-Neuinstallation nötig.
+
 ## 1.0.15 – Forever-News direkt im Discord-Chat lesen
 
 - Jede neue Forever-News wird in derselben Discord-Nachricht als deutschsprachiger Überblick angezeigt, ohne zusätzlichen Button „Ausführlicher lesen“.
