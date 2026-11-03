@@ -737,10 +737,9 @@ async def refresh_user_character_cards(user_id):
 
 
 def ingame_server_nickname(main, member):
-    # Discord limits server nicknames to 32 chars.
-    game_name = main[0][:30]
-    discord_name = member.name[:15]
-    return (f"{game_name} | {discord_name}")[:32]
+    """Discord shows the server nickname in text AND voice channels."""
+    # The in-game name, not the Discord username, is the primary identifier.
+    return main[0][:32]
 
 
 async def sync_optional_character_nickname(member):
@@ -755,6 +754,11 @@ async def sync_optional_character_nickname(member):
         return
     new_nick = ingame_server_nickname(main,member)
     if member.nick == new_nick:
+        return
+    # Never undo a manual nickname change. Only manage what this bot set.
+    if member.nick != preference[1]:
+        logging.info("Manuell geänderter Discord-Nickname für %s bleibt erhalten",
+                     member.id)
         return
     try:
         await member.edit(nick=new_nick,
@@ -791,8 +795,8 @@ def profile_embed(user_id):
             value=f"**{discord.utils.escape_markdown(klass)}**",
             inline=False)
     embed.set_footer(
-        text="/hauptcharakter wählt deinen Main · "
-             "/ingame_nickname optional · Charaktere bleiben privat verwaltbar")
+        text="Profil bearbeiten/löschen über die Buttons · "
+             "Ingame-Name im Sprachchat optional anzeigen")
     return embed
 
 
@@ -818,6 +822,62 @@ def save_character_without_level(user_id, name, klass):
     ensure_main_character(user_id)
     return normalized, existing is not None
 
+
+
+def edit_character_profile(user_id, original_name, new_name, klass):
+    """Edit owned character in-place, preserving old data and event signups."""
+    current = owned_character(user_id, original_name)
+    if current is None:
+        raise ValueError("Der ausgewählte Charakter wurde nicht gefunden.")
+    normalized = normalize_character_name(new_name)
+    official_class = next(
+        (value for value in CLASSES if value.casefold() == klass.strip().casefold()),
+        None)
+    if not official_class:
+        raise ValueError("Unbekannte Klasse. Wähle eine der acht Horde-Klassen: "
+                         + ", ".join(CLASSES) + ".")
+    conflict = owned_character(user_id, normalized)
+    if conflict and conflict[0].casefold() != current[0].casefold():
+        raise ValueError("Du hast bereits einen Charakter mit diesem Namen.")
+    # Persist old level/profession columns untouched for older DB versions.
+    db.execute(
+        "UPDATE characters SET name=?,klass=? WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,official_class,GUILD_ID,user_id,current[0]))
+    db.execute(
+        "UPDATE main_characters SET name=? WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,GUILD_ID,user_id,current[0]))
+    db.execute(
+        "UPDATE group_character_choices SET name=? WHERE user=? "
+        "AND name=? COLLATE NOCASE",
+        (normalized,user_id,current[0]))
+    db.commit()
+    return normalized, official_class
+
+
+def delete_character_profile(user_id, character_name):
+    """Delete only own profile; group membership and other characters stay."""
+    current = owned_character(user_id, character_name)
+    if current is None:
+        raise ValueError("Der ausgewählte Charakter wurde nicht gefunden.")
+    db.execute(
+        "DELETE FROM characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,current[0]))
+    db.execute(
+        "DELETE FROM main_characters WHERE guild=? AND user=? "
+        "AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,current[0]))
+    # A deleted character should not appear as an orphan in group cards:
+    # historical signups remain, now falling back to another main if present.
+    db.execute(
+        "DELETE FROM group_character_choices WHERE user=? "
+        "AND name=? COLLATE NOCASE",
+        (user_id,current[0]))
+    db.commit()
+    ensure_main_character(user_id)
+    return current[0]
 
 
 # --- Einfache Charakter-Einrichtung für neue und bestehende Mitglieder -------
@@ -927,6 +987,156 @@ class CharacterMainSelectView(discord.ui.View):
             ephemeral=True)
 
 
+class CharacterEditModal(discord.ui.Modal, title="Charakter bearbeiten"):
+    def __init__(self, owner_id, original_name):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+        self.original_name = original_name
+        row = owned_character(owner_id, original_name)
+        if row is None:
+            raise ValueError("Charakter nicht mehr im Profil.")
+        self.ingame_name = discord.ui.TextInput(
+            label="Ingame-Name", default=row[0],
+            min_length=2, max_length=40, required=True)
+        self.character_class = discord.ui.TextInput(
+            label="Klasse (z. B. Krieger, Schamane)",
+            default=row[1], min_length=4, max_length=30, required=True)
+        self.add_item(self.ingame_name)
+        self.add_item(self.character_class)
+
+    async def on_submit(self, interaction):
+        if not allowed(interaction) or interaction.user.id!=self.owner_id:
+            return await interaction.response.send_message(
+                "Du kannst nur deine eigenen Charaktere bearbeiten.",
+                ephemeral=True)
+        try:
+            name,klass=edit_character_profile(
+                interaction.user.id, self.original_name,
+                str(self.ingame_name.value), str(self.character_class.value))
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                "⚠️ "+str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        await sync_optional_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        await interaction.followup.send(
+            "✅ **"+discord.utils.escape_markdown(name)+"** · **"+
+            discord.utils.escape_markdown(klass)+"** gespeichert.\n"
+            "Änderungen an deinem Hauptcharakter erscheinen bei "
+            "aktiviertem Sprachchat-Nickname auch im Sprachkanal.",
+            embed=profile_embed(interaction.user.id),
+            view=CharacterProfileActionsView(interaction.user.id),
+            ephemeral=True)
+
+
+class CharacterEditSelectView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        options=[
+            discord.SelectOption(label=name,value=name,description=klass)
+            for name,klass,_level in user_characters(owner_id)[:25]]
+        selected=discord.ui.Select(
+            placeholder="Welchen Charakter bearbeiten?",
+            min_values=1,max_values=1,options=options)
+        selected.callback=self.edit_selected
+        self.add_item(selected)
+
+    async def interaction_check(self, interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Diese Charakterauswahl gehört jemand anderem.",ephemeral=True)
+        return False
+
+    async def edit_selected(self, interaction):
+        selected=self.children[0].values[0]
+        try:
+            modal=CharacterEditModal(self.owner_id,selected)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc),ephemeral=True)
+        await interaction.response.send_modal(modal)
+
+
+class CharacterDeleteConfirmView(discord.ui.View):
+    def __init__(self,owner_id,name):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        self.name=name
+
+    async def interaction_check(self,interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Du kannst nur deine eigenen Charaktere löschen.",ephemeral=True)
+        return False
+
+    @discord.ui.button(label="Ja, endgültig löschen",emoji="🗑️",
+                       style=discord.ButtonStyle.danger)
+    async def confirm(self,interaction,button):
+        try:
+            removed=delete_character_profile(interaction.user.id,self.name)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc),ephemeral=True)
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        if main_character(interaction.user.id):
+            await sync_optional_character_nickname(interaction.user)
+        else:
+            await restore_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        self.stop()
+        await interaction.followup.send(
+            "🗑️ **"+discord.utils.escape_markdown(removed)+
+            "** gelöscht. Eine bestehende Gruppenanmeldung bleibt "
+            "erhalten; ein anderer Hauptcharakter wird bei Bedarf angezeigt.",
+            embed=profile_embed(interaction.user.id),
+            view=CharacterProfileActionsView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(label="Abbrechen",style=discord.ButtonStyle.secondary)
+    async def cancel(self,interaction,button):
+        self.stop()
+        await interaction.response.edit_message(
+            content="✅ Löschen abgebrochen. Dein Charakter bleibt gespeichert.",
+            view=None)
+
+
+class CharacterDeleteSelectView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+        options=[
+            discord.SelectOption(label=name,value=name,description=klass)
+            for name,klass,_level in user_characters(owner_id)[:25]]
+        select=discord.ui.Select(
+            placeholder="Welchen Charakter löschen?",
+            min_values=1,max_values=1,options=options)
+        select.callback=self.select_delete
+        self.add_item(select)
+
+    async def interaction_check(self,interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Du kannst nur deine eigenen Charaktere löschen.",ephemeral=True)
+        return False
+
+    async def select_delete(self,interaction):
+        name=self.children[0].values[0]
+        if not owned_character(interaction.user.id,name):
+            return await interaction.response.send_message(
+                "Charakter nicht mehr gefunden.",ephemeral=True)
+        await interaction.response.send_message(
+            "⚠️ **"+discord.utils.escape_markdown(name)+
+            "** wirklich löschen? Falls dies dein Hauptcharakter ist, "
+            "wird automatisch einer deiner übrigen Charaktere zum Main. "
+            "Du kannst auch abbrechen.",
+            view=CharacterDeleteConfirmView(self.owner_id,name),
+            ephemeral=True)
+
+
 class CharacterProfileActionsView(discord.ui.View):
     def __init__(self, owner_id):
         super().__init__(timeout=180)
@@ -954,6 +1164,46 @@ class CharacterProfileActionsView(discord.ui.View):
             view=CharacterMainSelectView(interaction.user.id),
             ephemeral=True)
 
+    @discord.ui.button(
+        label="Bearbeiten", emoji="✏️",
+        style=discord.ButtonStyle.secondary)
+    async def edit_profile(self, interaction, button):
+        if not user_characters(interaction.user.id):
+            return await interaction.response.send_message(
+                "Registriere zuerst einen Charakter in #rollenwahl.",
+                ephemeral=True)
+        await interaction.response.send_message(
+            "✏️ Wähle deinen Charakter. Danach kannst du **Name und Klasse** "
+            "bearbeiten (ohne Level).",
+            view=CharacterEditSelectView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Löschen", emoji="🗑️",
+        style=discord.ButtonStyle.danger)
+    async def delete_profile(self, interaction, button):
+        if not user_characters(interaction.user.id):
+            return await interaction.response.send_message(
+                "Du hast noch keinen Charakter.",ephemeral=True)
+        await interaction.response.send_message(
+            "🗑️ Welchen Charakter möchtest du löschen?",
+            view=CharacterDeleteSelectView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Im Sprachchat anzeigen", emoji="🔊",
+        style=discord.ButtonStyle.success, row=1)
+    async def show_in_voice(self, interaction, button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        message=await toggle_character_server_nick(interaction.user)
+        await interaction.followup.send(
+            message+"\n\n**Discord-Hinweis:** Der Servernickname wird "
+            "in allen Sprach- und Textkanälen dieses Servers angezeigt. "
+            "Die Einstellung ist freiwillig und lässt sich mit demselben "
+            "Button wieder ausschalten.",
+            ephemeral=True)
+
+
 
 async def toggle_character_server_nick(member):
     """Toggle is opt-in; do not overwrite a manually changed nickname."""
@@ -974,10 +1224,16 @@ async def toggle_character_server_nick(member):
         await member.edit(
             nick=new_nick,
             reason="Corpsegrinder: freiwilliger Ingame-Servernickname")
-    except (discord.Forbidden,discord.HTTPException):
-        return ("⚠️ Der Bot darf deinen Servernamen nicht ändern. "
-                "Benötigt werden **Nicknames verwalten** und eine "
-                "ausreichend hohe Bot-Rollenposition.")
+    except discord.Forbidden:
+        return ("⚠️ Der Bot darf deinen Discord-Servernickname nicht ändern. "
+                "Das geht **nicht beim Serverinhaber** und auch nicht bei "
+                "Mitgliedern mit gleich hoher oder höherer Rolle. "
+                "Du kannst deinen eigenen Servernickname über "
+                "**Serverprofil bearbeiten** manuell auf deinen Ingame-Namen setzen. "
+                "Sonst braucht der Bot **Nicknames verwalten** und "
+                "eine ausreichend hohe Rollenposition.")
+    except discord.HTTPException:
+        return "⚠️ Discord konnte den Servernamen momentan nicht aktualisieren."
     db.execute(
         "INSERT OR REPLACE INTO character_nickname_preferences "
         "(guild,user,original_nick,assigned_nick) VALUES (?,?,?,?)",
@@ -1022,7 +1278,7 @@ class CharacterPanelView(discord.ui.View):
             ephemeral=True)
 
     @discord.ui.button(
-        label="Servername an/aus", emoji="✏️",
+        label="Sprachchat-Name an/aus", emoji="🔊",
         style=discord.ButtonStyle.secondary,
         custom_id="corpse_character_nick_v117")
     async def nickname(self, interaction, button):
@@ -1030,7 +1286,9 @@ class CharacterPanelView(discord.ui.View):
             return await answer(interaction,"Nur auf Corpsegrinder.")
         await interaction.response.defer(ephemeral=True,thinking=True)
         message = await toggle_character_server_nick(interaction.user)
-        await interaction.followup.send(message,ephemeral=True)
+        await interaction.followup.send(
+            message+"\nDer Name gilt für diesen Discord-Server, "
+            "auch in Sprachkanälen.",ephemeral=True)
 
 
 def character_panel_embed():
@@ -1042,10 +1300,10 @@ def character_panel_embed():
             "Klicks – ohne Slash-Befehle und ohne Freigabe.\n\n"
             "🎭 **Charakter registrieren:** Klasse wählen, Namen eingeben. "
             "Für weitere Charaktere einfach erneut verwenden.\n"
-            "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen "
-            "oder deinen Main ändern.\n"
-            "✏️ **Servername an/aus:** freiwillig deinen Discord-Servernamen "
-            "an den Hauptcharakter anpassen.\n\n"
+            "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen, "
+            "Name/Klasse bearbeiten oder mit Bestätigung löschen.\n"
+            "🔊 **Sprachchat-Name an/aus:** freiwillig deinen Servernamen "
+            "auf deinen Hauptcharakter setzen oder wiederherstellen.\n\n"
             "In Dungeon- und Levelgruppen steht dein **Ingame-Name zuerst**, "
             "danach dein anklickbarer Discord-Account. "
             "**Keine Stufe nötig.**"),
@@ -1166,27 +1424,18 @@ async def set_main_character(i: discord.Interaction, name: str):
 async def delete_character(i: discord.Interaction, name: str):
     if not allowed(i):
         return await answer(i,"Nur auf Corpsegrinder verfügbar.")
-    row = owned_character(i.user.id,name)
-    if not row:
-        return await answer(i,"Charakter nicht gefunden.")
-    db.execute(
-        "DELETE FROM characters WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
-        (GUILD_ID,i.user.id,row[0]))
-    db.execute(
-        "DELETE FROM main_characters WHERE guild=? AND user=? "
-        "AND name=? COLLATE NOCASE",
-        (GUILD_ID,i.user.id,row[0]))
-    db.commit()
-    ensure_main_character(i.user.id)
+    try:
+        removed=delete_character_profile(i.user.id,name)
+    except ValueError as exc:
+        return await answer(i,str(exc))
     if main_character(i.user.id):
         await sync_optional_character_nickname(i.user)
     else:
         await restore_character_nickname(i.user)
     await refresh_user_character_cards(i.user.id)
     await answer(
-        i,"🗑️ **"+discord.utils.escape_markdown(row[0])+
-        "** entfernt. Gespeicherte Gruppenanmeldungen bleiben bestehen; "
-        "bei Bedarf kannst du dort einen anderen Charakter auswählen.")
+        i,"🗑️ **"+discord.utils.escape_markdown(removed)+
+        "** entfernt. Deine Gruppenanmeldungen bleiben bestehen.")
 
 
 async def restore_character_nickname(member):

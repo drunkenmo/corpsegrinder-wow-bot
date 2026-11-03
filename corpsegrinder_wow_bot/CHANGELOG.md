@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.18 – Charakterprofil bearbeiten/löschen und Hauptcharakter im Sprachchat
+
+- Über **#rollenwahl → Meine Charaktere** stehen zusätzliche Buttons **Bearbeiten**, **Löschen** und **Im Sprachchat anzeigen** bereit. Die vorhandene Hauptcharakter-Auswahl bleibt.
+- Bearbeiten: den eigenen Charakter auswählen und **Ingame-Namen sowie Klasse** in einem privaten Discord-Dialog ändern. Bereits gespeicherte Level/Berufe bleiben intern erhalten, erscheinen aber nicht im UI. Bereits gewählte Charaktere in Dungeon-/Levelgruppen werden auf den neuen Namen aktualisiert, ohne vorhandene Gruppenplätze anzutasten.
+- Löschen: zuerst einen der eigenen Charaktere wählen, dann mit **Ja, endgültig löschen** bestätigen oder abbrechen. Wird der Hauptcharakter gelöscht, wird bei vorhandenen Twinks automatisch ein verbleibender Charakter als Main verwendet. Ohne Charakter bleibt kein Main gespeichert. Gruppenanmeldungen bleiben erhalten und verweisen gegebenenfalls auf den neuen Hauptcharakter.
+- Sprachchat: Der freiwillige Servernickname ist jetzt **genau der Ingame-Name** (z. B. `Grumok`), ohne Discord-Namen hinter dem Trennzeichen. Discord verwendet diesen Servernickname auch in Sprachkanälen; die Änderung gilt daher serverweit, nicht nur im Voice-Chat.
+- Der Button **Im Sprachchat anzeigen** im privaten Profil und **Sprachchat-Name an/aus** im öffentlichen Charakterpanel aktivieren bzw. deaktivieren die freiwillige Umbenennung. Der vorherige Servernickname wird möglichst wiederhergestellt. Der Bot überschreibt künftig keinen Nickname, den ein Mitglied nachträglich selbst geändert hat.
+- Discord erlaubt Bots **nicht**, die Servernickname des Serverinhabers zu ändern. Auch gleichrangige/höherrangige Mitglieder sind nicht editierbar; der Bot meldet dann das Problem und empfiehlt, den Servernickname über das eigene Discord-Serverprofil selbst zu setzen.
+- Der Slash-Befehl `/charakter_loeschen` verwendet dieselbe sichere Datenbereinigung wie der Button. Alle bestehenden Profile, Rollen und Gruppen bleiben weiterhin bestehen; keine zusätzliche Verifizierung.
+- Offline-Tests für Namensänderung, Klassenänderung, Löschung, Daten- und Gruppen-Erhalt, Stimme-Anzeigen und UI-Verfügbarkeit.
+
 ## 1.0.17 – Charakterregistrierung ohne Level, direkt in #rollenwahl
 
 - Ingame-Charaktere benötigen **nur Ingame-Name und Klasse**. `/charakter` fragt weder Stufe noch Berufe ab.

@@ -147,7 +147,7 @@ class VisibleUiTests(unittest.TestCase):
         self.assertIn("Ingame-Name und Klasse",BOT)
         self.assertIn("🎭 DEIN INGAME-CHARAKTER",FEATURES)
         self.assertIn("keine Level-Eingabe",FEATURES)
-        self.assertIn('VERSION = "1.0.17"',FEATURES)
+        self.assertIn('VERSION = "1.0.18"',FEATURES)
         self.assertIn("Rollen auswählen → Charakter registrieren",BOT)
 
 

@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.17"
+VERSION = "1.0.18"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -95,23 +95,22 @@ def update_embed():
     embed = discord.Embed(
         title="🎭 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Dein Ingame-Name – jetzt noch einfacher!**\n\n"
-            "✅ Bei der Charakterregistrierung brauchst du ab sofort "
-            "**nur Ingame-Name und Klasse**. Stufe und Berufe werden "
-            "nicht mehr abgefragt. Bereits gespeicherte Daten bleiben erhalten.\n\n"
-            "🎭 In **#rollenwahl** findest du ein eigenes Charakter-Panel mit "
-            "drei Schaltflächen: **Charakter registrieren**, "
-            "**Meine Charaktere** und **Servername an/aus**. "
-            "Die Auswahl funktioniert auch auf dem Handy – "
-            "**ohne Slash-Befehle**.\n\n"
-            "👑 Hauptcharakter und Twinks lassen sich über das Profil verwalten. "
-            "Wer mag, passt seinen Discord-Servernamen freiwillig an.\n\n"
-            "⚔️ Auf Dungeon- und Levelgruppenkarten stehen nur noch "
-            "**Ingame-Name · Klasse** sowie der anklickbare Discord-Account "
-            "– kein Charakterlevel.\n\n"
-            "🍻 Neue Mitglieder werden schon bei der Begrüßung zur "
-            "Charakterregistrierung in #rollenwahl eingeladen. "
-            "Keine zusätzliche Ingame-Verifizierung."
+            "**Charakterprofile bearbeiten, löschen und im Sprachchat anzeigen!**\n\n"
+            "✏️ Über **Meine Charaktere → Bearbeiten** kannst du "
+            "**Ingame-Namen und Klasse** ändern – auch bei deinem "
+            "Hauptcharakter. Gruppenanmeldungen bleiben dabei erhalten.\n\n"
+            "🗑️ **Meine Charaktere → Löschen** bietet eine "
+            "Charakterauswahl mit Sicherheitsabfrage. Wird der Main gelöscht, "
+            "übernimmt bei vorhandenen Twinks ein anderer Charakter.\n\n"
+            "🔊 **Im Sprachchat anzeigen** setzt freiwillig den "
+            "Discord-Servernickname auf den **reinen Ingame-Namen** "
+            "(z. B. Grumok). Damit erscheint er auch in Discord-Sprachkanälen. "
+            "Ein erneuter Klick stellt den vorherigen Namen wieder her.\n\n"
+            "⚠️ Discord erlaubt Bots nicht, den Nickname des "
+            "**Serverinhabers** oder eines höherrangigen Mitglieds zu ändern. "
+            "Dann muss die Person ihren Servernickname selbst setzen.\n\n"
+            "Bestehende Charakterprofile, Twinks und Gruppenplätze bleiben "
+            "erhalten. Keine Verifizierung und kein Level erforderlich."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
