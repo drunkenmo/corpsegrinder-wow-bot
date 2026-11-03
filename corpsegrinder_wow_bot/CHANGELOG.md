@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.17 – Charakterregistrierung ohne Level, direkt in #rollenwahl
+
+- Ingame-Charaktere benötigen **nur Ingame-Name und Klasse**. `/charakter` fragt weder Stufe noch Berufe ab.
+- Bereits gespeicherte Charaktere, Klassen, Stufen und Berufe bleiben in der bestehenden SQLite-Tabelle erhalten. Neue Charaktere bekommen lediglich einen internen Standardwert in der unveränderten Alt-Tabelle; dieser Wert wird im Bot nirgendwo angezeigt.
+- Alle Charakterkarten, privaten Profile, Hauptcharakter-Dropdowns, Gruppen-Anmeldeauswahl und Dungeon-/Levelgruppen-Spielerlisten zeigen **Name + Klasse**, ohne individuelle Charakterstufen. Die für die Gruppenplanung benötigten **Levelbereiche von Levelgruppen** bleiben natürlich bestehen.
+- In `#rollenwahl` wird automatisch eine eigenständige, möglichst angepinnte **Charakter-Karte** mit **Charakter registrieren**, **Meine Charaktere** und **Servername an/aus** eingerichtet. Funktioniert auch am Handy ohne Slash-Befehle.
+- Button **Charakter registrieren** → private Klassen-Auswahl → Namenseingabe per Discord-Modal → sofortiges Speichern. Bestehende Einträge können über die gleiche UI aktualisiert werden; keine Freischaltung nötig.
+- Button **Meine Charaktere** → privates Profil mit **Hauptcharakter ändern**. Hauptcharakter und Twinks funktionieren wie bisher.
+- Button **Servername an/aus** aktiviert/deaktiviert den optionalen Ingame-Nicknamen (sofern der Bot über die nötigen Discord-Rechte verfügt); andernfalls bleibt der bestehende Servernickname unverändert.
+- Der Bot aktualisiert die vorhandene Willkommenskarte und informiert neue Mitglieder beim Beitritt ausdrücklich über **Rollen wählen → Charakter registrieren**.
+- Bei Neustarts bleibt das Charakter-Panel verfügbar und verwendet sein gespeichertes Nachrichten-ID; eine erneute Installation erzeugt keine endlosen Duplikate.
+- Charakterdaten und alte Gruppenanmeldungen bleiben erhalten. Bestehende Spieler können ihre Daten jederzeit über die Buttons pflegen, ohne eine neue Registrierung zu beantragen.
+- Offline-Regressionstests prüfen Registrierung, Datenbestand und persistente Buttons. Installierbar über `/bot_update`.
+
 ## 1.0.16 – Ingame-Namen, Hauptcharakter, Twinks und Gruppen-Anmeldung
 
 - Die bestehende `characters`-Datenbank bleibt bestehen; die neuen Zuordnungen für Hauptcharakter, pro-Termin-Charakter und freiwillige Discord-Nicknames werden in eigenen SQLite-Tabellen gespeichert.
