@@ -95,7 +95,7 @@ class CharacterProfileTests(unittest.TestCase):
             "dungeon", 8, 42))
         self.assertIn("<@42>", self.f["character_member_line"](
             "dungeon", 8, 42))
-        self.assertIn("Stufe 35", self.f["character_member_line"](
+        self.assertNotIn("Stufe", self.f["character_member_line"](
             "dungeon", 8, 42))
 
     def test_cannot_select_someone_elses_characters(self):
