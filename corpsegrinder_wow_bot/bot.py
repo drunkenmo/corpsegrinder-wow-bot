@@ -48,6 +48,7 @@ db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER
 db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(kind,group_id,user_id))")
 db.execute("CREATE TABLE IF NOT EXISTS blizzard_news_posts (article_id INTEGER PRIMARY KEY, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_community_posts (canonical_url TEXT PRIMARY KEY, source TEXT NOT NULL, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, title TEXT NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS forever_forum_posts (post_id INTEGER PRIMARY KEY, version INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, updated_utc INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_news_card_versions (canonical_url TEXT PRIMARY KEY, version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
 
@@ -4770,11 +4771,13 @@ async def forever_news_status(interaction: discord.Interaction):
     total = db.execute("SELECT COUNT(*) FROM blizzard_news_posts").fetchone()[0]
     community_total = db.execute(
         "SELECT COUNT(*) FROM forever_community_posts").fetchone()[0]
+    forum_total = db.execute("SELECT COUNT(*) FROM forever_forum_posts").fetchone()[0]
     last = setting("forever_news_checked")
     status = setting("forever_news_last_result") or "Noch kein erfolgreicher Abruf"
     await answer(interaction,
                  f"📰 **Forever-News**\nAutomatisch alle **30 Minuten**\n"
-                 f"Blizzard-Artikel: **{total}** · Community-News: **{community_total}**\n"
+                 f"Blizzard-Artikel: **{total}** · Community-News: **{community_total}** · "
+                  f"Blueposts: **{forum_total}**\n"
                  + (f"Letzter erfolgreicher Check: <t:{last}:F>\n"
                     if last else "") + f"Status: {status}")
 
@@ -5229,6 +5232,188 @@ async def check_community_forever_news(target):
         return count, len(errors)
 
 
+
+# --- Blizzard-Blueposts zu WoW Forever (1.0.20) -----------------------------
+# Blizzard pflegt Beta-Patchnotizen auch durch bearbeitete Forenbeiträge.
+# Ausschließlich als Staff bestätigte Einträge der offiziellen Foren.
+FOREVER_FORUM_ROOT = "https://us.forums.blizzard.com/en/wow"
+FOREVER_FORUM_CATEGORY = (
+    FOREVER_FORUM_ROOT +
+    "/c/in-development/wow-forever-beta-discussion/349.json")
+FOREVER_FORUM_DEV_NOTES = 2360696
+FOREVER_FORUM_LOOKBACK = 7 * 86400
+FOREVER_FORUM_CLASS_NAMES = (
+    ("warrior", "Krieger"), ("shaman", "Schamane"),
+    ("druid", "Druide"), ("hunter", "Jäger"),
+    ("rogue", "Schurke"), ("mage", "Magier"),
+    ("priest", "Priester"), ("warlock", "Hexenmeister"),
+    ("paladin", "Paladin"),
+)
+
+
+def fetch_forever_forum_json(url):
+    """Read only official Blizzard forum JSON; reject external redirects."""
+    parsed = urlparse(url)
+    if (parsed.scheme != "https" or
+            parsed.hostname != "us.forums.blizzard.com" or
+            not parsed.path.startswith("/en/wow/") or
+            not parsed.path.endswith(".json")):
+        raise ValueError("Unerlaubte Blizzard-Forum-Adresse")
+    request = Request(url, headers={
+        "User-Agent": "CorpsegrinderForeverForum/1.0",
+        "Accept": "application/json",
+    })
+    with urlopen(request, timeout=18) as response:
+        final = urlparse(response.geturl())
+        if (final.scheme != "https" or
+                final.hostname != "us.forums.blizzard.com"):
+            raise ValueError("Unerwartete Blizzard-Forum-Weiterleitung")
+        payload = response.read(4_000_001)
+        if len(payload) > 4_000_000:
+            raise ValueError("Blizzard-Forum-Antwort zu groß")
+    document = json.loads(payload.decode("utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("Ungültige Blizzard-Forum-Antwort")
+    return document
+
+
+def extract_forever_forum_staff_posts(document, topic_id, now):
+    """Return recently created/edited Blizzard staff posts from one topic."""
+    title = clean_official_text(
+        document.get("title") or "WoW Forever: Beta-Entwicklungsnotizen", 180)
+    if "forever" not in title.casefold():
+        return []
+    stream = document.get("post_stream") or {}
+    if not isinstance(stream, dict):
+        return []
+    results = []
+    for post in stream.get("posts") or []:
+        if (not isinstance(post, dict) or not post.get("staff") or
+                post.get("hidden") or post.get("deleted_at")):
+            continue
+        try:
+            post_id = int(post["id"])
+            number = int(post["post_number"])
+            version = int(post.get("version") or 1)
+        except (TypeError, ValueError, KeyError):
+            continue
+        created = parse_blizzard_publication_date(post.get("created_at"))
+        updated = parse_blizzard_publication_date(post.get("updated_at"))
+        when = max(created or 0, updated or 0)
+        if not now - FOREVER_FORUM_LOOKBACK <= when <= now + 60:
+            continue
+        contents = clean_official_text(post.get("cooked") or "", 100_000)
+        classes = [
+            de for en, de in FOREVER_FORUM_CLASS_NAMES
+            if re.search(r"\b" + en + r"s?\b", contents, re.IGNORECASE)
+        ]
+        results.append({
+            "id": post_id, "version": version, "updated": when,
+            "title": title, "classes": classes,
+            "url": f"{FOREVER_FORUM_ROOT}/t/{topic_id}/{number}",
+        })
+    return results
+
+
+def gather_forever_forum_news():
+    """Check known dev-notes plus current official Forever development topics."""
+    now = int(datetime.now(timezone.utc).timestamp())
+    topic_ids = [FOREVER_FORUM_DEV_NOTES]
+    try:
+        listing = fetch_forever_forum_json(FOREVER_FORUM_CATEGORY)
+        for topic in (listing.get("topic_list") or {}).get("topics", [])[:30]:
+            if not isinstance(topic, dict):
+                continue
+            headline = str(topic.get("title") or "").casefold()
+            if "forever" not in headline or not any(
+                    word in headline for word in (
+                        "development notes", "patch notes", "hotfix",
+                        "class tuning", "class changes", "beta update")):
+                continue
+            try:
+                ident = int(topic["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if ident not in topic_ids and len(topic_ids) < 5:
+                topic_ids.append(ident)
+    except (OSError, ValueError):
+        logging.warning("Forever-Forenübersicht nicht verfügbar; "
+                        "bekannten Entwickler-Thread prüfen")
+    posts = {}
+    failed = 0
+    for ident in topic_ids:
+        try:
+            topic = fetch_forever_forum_json(
+                f"{FOREVER_FORUM_ROOT}/t/{ident}.json")
+            for post in extract_forever_forum_staff_posts(topic, ident, now):
+                posts[post["id"]] = post
+        except (OSError, ValueError):
+            failed += 1
+            logging.exception("Blizzard-Forum-Thread %s nicht abrufbar", ident)
+    if failed == len(topic_ids):
+        raise RuntimeError("Keine Blizzard-Foreverthemen erreichbar")
+    return sorted(posts.values(), key=lambda p: p["updated"])
+
+
+def forever_forum_embed(post):
+    msg = (
+        "Blizzard hat einen **offiziellen Entwicklerbeitrag zu WoW Forever** "
+        "veröffentlicht oder aktualisiert.\n\n")
+    if post["classes"]:
+        msg += "⚔️ **Erwähnte Klassen:** " + ", ".join(post["classes"]) + "\n\n"
+    msg += (
+        "Im Original stehen die konkreten Änderungen, einschließlich "
+        "gegebenenfalls Buffs, Nerfs und Fehlerkorrekturen. "
+        "Bitte die Werte direkt bei Blizzard nachlesen.")
+    card = discord.Embed(
+        title="🔵 Blizzard-Bluepost · " + post["title"][:170],
+        description=msg, url=post["url"], colour=discord.Colour.blue(),
+        timestamp=datetime.fromtimestamp(post["updated"], timezone.utc))
+    card.add_field(
+        name="Offizielle Quelle",
+        value=f"[Entwicklerbeitrag lesen]({post['url']})", inline=False)
+    card.set_footer(text="Blizzard-Forum · Post " + str(post["id"]))
+    return card
+
+
+async def check_forever_forum_news(target):
+    """Post once per staff post; edit the same Discord card on revisions."""
+    incoming = await asyncio.to_thread(gather_forever_forum_news)
+    existing = {
+        key: (version, message)
+        for key, version, message in db.execute(
+            "SELECT post_id,version,discord_message_id FROM forever_forum_posts"
+        ).fetchall()
+    }
+    created = revised = 0
+    for post in incoming:
+        prior = existing.get(post["id"])
+        if prior and prior[0] >= post["version"]:
+            continue
+        message = None
+        if prior:
+            try:
+                message = await target.fetch_message(prior[1])
+                if message.author.id != bot.user.id:
+                    message = None
+                else:
+                    await message.edit(embed=forever_forum_embed(post))
+                    revised += 1
+            except (discord.NotFound, discord.Forbidden):
+                message = None
+        if message is None:
+            message = await target.send(
+                embed=forever_forum_embed(post),
+                allowed_mentions=discord.AllowedMentions.none())
+            created += 1
+        db.execute(
+            "INSERT OR REPLACE INTO forever_forum_posts "
+            "(post_id,version,discord_message_id,updated_utc) VALUES (?,?,?,?)",
+            (post["id"], post["version"], message.id, post["updated"]))
+        db.commit()
+    return created, revised
+
+
 async def check_forever_news():
     """Blizzard is independent from community sources, so one failure cannot
     block the whole channel. Status exposes partial source failures."""
@@ -5247,6 +5432,13 @@ async def check_forever_news():
     except Exception:
         logging.exception("Offizielle Blizzard-Quelle nicht verfügbar")
         statuses.append("Blizzard: Quelle nicht verfügbar")
+    try:
+        added, updated = await check_forever_forum_news(target)
+        total += added
+        statuses.append(f"Blizzard-Forum: {added} neu, {updated} aktualisiert")
+    except Exception:
+        logging.exception("Blizzard-Blueposts nicht abrufbar")
+        statuses.append("Blizzard-Forum: Quelle nicht verfügbar")
     try:
         n, errors = await check_community_forever_news(target)
         total += n
