@@ -160,7 +160,7 @@ class CharacterProfileTests(unittest.TestCase):
         fake_member = SimpleNamespace(name="Discord-Spieler-123")
         result = self.f["ingame_server_nickname"](
             self.f["main_character"](42), fake_member)
-        self.assertEqual(result, "Grumok | Discord-Spieler")
+        self.assertEqual(result, "Grumok")
         self.assertLessEqual(len(result), 32)
 
 
