@@ -61,7 +61,7 @@ class LayoutAndGuideTests(unittest.TestCase):
         structure=extract_constant(TREE,"STRUCTURE")
         start=structure["🌋 WOW FOREVER | START"]
         self.assertEqual([name for name,_ in start],[
-            "willkommen","rollenwahl","allgemein",
+            "willkommen","rollenwahl","lagerfeuer",
             "ankündigungen","forever-news","addons"])
         self.assertEqual(list(structure)[1:],[
             "⚔️ WOW FOREVER | PVE",
@@ -73,7 +73,7 @@ class LayoutAndGuideTests(unittest.TestCase):
         guild=SimpleNamespace(text_channels=[
             SimpleNamespace(name=n,mention=f"<#{index}>")
             for index,n in enumerate([
-                "rollenwahl","allgemein","dungeons","pve-gruppensuche",
+                "rollenwahl","lagerfeuer","dungeon-planer","pve-gruppensuche",
                 "pvp-gruppensuche","raids-und-termine","ankündigungen",
                 "forever-news","addons","pve-guides","charaktere-und-berufe",
                 "handel-und-crafting","screenshots"],100)])
@@ -84,7 +84,7 @@ class LayoutAndGuideTests(unittest.TestCase):
         self.assertIn("corpsegrinder:welcome",embed.footer)
         self.assertIn("Version "+extract_constant(FEATURE_TREE,"VERSION"),embed.footer)
         self.assertIn("Sondertermin Samstag",str(embed.fields))
-        for name in ("forever-news","addons","dungeons","pve-gruppensuche"):
+        for name in ("forever-news","addons","dungeon-planer","pve-gruppensuche"):
             self.assertIn(name,[chan for _sec,entries in extract_constant(
                 FEATURE_TREE,"WELCOME_FEATURES") for chan,_txt in entries])
         self.assertLessEqual(len(embed.fields),25)
@@ -93,7 +93,7 @@ class LayoutAndGuideTests(unittest.TestCase):
     def test_guide_can_render_without_guild(self):
         embed=load_welcome()()
         self.assertIn("#rollenwahl",embed.description)
-        self.assertIn("#allgemein",embed.description)
+        self.assertIn("#lagerfeuer",embed.description)
 
     def test_known_existing_welcome_post_is_updated_not_reposted(self):
         self.assertIn('welcome_embed(guild, setting("welcome_admin_tip") or "")',BOT)
@@ -124,7 +124,7 @@ class LayoutAndGuideTests(unittest.TestCase):
         start=BOT.index("async def on_member_join(")
         finish=BOT.index("# Nur vom Bot erzeugte Sprachkanäle",start)
         section=BOT[start:finish]
-        self.assertIn('channel(member.guild,"allgemein")',section)
+        self.assertIn('channel(member.guild,"lagerfeuer")',section)
         self.assertIn('channel(member.guild,"willkommen")',section)
         self.assertIn("welcome_link",section)
 
