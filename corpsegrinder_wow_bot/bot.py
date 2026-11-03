@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import sqlite3
+import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
@@ -41,6 +42,9 @@ db.execute("CREATE TABLE IF NOT EXISTS event_meta (kind TEXT NOT NULL, group_id 
 db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1)")
 db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(kind,group_id,user_id))")
 db.execute("CREATE TABLE IF NOT EXISTS blizzard_news_posts (article_id INTEGER PRIMARY KEY, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS forever_community_posts (canonical_url TEXT PRIMARY KEY, source TEXT NOT NULL, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, title TEXT NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
+
 db.commit()
 db.commit()
 
@@ -64,7 +68,8 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("ankündigungen", "text"),
-        ("forever-news", "text"), ("rollenwahl", "text"), ("allgemein", "text")],
+        ("forever-news", "text"), ("addons", "text"),
+        ("rollenwahl", "text"), ("allgemein", "text")],
     "⚔️ WOW FOREVER | PVE": [
         ("pve-gruppensuche", "text"), ("dungeons", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
@@ -329,6 +334,9 @@ async def on_ready():
     if not getattr(bot, "forever_news_worker_started", False):
         bot.forever_news_worker_started = True
         background(forever_news_worker())
+    if not getattr(bot, "forever_addons_worker_started", False):
+        bot.forever_addons_worker_started = True
+        background(forever_addons_worker())
 
 @bot.event
 async def on_member_join(member):
