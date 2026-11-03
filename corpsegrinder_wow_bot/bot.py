@@ -3726,6 +3726,13 @@ async def check_community_forever_news(target):
             when,url,title,summary,source = post
             if url in known:
                 continue
+            # Blizzard's official RSS mirror may repeat an article that our
+            # primary official source already published.
+            official_link = official_article_link(url, url)
+            if official_link and db.execute(
+                    "SELECT 1 FROM blizzard_news_posts WHERE article_id=?",
+                    (official_link[0],)).fetchone():
+                continue
             message = await target.send(embed=community_news_embed(post),
                                         allowed_mentions=discord.AllowedMentions.none())
             db.execute(
@@ -3740,7 +3747,7 @@ async def check_community_forever_news(target):
                      int(datetime.now(timezone.utc).timestamp()))
         save_setting("community_news_last_result",
                      f"{count} neue Artikel; {len(errors)} Quellenfehler")
-        return count
+        return count, len(errors)
 
 
 async def check_forever_news():
@@ -3762,13 +3769,17 @@ async def check_forever_news():
         logging.exception("Offizielle Blizzard-Quelle nicht verfügbar")
         statuses.append("Blizzard: Quelle nicht verfügbar")
     try:
-        n = await check_community_forever_news(target)
+        n, errors = await check_community_forever_news(target)
         total += n
-        statuses.append(f"Community: {n} neu")
+        statuses.append(
+            f"Community: {n} neu" +
+            (f" ({errors} Quellen derzeit nicht erreichbar)" if errors else ""))
     except Exception:
         logging.exception("Forever-Communityquellen nicht verfügbar")
         statuses.append("Community: Abruffehler")
     save_setting("forever_news_last_result", " · ".join(statuses))
+    save_setting("forever_news_checked",
+                 int(datetime.now(timezone.utc).timestamp()))
     return total, " · ".join(statuses)
 
 
@@ -3863,11 +3874,11 @@ def extract_curseforge_forever_version(page):
     # Typical CurseForge card: "WoW Forever 1.60.25-forever
     # Latest release R Forever Oct 21, 2026".
     match = re.search(
-        r"WoW\s+Forever\s+([A-Za-z0-9][A-Za-z0-9.+_-]{1,65})\s+"
+        r"WoW\s+Forever\s+(.{2,85}?)\s+"
         r"Latest release\s+R\s+Forever\b",
         visible, re.IGNORECASE)
     if match:
-        return match.group(1)
+        return clean_official_text(match.group(1), 85)
     # Some filtered file pages render as "R <file> 1.60.1 Forever"
     match = re.search(
         r"\bR\s+([A-Za-z0-9][A-Za-z0-9.+_-]{1,65})\s+"
