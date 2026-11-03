@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.19"
+VERSION = "1.0.20"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
