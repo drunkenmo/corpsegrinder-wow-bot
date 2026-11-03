@@ -138,24 +138,27 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🎭 Corpsegrinder Bot – Update " + VERSION,
+        title="🌋 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Charakterprofile bearbeiten, löschen und im Sprachchat anzeigen!**\n\n"
-            "✏️ Über **Meine Charaktere → Bearbeiten** kannst du "
-            "**Ingame-Namen und Klasse** ändern – auch bei deinem "
-            "Hauptcharakter. Gruppenanmeldungen bleiben dabei erhalten.\n\n"
-            "🗑️ **Meine Charaktere → Löschen** bietet eine "
-            "Charakterauswahl mit Sicherheitsabfrage. Wird der Main gelöscht, "
-            "übernimmt bei vorhandenen Twinks ein anderer Charakter.\n\n"
-            "🔊 **Im Sprachchat anzeigen** setzt freiwillig den "
-            "Discord-Servernickname auf den **reinen Ingame-Namen** "
-            "(z. B. Grumok). Damit erscheint er auch in Discord-Sprachkanälen. "
-            "Ein erneuter Klick stellt den vorherigen Namen wieder her.\n\n"
-            "⚠️ Discord erlaubt Bots nicht, den Nickname des "
-            "**Serverinhabers** oder eines höherrangigen Mitglieds zu ändern. "
-            "Dann muss die Person ihren Servernickname selbst setzen.\n\n"
-            "Bestehende Charakterprofile, Twinks und Gruppenplätze bleiben "
-            "erhalten. Keine Verifizierung und kein Level erforderlich."
+            "**Ein besserer Einstieg für neue Horde-Mitglieder!** 🍻\n\n"
+            "📍 Die Serverstruktur folgt jetzt dieser Reihenfolge: "
+            "**#willkommen → #rollenwahl → #allgemein → #ankündigungen "
+            "→ #forever-news → #addons**. Danach kommen die übersichtlich "
+            "geordneten PvE-, PvP- und Charakterbereiche. "
+            "Bestehende Nachrichten, Rollen und Berechtigungen bleiben erhalten.\n\n"
+            "📖 **#willkommen** erklärt jetzt die wichtigsten Funktionen "
+            "mit direkt anklickbaren Kanälen: Charakterregistrierung, "
+            "Gruppenplanung, Sprachchat, Forever-News, Addons und Community.\n\n"
+            "♻️ Die angeheftete Willkommensseite wird beim Botstart "
+            "und nach Funktionsupdates **in derselben Nachricht** aktualisiert. "
+            "Mit **/willkommen_aktualisieren** lässt sie sich manuell "
+            "auffrischen. Mit **/willkommenshinweis** ergänzt die "
+            "Serverleitung eigene aktuelle Hinweise.\n\n"
+            "🧭 Neue Mitglieder werden in #allgemein zu #willkommen "
+            "und zur Rollenwahl geführt. Ein echter erster Onboarding-"
+            "Bildschirm erfordert zusätzlich den **Discord-Server-Leitfaden** "
+            "unter Servereinstellungen → Onboarding, den Administratoren "
+            "in Discord selbst konfigurieren."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
