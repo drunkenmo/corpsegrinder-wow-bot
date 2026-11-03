@@ -1638,6 +1638,10 @@ async def refresh_community_panels_on_start():
     if guild is None:
         return
     try:
+        await organize_start_channels(guild)
+    except discord.HTTPException:
+        logging.exception("Einstiegskanäle konnten nicht angeordnet werden")
+    try:
         await publish_panel(guild)
     except (discord.HTTPException, RuntimeError):
         logging.exception("Rollenwahl-Panel konnte nicht aktualisiert werden")
@@ -1650,7 +1654,7 @@ async def refresh_community_panels_on_start():
         try:
             await publish_info(
                 target, "welcome_post", "corpsegrinder:welcome",
-                welcome_embed())
+                welcome_embed(guild, setting("welcome_admin_tip") or ""))
         except discord.HTTPException:
             logging.exception("Willkommenskarte konnte nicht aktualisiert werden")
 
@@ -1800,7 +1804,8 @@ async def start_channels(i: discord.Interaction):
     await i.response.defer(ephemeral=True, thinking=True)
     findings = []
     for channel_name, key, marker, embed in (
-        ("willkommen", "welcome_post", "corpsegrinder:welcome", welcome_embed()),
+        ("willkommen", "welcome_post", "corpsegrinder:welcome",
+         welcome_embed(i.guild, setting("welcome_admin_tip") or "")),
         ("ankündigungen", "announcement_intro_post", "corpsegrinder:news-intro",
          announcement_intro_embed()),
     ):
@@ -1814,7 +1819,63 @@ async def start_channels(i: discord.Interaction):
         except discord.HTTPException:
             logging.exception("Startkanal einrichten: %s", channel_name)
             findings.append("#" + channel_name + ": Berechtigungsfehler")
+    try:
+        findings.append(await organize_start_channels(i.guild))
+    except discord.HTTPException:
+        findings.append("Kanalreihenfolge konnte nicht aktualisiert werden.")
     await i.followup.send("\n".join(findings), ephemeral=True)
+
+
+@bot.tree.command(name="willkommen_aktualisieren",
+                  description="Willkommens-Anleitung und Kanalreihenfolge auffrischen (Admin)",
+                  guild=SERVER)
+async def update_welcome_guide(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i,"Nur Administratoren.")
+    await i.response.defer(ephemeral=True,thinking=True)
+    target=channel(i.guild,"willkommen")
+    if not isinstance(target,discord.TextChannel):
+        return await i.followup.send(
+            "#willkommen fehlt. Bitte zuerst /einrichtung_start verwenden.",
+            ephemeral=True)
+    findings=[]
+    try:
+        findings.append(await organize_start_channels(i.guild))
+    except discord.HTTPException:
+        findings.append("Kanalreihenfolge: Bot benötigt Kanäle verwalten.")
+    try:
+        message,_note=await publish_info(
+            target,"welcome_post","corpsegrinder:welcome",
+            welcome_embed(i.guild,setting("welcome_admin_tip") or ""))
+        findings.append("Willkommens-Anleitung aktualisiert: "+message.jump_url)
+    except discord.HTTPException:
+        findings.append("Willkommenskarte nicht bearbeitbar: Bot-Berechtigungen prüfen.")
+    await i.followup.send("\n".join(findings),ephemeral=True)
+
+
+@bot.tree.command(name="willkommenshinweis",
+                  description="Optionalen Zusatzhinweis auf Willkommensseite setzen (Admin)",
+                  guild=SERVER)
+@app_commands.describe(text="Aktuelle Serverinfo (max. 500 Zeichen); 'aus' zum Entfernen")
+async def set_welcome_note(i: discord.Interaction,text: app_commands.Range[str,1,500]):
+    if not admin(i):
+        return await answer(i,"Nur Administratoren.")
+    note="" if text.strip().casefold() in ("aus","löschen","loeschen","-") else text.strip()
+    save_setting("welcome_admin_tip",note)
+    target=channel(i.guild,"willkommen")
+    if not isinstance(target,discord.TextChannel):
+        return await answer(i,"Hinweis gespeichert; #willkommen fehlt noch.")
+    try:
+        message,_note=await publish_info(
+            target,"welcome_post","corpsegrinder:welcome",
+            welcome_embed(i.guild,note))
+        await answer(
+            i,"✅ Hinweis "+("entfernt" if not note else "aktualisiert")+
+            ". Bestehende Willkommensseite bearbeitet: "+message.jump_url)
+    except discord.HTTPException:
+        await answer(i,"Hinweis gespeichert, aber die Willkommenskarte "
+                      "konnte nicht aktualisiert werden. "
+                      "Bitte Bot-Berechtigungen prüfen.")
 
 
 @bot.tree.command(name="ankuendigung", description="Schöne Nachricht in #ankündigungen veröffentlichen (Admin)", guild=SERVER)
