@@ -3589,7 +3589,11 @@ def parse_community_rss(payload, source):
             if not (url.path.startswith(("/news/", "/official/", "/changelog/"))
                     or source == "Forever-Community"):
                 continue
-        summary = clean_official_text(field("description") or field("summary"), 280)
+        # RSS kann auch einen vollständigen Content-Abschnitt liefern.
+        # Wir nutzen ihn nur zur Faktenextraktion, kopieren ihn nicht in Discord.
+        summary = clean_official_text(
+            field("encoded") or field("content") or
+            field("description") or field("summary"), 2600)
         canonical = f"https://{url.hostname}{url.path.rstrip('/')}"
         entries.append((when, canonical, title, summary, source))
     return entries
@@ -3603,7 +3607,7 @@ def inspect_wowhead_article(raw, fallback_title):
                                 or fallback_title, 170)
     summary = clean_official_text(
         parser.meta.get("og:description")
-        or parser.meta.get("description") or "", 280)
+        or parser.meta.get("description") or "", 1800)
     # The article itself must contain Forever even if the category index does.
     if "forever" not in (title + " " + summary).casefold():
         return None
@@ -3759,9 +3763,8 @@ def german_forever_news_summary(title, description, max_chars=1550):
     # E.g. "64 new spells, 10 new items" – do not confuse with the
     # Changelog count (the two posts may quote different figures).
     for en, german, emoji in GERMAN_NEWS_COUNTS:
-        if any(re.search(
-                rf"\b{en}\s*:\s*\d+\s+added", lowered, re.IGNORECASE)
-                for _ in (None,)):
+        if re.search(
+                rf"\b{en}\s*:\s*\d+\s+added", lowered, re.IGNORECASE):
             continue
         forms = en.replace("s?", "s")
         match = re.search(
