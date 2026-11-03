@@ -3370,10 +3370,8 @@ async def ensure_forever_news_channel(guild):
 def forever_news_embed(row):
     timestamp, article_id, title, summary, url = row
     embed = discord.Embed(
-        title="📰 " + title[:250],
-        description=(summary or
-                     "Neuer offizieller Beitrag zu World of Warcraft: Forever. "
-                     "Alle Details stehen bei Blizzard.")[:400],
+        title="📰 " + german_forever_news_title(title)[:250],
+        description=german_forever_news_summary(title, summary),
         colour=discord.Colour.from_rgb(155, 48, 28),
         url=url)
     embed.add_field(
@@ -3665,14 +3663,158 @@ def gather_community_forever_news(already_known=None):
                    reverse=True)[:FOREVER_COMMUNITY_LIMIT], errors)
 
 
+
+# --- Ausführliche, direkt in Discord lesbare News-Karten --------------------
+# Keine fremden Artikel vollständig kopieren: Die Karten fassen überprüfbare
+# Zahlen, Buildnummern und Themen selbstständig auf Deutsch zusammen.
+# Es gibt bewusst KEINEN 'Ausführlicher lesen'-Button oder Pflicht-Link.
+GERMAN_NEWS_COUNTS = (
+    ("spells", "Zauber", "✨"),
+    ("items", "Gegenstände", "🎒"),
+    ("zones", "Gebiete", "🗺️"),
+    ("maps", "Karten", "🧭"),
+    ("races?", "Völker", "👥"),
+    ("classes", "Klassen", "⚔️"),
+    ("talents?", "Talente", "🌿"),
+)
+GERMAN_CLASS_NAMES = (
+    (r"\bdruids?\b", "Druiden"),
+    (r"\bpaladins?\b", "Paladine"),
+    (r"\bwarriors?\b", "Krieger"),
+    (r"\bshamans?\b", "Schamanen"),
+    (r"\bhunters?\b", "Jäger"),
+    (r"\bpriests?\b", "Priester"),
+    (r"\brogues?\b", "Schurken"),
+    (r"\bwarlocks?\b", "Hexenmeister"),
+    (r"\bmages?\b", "Magier"),
+)
+
+
+def german_forever_news_title(title):
+    """Short factual German headline; do not invent anything."""
+    original = clean_official_text(title, 190)
+    match = re.search(r"\bbeta\s+build\s+([0-9.]+)", original, re.IGNORECASE)
+    if match:
+        return "Neuer WoW-Forever-Beta-Build " + match.group(1)
+    match = re.search(
+        r"\bbuild\s+([0-9.]+)\s*:\s*what\s+changed\s+since\s+([0-9.]+)",
+        original, re.IGNORECASE)
+    if match:
+        return f"Build {match.group(1)}: Änderungen seit {match.group(2)}"
+    match = re.search(
+        r"\b(?:over|more\s+than)\s+([0-9.,]+)\s+million\s+characters",
+        original, re.IGNORECASE)
+    if match:
+        return "Über " + match.group(1) + " Millionen Beta-Charaktere erstellt"
+    lowered = original.casefold()
+    klass = [label for pattern,label in GERMAN_CLASS_NAMES
+             if re.search(pattern, lowered, re.IGNORECASE)]
+    if klass and any(keyword in lowered for keyword in (
+            "talent", "class changes", "class tuning", "balance")):
+        return "WoW Forever: Klassen- und Talentänderungen bei " + ", ".join(klass[:3])
+    if "patch note" in lowered or "changelog" in lowered:
+        return "WoW Forever: Neue Patchnotes und Änderungen"
+    if "hotfix" in lowered or "bug fix" in lowered:
+        return "WoW Forever: Neue Fehlerbehebungen"
+    if "launch" in lowered or "release" in lowered:
+        return "WoW Forever: Neues zum Spielstart"
+    if "addon" in lowered:
+        return "WoW Forever: Neuigkeiten zu Addons"
+    if "server" in lowered or "realm" in lowered:
+        return "WoW Forever: Neuigkeiten zu den Servern"
+    if "beta" in lowered:
+        return "WoW Forever: Neues aus der Beta"
+    return "WoW Forever: " + original[:155]
+
+
+def german_forever_news_summary(title, description, max_chars=1550):
+    """Extract concrete, independently rephrased facts from source metadata.
+
+    The original may be English. No machine translation API has been configured:
+    when no structured facts can be extracted, say this explicitly instead of
+    fabricating a detailed German translation or reprinting source content.
+    """
+    title = clean_official_text(title, 260)
+    description = clean_official_text(description, 2600)
+    original = (title + ". " + description)
+    lowered = original.casefold()
+    facts = []
+    identifiers = re.findall(r"\b(?:1\.60\.\d{1,6}\.\d{3,8}|\d{5,8})\b", original)
+    if identifiers and any(x in lowered for x in ("build", "version", "patch")):
+        unique = list(dict.fromkeys(identifiers))[:3]
+        if unique:
+            facts.append("🔧 **Betroffene Buildnummer" +
+                         ("n" if len(unique)>1 else "") + ":** " +
+                         ", ".join(unique))
+    # E.g. "Spells: 68 added, 0 removed, 127 changed" → German figures.
+    for en, german, emoji in GERMAN_NEWS_COUNTS:
+        match = re.search(
+            rf"\b{en}\s*:\s*(\d+)\s+added,\s*(\d+)\s+removed,\s*"
+            rf"(\d+)\s+changed\b", lowered, re.IGNORECASE)
+        if match:
+            add, deleted, changed = map(int, match.groups())
+            facts.append(
+                f"{emoji} **{german}:** {add} neu, {deleted} entfernt, "
+                f"{changed} geändert.")
+    # E.g. "64 new spells, 10 new items" – do not confuse with the
+    # Changelog count (the two posts may quote different figures).
+    for en, german, emoji in GERMAN_NEWS_COUNTS:
+        if any(re.search(
+                rf"\b{en}\s*:\s*\d+\s+added", lowered, re.IGNORECASE)
+                for _ in (None,)):
+            continue
+        forms = en.replace("s?", "s")
+        match = re.search(
+            rf"\b(\d+)\s+(?:new|added)\s+{forms}\b", lowered, re.IGNORECASE)
+        if match:
+            facts.append(f"{emoji} **{german}:** {match.group(1)} neu.")
+    tree_talents = re.search(
+        r"talents?\s+in\s+(?:the\s+)?forever\s+class\s+trees\s*:\s*(\d+)",
+        lowered)
+    if tree_talents:
+        facts.append(
+            f"🌿 **Klassenbäume:** {tree_talents.group(1)} "
+            "Talente werden in der Meldung genannt.")
+    characters = re.search(
+        r"(?:over|more\s+than)\s+(\d+(?:[.,]\d+)?)\s+million\s+characters",
+        lowered)
+    if characters:
+        facts.append(
+            f"👥 **Beta:** Laut Quelle wurden über "
+            f"{characters.group(1)} Millionen Charaktere erstellt.")
+    classes = [label for pattern,label in GERMAN_CLASS_NAMES
+               if re.search(pattern, lowered, re.IGNORECASE)]
+    if classes:
+        facts.append("⚔️ **Erwähnte Klassen:** " + ", ".join(classes) + ".")
+    if "talent" in lowered and not tree_talents:
+        facts.append("🌿 **Talente:** Die Meldung behandelt Talentänderungen.")
+    if "server" in lowered or "realm" in lowered:
+        facts.append("🌍 **Server:** Es geht um Realms oder Serverbetrieb.")
+    if "hotfix" in lowered or "bug fix" in lowered:
+        facts.append("🛠️ **Fehlerbehebungen:** Die Quelle meldet Korrekturen.")
+    if "changelog" in lowered and not any("Buildnummer" in f for f in facts):
+        facts.append("📜 **Änderungsprotokoll:** Einzelheiten sind im Changelog aufgeführt.")
+    if "launch" in lowered or "release" in lowered:
+        facts.append("🚀 **Spielstart:** Der Beitrag behandelt die Veröffentlichung.")
+    # No automatic guessing. Generic stories use a short, honest German
+    # summary without claiming to reproduce all original details.
+    if not facts:
+        facts.append(
+            "📰 **Einordnung:** Die Quelle berichtet über ein Thema rund "
+            "um WoW Forever. Detaillierte Aussagen konnten aus den "
+            "verfügbaren Angaben nicht zuverlässig auf Deutsch übernommen werden.")
+    lines = ["**Die wichtigsten Informationen:**", *["• " + f for f in facts[:10]]]
+    if len(facts) > 10:
+        lines.append("• Weitere Änderungen sind in der Quelle aufgeführt.")
+    return "\n".join(lines)[:max_chars]
+
+
 def community_news_embed(post):
     when, url, title, summary, source = post
     embed = discord.Embed(
-        title="📰 " + title[:230],
+        title="📰 " + german_forever_news_title(title)[:230],
         url=url,
-        description=(summary[:280] if summary else
-                     "Neuer Beitrag aus einer Forever-Communityquelle. "
-                     "Die Details stehen im Originalartikel."),
+        description=german_forever_news_summary(title, summary),
         colour=discord.Colour.from_rgb(165, 111, 36))
     embed.add_field(name="🗞️ Quelle",
                     value=("Wowhead · Forever" if source=="Wowhead"
