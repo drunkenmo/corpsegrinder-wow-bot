@@ -5448,7 +5448,7 @@ class ForeverClassBulletParser(HTMLParser):
 
 def german_forever_ability(text):
     """Use established German spell names; leave unverified names unchanged."""
-    text = text.strip(" .:–-").rstrip("'s").rstrip("’s")
+    text = re.sub(r"(?:'s|’s)$", "", text.strip(" .:–-"))
     for english, german in sorted(
             FOREVER_GERMAN_SPELLS.items(), key=lambda item: -len(item[0])):
         text = re.sub(r"\b" + re.escape(english) + r"\b",
