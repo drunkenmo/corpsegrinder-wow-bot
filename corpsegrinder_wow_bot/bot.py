@@ -30,6 +30,11 @@ if not TOKEN or not GUILD_ID:
 
 db = sqlite3.connect("/data/corpsegrinder.sqlite")
 db.execute("CREATE TABLE IF NOT EXISTS characters (guild INTEGER, user INTEGER, name TEXT COLLATE NOCASE, klass TEXT, level INTEGER, beruf1 TEXT, beruf2 TEXT, PRIMARY KEY(guild,user,name))")
+# Charaktere bleiben in der vorhandenen Tabelle. Zusätzliche Zuordnungen
+# liegen in eigenen Tabellen; bestehende Profile und Anmeldungen bleiben intakt.
+db.execute("CREATE TABLE IF NOT EXISTS main_characters (guild INTEGER NOT NULL, user INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(guild,user))")
+db.execute("CREATE TABLE IF NOT EXISTS group_character_choices (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(kind,group_id,user))")
+db.execute("CREATE TABLE IF NOT EXISTS character_nickname_preferences (guild INTEGER NOT NULL, user INTEGER NOT NULL, original_nick TEXT, assigned_nick TEXT NOT NULL, PRIMARY KEY(guild,user))")
 db.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT,guild INTEGER,owner INTEGER,kind TEXT,activity TEXT,when_text TEXT,channel INTEGER,message INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS signups (group_id INTEGER,user INTEGER,role TEXT,PRIMARY KEY(group_id,user))")
 db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT)")
@@ -578,6 +583,199 @@ async def update_roles(i: discord.Interaction):
 @bot.tree.command(name="meine_rollen", description="Deine Rollen anzeigen", guild=SERVER)
 async def my_roles(i: discord.Interaction):
     await answer(i, own_roles(i.user))
+
+# --- Charakterprofile und Ingame-Namen (Corpsegrinder 1.0.16) ----------------
+# Ein Discord-Mitglied bleibt genau ein Teilnehmer, unabhängig von Twinks.
+# Ingame-Charaktere sind Selbstauskünfte; ein Game-Login ist nicht nötig.
+MAX_USER_CHARACTERS = 25
+
+
+def normalize_character_name(name):
+    value = (name or "").strip()
+    # Discord-Markdown oder Mentions dürfen niemals als Charaktername
+    # durch die Speicherung zu einer fremden Nachricht werden.
+    if not (2 <= len(value) <= 40) or not re.fullmatch(
+            r"[\wÀ-ÿÄÖÜäöüß][\wÀ-ÿÄÖÜäöüß '-]{1,39}", value,
+            flags=re.UNICODE):
+        raise ValueError(
+            "Charaktername: 2–40 Zeichen, Buchstaben, Zahlen und ggf. "
+            "Bindestrich, Apostroph oder Leerzeichen; kein @, # oder Markdown.")
+    return value
+
+
+def user_characters(user_id):
+    rows = db.execute(
+        "SELECT name,klass,level FROM characters "
+        "WHERE guild=? AND user=? ORDER BY name COLLATE NOCASE LIMIT 26",
+        (GUILD_ID, user_id)).fetchall()
+    main = db.execute(
+        "SELECT name FROM main_characters WHERE guild=? AND user=?",
+        (GUILD_ID, user_id)).fetchone()
+    preferred = main[0].casefold() if main else None
+    return sorted(rows, key=lambda row: (
+        0 if row[0].casefold()==preferred else 1, row[0].casefold()))
+
+
+def owned_character(user_id, character_name):
+    if not character_name:
+        return None
+    return db.execute(
+        "SELECT name,klass,level FROM characters "
+        "WHERE guild=? AND user=? AND name=? COLLATE NOCASE",
+        (GUILD_ID,user_id,character_name)).fetchone()
+
+
+def main_character(user_id):
+    rows = user_characters(user_id)
+    return rows[0] if rows else None
+
+
+def select_main_character(user_id, character_name):
+    row = owned_character(user_id, character_name)
+    if row is None:
+        raise ValueError(
+            "Dieser Charakter gehört nicht zu deinem Profil. "
+            "Bitte zuerst /charakter verwenden.")
+    db.execute(
+        "INSERT OR REPLACE INTO main_characters (guild,user,name) VALUES (?,?,?)",
+        (GUILD_ID,user_id,row[0]))
+    db.commit()
+    return row
+
+
+def ensure_main_character(user_id):
+    if not db.execute(
+            "SELECT 1 FROM main_characters WHERE guild=? AND user=?",
+            (GUILD_ID,user_id)).fetchone():
+        main = main_character(user_id)
+        if main:
+            select_main_character(user_id,main[0])
+
+
+def remember_group_character(kind, group_id, user_id, name):
+    if kind not in ("dungeon","level"):
+        raise ValueError("Unbekannte Gruppe")
+    row = owned_character(user_id,name)
+    if row is None:
+        raise ValueError("Charakter nicht im eigenen Profil.")
+    db.execute(
+        "INSERT OR REPLACE INTO group_character_choices "
+        "(kind,group_id,user,name) VALUES (?,?,?,?)",
+        (kind,group_id,user_id,row[0]))
+
+
+def forget_group_character(kind, group_id, user_id):
+    db.execute(
+        "DELETE FROM group_character_choices "
+        "WHERE kind=? AND group_id=? AND user=?",
+        (kind,group_id,user_id))
+
+
+def chosen_character(kind, group_id, user_id):
+    saved = db.execute(
+        "SELECT name FROM group_character_choices "
+        "WHERE kind=? AND group_id=? AND user=?",
+        (kind,group_id,user_id)).fetchone()
+    if saved:
+        # Preserve the choice made for the event, even when the player
+        # subsequently changes the global main character.
+        return owned_character(user_id,saved[0]) or (saved[0],None,None)
+    return main_character(user_id)
+
+
+def character_member_line(kind, group_id, user_id):
+    row = chosen_character(kind,group_id,user_id)
+    if not row:
+        return f"<@{user_id}> · *Noch kein Charakter eingetragen*"
+    name,klass,level = row
+    name = discord.utils.escape_markdown(name[:40])
+    if klass is None:
+        return f"**{name}** · *Charakter aus Profil entfernt*\n<@{user_id}>"
+    return (f"**{name}** · {discord.utils.escape_markdown(klass)} "
+            f"· Stufe {int(level)}\n<@{user_id}>")
+
+
+async def refresh_user_character_cards(user_id):
+    """Redraw existing signup cards after a character is added/edited/deleted."""
+    for kind,table,signups in (
+            ("dungeon","planned_groups","planned_signups"),
+            ("level","level_groups","level_signups")):
+        rows = db.execute(
+            f"SELECT id FROM {table} WHERE guild=? AND status='open' "
+            "AND id IN (SELECT group_id FROM " + signups + " WHERE user=?) "
+            "AND start_utc>? ORDER BY start_utc LIMIT 30",
+            (GUILD_ID,user_id,int(datetime.now(timezone.utc).timestamp())-3600)
+        ).fetchall()
+        for (group_id,) in rows:
+            try:
+                group = event_record(kind,group_id)
+                if group:
+                    await refresh_event_card(kind,group)
+            except (discord.HTTPException,ValueError):
+                logging.warning(
+                    "Charaktername konnte in %s-Gruppe #%s nicht "
+                    "aktualisiert werden",kind,group_id)
+
+
+def ingame_server_nickname(main, member):
+    # Discord limits server nicknames to 32 chars.
+    game_name = main[0][:30]
+    discord_name = member.name[:15]
+    return (f"{game_name} | {discord_name}")[:32]
+
+
+async def sync_optional_character_nickname(member):
+    preference = db.execute(
+        "SELECT original_nick,assigned_nick FROM character_nickname_preferences "
+        "WHERE guild=? AND user=?",
+        (GUILD_ID,member.id)).fetchone()
+    if not preference:
+        return
+    main = main_character(member.id)
+    if not main:
+        return
+    new_nick = ingame_server_nickname(main,member)
+    if member.nick == new_nick:
+        return
+    try:
+        await member.edit(nick=new_nick,
+                          reason="Corpsegrinder: freiwilliger Ingame-Servername")
+    except (discord.Forbidden,discord.HTTPException):
+        logging.info("Discord-Servernickname für %s nicht änderbar",member.id)
+        return
+    db.execute(
+        "UPDATE character_nickname_preferences SET assigned_nick=? "
+        "WHERE guild=? AND user=?",
+        (new_nick,GUILD_ID,member.id))
+    db.commit()
+
+
+def profile_embed(user_id):
+    rows = user_characters(user_id)
+    embed = discord.Embed(
+        title="⚔️ Dein Corpsegrinder-Charakterprofil",
+        description=("**Hauptcharakter + Twinks** – bei Dungeons und "
+                     "Levelgruppen meldest du dich mit dem gewählten "
+                     "Ingame-Charakter an.\n"
+                     "Ein Discord-Account belegt dabei höchstens einen Platz."),
+        colour=discord.Colour.from_rgb(154,47,29))
+    if not rows:
+        embed.add_field(
+            name="Noch kein Charakter eingetragen",
+            value="Nutze **/charakter**, um deinen ersten Charakter "
+                  "mit Klasse und Stufe einzutragen.",
+            inline=False)
+    for index,(name,klass,level) in enumerate(rows[:25]):
+        head = "👑 Hauptcharakter" if index==0 else "🌿 Twink"
+        embed.add_field(
+            name=head+" · "+discord.utils.escape_markdown(name),
+            value=(f"**{discord.utils.escape_markdown(klass)}** · "
+                   f"Stufe **{level}**"),inline=False)
+    embed.set_footer(
+        text="/hauptcharakter wählt deinen Main · "
+             "/ingame_nickname optional · Charaktere bleiben privat verwaltbar")
+    return embed
+
 
 @bot.tree.command(name="charakter", description="Charakter anlegen oder aktualisieren", guild=SERVER)
 @app_commands.describe(name="Charaktername", klasse="Klasse", level="Stufe", beruf1="Beruf 1", beruf2="Beruf 2")
