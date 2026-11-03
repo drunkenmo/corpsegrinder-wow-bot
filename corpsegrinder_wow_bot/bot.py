@@ -76,10 +76,10 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("rollenwahl", "text"),
-        ("allgemein", "text"), ("ankündigungen", "text"),
+        ("lagerfeuer", "text"), ("ankündigungen", "text"),
         ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
-        ("pve-gruppensuche", "text"), ("dungeons", "text"),
+        ("pve-gruppensuche", "text"), ("dungeon-planer", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
         ("PvE – Leveln", "voice"), ("PvE – Dungeon", "voice"),
         ("PvE – Raid", "voice"), ("➕ PvE-Gruppe erstellen", "voice")],
@@ -190,8 +190,47 @@ def role(guild, name):
     return (discord.utils.get(guild.roles, name=visual_name(name))
             or discord.utils.get(guild.roles, name=name))
 
+CHANNEL_RENAMES = {"allgemein": "lagerfeuer", "dungeons": "dungeon-planer"}
+
+
 def channel(guild, name):
-    return discord.utils.get(guild.channels, name=name)
+    if guild is None:
+        return None
+    found = discord.utils.get(guild.channels, name=name)
+    if found is not None:
+        return found
+    # When channels could not yet be renamed, keep working on their old IDs.
+    alternate = CHANNEL_RENAMES.get(name)
+    if alternate is None:
+        alternate = next((old for old, new in CHANNEL_RENAMES.items()
+                          if new == name), None)
+    return (discord.utils.get(guild.channels, name=alternate)
+            if alternate else None)
+
+
+async def migrate_channel_names(guild):
+    """Rename existing channels, preserving IDs, posts, roles and permissions."""
+    changes = []
+    for old_name, new_name in CHANNEL_RENAMES.items():
+        old = discord.utils.get(guild.text_channels, name=old_name)
+        new = discord.utils.get(guild.text_channels, name=new_name)
+        if old is None:
+            continue
+        if new is not None:
+            logging.warning("Kanal-Migration: %s und %s existieren. "
+                            "Kein Kanal wird gelöscht oder zusammengeführt.",
+                            old_name, new_name)
+            continue
+        try:
+            await old.edit(
+                name=new_name,
+                reason="Corpsegrinder 1.0.22: bestehende Kanäle umbenennen")
+            changes.append("#" + old_name + " → #" + new_name)
+        except discord.HTTPException:
+            logging.exception(
+                "Kanal #%s konnte nicht umbenannt werden; "
+                "Bot benötigt Kanäle verwalten", old_name)
+    return changes
 
 def setting(key):
     item = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -410,6 +449,9 @@ async def on_ready():
     background(cleanup_leftover_voice_channels())
     if getattr(bot, "initialized", False):
         return
+    guild = bot.get_guild(GUILD_ID)
+    if guild is not None:
+        await migrate_channel_names(guild)
     bot.add_view(RoleView())
     bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
@@ -458,7 +500,7 @@ async def on_member_join(member):
             logging.warning("Community-Rolle konnte nicht vergeben werden")
     # Welcome itself stays a clean, pinned manual rather than a stream of
     # join messages that pushes the instructions off the newest-chat view.
-    greeting = channel(member.guild,"allgemein") or channel(member.guild,"willkommen")
+    greeting = channel(member.guild,"lagerfeuer") or channel(member.guild,"willkommen")
     if isinstance(greeting,discord.TextChannel):
         welcome = channel(member.guild,"willkommen")
         roles = channel(member.guild,"rollenwahl")
@@ -1670,8 +1712,8 @@ class WelcomeView(discord.ui.View):
         super().__init__(timeout=None)
         links = (
             ("🎭 Rollen & Charakter", "rollenwahl", discord.ButtonStyle.link),
-            ("💬 Allgemein", "allgemein", discord.ButtonStyle.link),
-            ("⚔️ Dungeons", "dungeons", discord.ButtonStyle.link),
+            ("🔥 Lagerfeuer", "lagerfeuer", discord.ButtonStyle.link),
+            ("🏰 Dungeon-Planer", "dungeon-planer", discord.ButtonStyle.link),
             ("🌿 Levelgruppen", "pve-gruppensuche", discord.ButtonStyle.link),
             ("📰 Forever-News", "forever-news", discord.ButtonStyle.link),
         )
@@ -1743,6 +1785,22 @@ async def publish_info(channel_obj, storage_key, marker, embed):
             pin_note = " (Anheften erfordert für den Bot 'Nachrichten verwalten'.)"
     return existing, pin_note
 
+
+
+@bot.tree.command(
+    name="kanalnamen_aktualisieren",
+    description="Vorhandene Stammtisch- und Dungeon-Kanäle sicher umbenennen (Admin)",
+    guild=SERVER)
+async def rename_community_channels(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i, "Nur Administratoren.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    changes = await migrate_channel_names(i.guild)
+    await i.followup.send(
+        "✅ " + ("; ".join(changes) if changes
+               else "Kanalnamen sind bereits aktuell (oder Namenskonflikt).")
+        + "\nBestehende Kanal-IDs, Nachrichten und Berechtigungen bleiben erhalten.",
+        ephemeral=True)
 
 @bot.tree.command(name="rollen_design_vorschau", description="Vorschau der bunten Rollen und Icons (Admin)", guild=SERVER)
 async def role_design_preview(i: discord.Interaction):
@@ -2380,9 +2438,9 @@ async def create_planned_group(
         rolle: app_commands.Choice[str], notiz: str = ""):
     if not allowed(i):
         return await answer(i, "Nur auf Corpsegrinder verfügbar.")
-    target = channel(i.guild, "dungeons")
+    target = channel(i.guild, "dungeon-planer")
     if not isinstance(target, discord.TextChannel):
-        return await answer(i, "Kanal #dungeons ist nicht vorhanden.")
+        return await answer(i, "Kanal #dungeon-planer ist nicht vorhanden.")
     instanz = instanz.strip()
     if not 2 <= len(instanz) <= 90:
         return await answer(i, "Instanzname: 2 bis 90 Zeichen.")
@@ -2400,7 +2458,7 @@ async def create_planned_group(
         logging.exception("Konnte neue Gruppensuche nicht veröffentlichen")
         return await i.followup.send(
             "Der Termin konnte nicht veröffentlicht werden. "
-            "Bitte Bot-Berechtigungen in #dungeons prüfen.",
+            "Bitte Bot-Berechtigungen in #dungeon-planer prüfen.",
             ephemeral=True)
     await i.followup.send(
         f"✅ Termin **#{group_id}** für **{discord.utils.escape_markdown(instanz)}** "
@@ -2508,9 +2566,9 @@ async def reschedule_planned_group(
 async def create_plan_record_and_post(guild, user_id, instance, when, display,
                                       role, note="", character_name=None):
     """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
-    target = channel(guild, "dungeons")
+    target = channel(guild, "dungeon-planer")
     if not isinstance(target, discord.TextChannel):
-        raise ValueError("Kanal #dungeons fehlt.")
+        raise ValueError("Kanal #dungeon-planer fehlt.")
     if role not in PLAN_ROLES or not 2 <= len(instance) <= 90 or len(note) > 160:
         raise ValueError("Instanz-/Rollen-Auswahl ungültig.")
     if when < int(datetime.now(timezone.utc).timestamp()) + 30:
@@ -2555,7 +2613,7 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display,
 
 
 # --- Interaktiver Dungeon-Planer (1.0.10) ---------------------------------
-# Die Dungeon-Steuerzentrale ist eine dauerhafte Nachricht im #dungeons-Kanal.
+# Die Dungeon-Steuerzentrale ist eine dauerhafte Nachricht im #dungeon-planer-Kanal.
 # Der zwei-stufige Assistent ist privat und gilt nur für die auslösende Person.
 
 PLANNER_MARKER = "corpsegrinder:planner-dashboard"
@@ -2928,9 +2986,9 @@ def planner_list_embed(user_id=None):
 
 
 async def ensure_planner_dashboard(guild):
-    target = channel(guild, "dungeons")
+    target = channel(guild, "dungeon-planer")
     if not isinstance(target, discord.TextChannel):
-        logging.warning("Dungeon-Planer: #dungeons fehlt")
+        logging.warning("Dungeon-Planer: #dungeon-planer fehlt")
         return None, False
     existing = None
     old_post_id = setting(PLANNER_STORAGE_KEY)
@@ -3026,7 +3084,7 @@ async def set_planner_dashboard(interaction: discord.Interaction):
             "Bitte die Schreib- und Leserechte des Bots prüfen.", ephemeral=True)
     if message is None:
         return await interaction.followup.send(
-            "#dungeons nicht gefunden.", ephemeral=True)
+            "#dungeon-planer nicht gefunden.", ephemeral=True)
     note = "✅ Angepinnt" if pinned else "⚠️ Nicht angepinnt: Bitte Nachricht selbst anpinnen."
     await interaction.followup.send(
         f"🏰 Dungeon-Steuerzentrale: {message.jump_url}\n{note}",
@@ -4038,7 +4096,7 @@ async def create_scheduled_voice(kind, group):
         if isinstance(active, discord.VoiceChannel):
             return active.id
     guild = bot.get_guild(GUILD_ID)
-    source = channel(guild, "dungeons" if kind == "dungeon" else "pve-gruppensuche") if guild else None
+    source = channel(guild, "dungeon-planer" if kind == "dungeon" else "pve-gruppensuche") if guild else None
     category = source.category if source else None
     if category is None:
         logging.warning("%s-Gruppe #%s: keine PvE-Kategorie für Sprachkanal",kind,group_id)
