@@ -157,3 +157,32 @@ Der Bot erstellt nach dem Discord-Update automatisch den Textkanal `#forever-new
 **Berechtigungen:** Der Bot braucht in seiner Start-Kategorie mindestens `Kanäle verwalten`, `Kanal anzeigen`, `Nachrichten senden`, `Links einbetten` und `Nachrichtenverlauf lesen`. Fürs Anpinnen kommt `Nachrichten verwalten` hinzu.
 
 Nur die normalen per `/bot_update` verwalteten Python-Code-Dateien wurden verändert. Es wird keine zusätzliche Python-Abhängigkeit oder Home-Assistant-App-Aktualisierung benötigt.
+
+## Forever-News und Addons ab Bot-Version 1.0.14
+
+### #forever-news: Blizzard + zusätzliche Forever-Quellen
+
+Die seltenen **offiziellen Blizzard-Meldungen** bleiben erhalten und werden weiterhin ausdrücklich als solche gekennzeichnet. Die weiteren Quellen sind:
+- **Wowhead – Forever News:** `https://www.wowhead.com/forever/news`. Artikel aus der eigenen Forever-Rubrik, in Discord als `Community-News · Wowhead` bezeichnet. Nur aktuelle, anhand von Metadaten datierbare Forever-Themen werden gepostet.
+- **WoW Forever GG:** `https://wow-forever.gg/rss.xml` sowie `https://wow-forever.gg/official.xml`. Ein unabhängiges Forever-Community-Portal mit RSS. Beiträge werden als Community-Quelle gekennzeichnet, auch wenn sie auf einen Blizzard-Beitrag verweisen.
+
+Der Bot prüft weiterhin alle 30 Minuten. Community-Artikel aus den letzten sieben Tagen kommen nur dann dazu, wenn Titel, gültige Quell-URL und Veröffentlichungsdatum überprüfbar sind (maximal fünf neue Beiträge je Prüfung). URLs bleiben in SQLite, damit nach Neustarts keine wiederholten Meldungen entstehen. Die drei im Code hinterlegten Wowhead-Lesetipps sind als **Startauswahl**, nicht als neue Blizzard-Mitteilungen ausgewiesen.
+
+Wichtig: Automatisches Lesen von Webseiten funktioniert nur, sofern die jeweiligen Anbieter den Abruf durch den Bot erlauben. Wowhead kann Scraping blockieren; alle solchen Fehler erscheinen im Home-Assistant-Log und sind kein Grund, Meldungen zu erfinden. Bei technischen Problemen bleibt wenigstens die echte Startauswahl erhalten.
+
+### #addons: nur Forever-Dateien, keine Retail-Downloads
+
+Neuer eigener Textkanal **#addons** direkt unter **#forever-news**, vor **#rollenwahl**. Die angepinnte Empfehlungsliste verweist auf die Projektseiten bei CurseForge:
+- Questie (Questhilfe)
+- Leatrix Plus und Leatrix Maps (Komfort/Karte)
+- Auctionator (Auktionshaus)
+- Baganator (Taschen)
+- TomTom (Wegpunkte)
+- Deadly Boss Mods (Bosswarnungen, Inhalte gesondert prüfen)
+- QuestForever (Questhilfe speziell für Forever)
+
+**Automatische Prüfung alle sechs Stunden:** Der Bot liest die CurseForge-Projektseiten und sucht gezielt die **WoW Forever**-Datei, unterstützt durch die explizite Spielversion **1.60.1**. Er veröffentlicht Änderungen für bekannte Projekte und kann über die CurseForge-Suche neue Forever-Dateien finden. Neue Projekte erhalten die Warnung `Neu gefunden – keine Qualitätsempfehlung`, und bei der Erstbefüllung wird die Zahl der Meldungen gedrosselt. Ohne eindeutigen Forever-Nachweis wird nichts als updatefähig angekündigt. Projektseiten werden verlinkt; der Bot lädt keine Dateien herunter und installiert sie nicht. Die tatsächliche Funktionstüchtigkeit der Addons ist nicht durch den Bot garantiert.
+
+**Befehle:** `/addons_status` für den aktuellen Stand und `/addons_pruefen` (Admin) für einen sofortigen Lauf. `/forever_news_status` zeigt jetzt sowohl Blizzard- als auch Community-Beiträge; `/forever_news_pruefen` sucht beide Arten.
+
+Die neue Bot-Code-Version wird per `/bot_update` installiert. Die bestehende SQLite-Datei mit Charakteren und Gruppen bleibt erhalten.

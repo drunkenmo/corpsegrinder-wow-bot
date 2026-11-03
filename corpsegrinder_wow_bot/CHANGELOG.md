@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.14 – Mehr Forever-News und neuer #addons-Kanal
+
+- Der bisherige #forever-news-Kanal wird nicht mehr ausschließlich aus seltenen Blizzard-Artikeln gespeist: die klar gekennzeichneten Communityquellen Wowhead (/forever/news) und wow-forever.gg (RSS) ergänzen die offiziellen Blizzard-Posts.
+- Das angepinnte Nachrichten-Panel zeigt die Quellen klar getrennt. Drei echte Forever-Artikel bei Wowhead werden als Einstieg empfohlen, selbst wenn offizielle News fehlen oder Quellen gerade nicht erreichbar sind.
+- Community-News nur mit einem lesbaren Veröffentlichungsdatum innerhalb der letzten sieben Tage. Pro Prüflauf maximal fünf Beiträge, keine Doppelpostings; HTML und RSS-Feeds werden sicher gefiltert.
+- Neuer, eigener Textkanal #addons in der WoW-Start-Kategorie direkt unter #forever-news und über #rollenwahl.
+- Angepinnte Forever-Addon-Empfehlungsliste mit Questie, Leatrix Plus/Maps, Auctionator, Baganator, TomTom, DBM und QuestForever, jeweils mit Links zur eigenen CurseForge-Projektseite.
+- Automatische CurseForge-Prüfung alle sechs Stunden: ausdrücklich als Forever (Spielversion 1.60.1) ausgewiesene Dateien erkennen, Updates bekannter Addons veröffentlichen und neue Forever-Projekte aus der Suche entdecken.
+- Entdeckte, noch nicht kuratierte Projekte erhalten einen eigenen Warnhinweis; es gibt keine automatischen Addon-Downloads oder Installationen.
+- Neuer Befehl /addons_pruefen für Administratoren sowie /addons_status und erweitertes /forever_news_status.
+- Fehlgeschlagene Abfragen werden protokolliert; die statischen Empfehlungen bleiben im Discord erhalten.
+- Keine Änderungen an Home Assistant / Python-Abhängigkeiten; Installation weiterhin über /bot_update.
+
 ## 1.0.13 – #forever-news: Offizielle Blizzard-Neuigkeiten
 - Neuer Textkanal #forever-news in der WoW-Start-Kategorie direkt unter #ankündigungen, vor #rollenwahl.
 - Ausschließlich deutsche offizielle Blizzard-Artikel zu World of Warcraft: Forever; andere Retail-, Midnight- und Classic-Nachrichten ausgeschlossen.
