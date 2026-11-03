@@ -338,3 +338,14 @@ Für einen echten ersten Orientierungsschirm sind zusätzliche **manuelle Discor
 Discord-Hilfedokumentation: https://support.discord.com/hc/de/articles/11074987197975-Community-Onboarding-FAQ-H%C3%A4ufig-gestellte-Fragen und https://support.discord.com/hc/de/articles/13497665141655-FAQ-zum-Server-Leitfaden
 
 Der Server-Leitfaden ist Discord-nativ; für zukünftige neue Funktionskarten erweitert der Bot weiterhin die angeheftete `#willkommen`-Seite.
+
+## Lagerfeuer, Dungeon-Planer und Handelsbörse (1.0.22)
+
+- Der Bot benennt vorhandene `#allgemein` und `#dungeons` beim ersten Start in `#lagerfeuer` und `#dungeon-planer` um. Die Discord-Kanal-IDs bleiben erhalten. Das setzt für die Bot-Rolle **Kanäle verwalten** voraus; bei einem Namenskonflikt wird nichts geändert oder gelöscht.
+- `/kanalnamen_aktualisieren` wiederholt den sicheren Umbenennungsversuch.
+- In `#handel-und-crafting` erscheint eine angeheftete Händler-Tafel. Nutzer wählen **Suche**, **Biete** oder **Handwerksauftrag** und füllen einen privaten Dialog mit Gegenstand/Dienstleistung, Beschreibung und optionalem Ingame-Preis/Materialien aus.
+- Der Bot veröffentlicht eine Karte mit **Kontakt** (private Antwort mit Discord-Kontakt) und **Erledigt** (nur Ersteller/Admin). Die Karte bleibt als abgeschlossener Eintrag stehen; aktive Einträge bleiben auf der angehefteten Händler-Tafel sichtbar.
+- **Meine Einträge** zeigt die letzten 12 eigenen Posts als private Links. Maximal sechs gleichzeitig offene Einträge pro Mitglied, um Spam zu reduzieren. Nur Ingame-Handel mit Gold/Gegenständen; kein Echtgeld.
+- Bot-Rechte für den Handelskanal: Kanal ansehen, Nachrichten senden, Links einbetten, Nachrichtenverlauf anzeigen und zum Anheften Nachrichten verwalten. `/handel_aktualisieren` aktualisiert die Händler-Tafel.
+- Keine zusätzliche HA-App und kein externer Bot erforderlich; die aktuelle SQLite-Datenbank bleibt erhalten.
+
