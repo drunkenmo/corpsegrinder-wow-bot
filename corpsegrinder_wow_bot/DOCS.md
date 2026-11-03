@@ -186,3 +186,13 @@ Neuer eigener Textkanal **#addons** direkt unter **#forever-news**, vor **#rolle
 **Befehle:** `/addons_status` für den aktuellen Stand und `/addons_pruefen` (Admin) für einen sofortigen Lauf. `/forever_news_status` zeigt jetzt sowohl Blizzard- als auch Community-Beiträge; `/forever_news_pruefen` sucht beide Arten.
 
 Die neue Bot-Code-Version wird per `/bot_update` installiert. Die bestehende SQLite-Datei mit Charakteren und Gruppen bleibt erhalten.
+
+## Nachrichten direkt in Discord – Version 1.0.15
+
+Ab 1.0.15 sind die Artikelkarten in `#forever-news` selbst aussagekräftiger: Sie enthalten deutschsprachige Überschriften und direkt darunter aufgelistete belegbare Fakten. Es gibt ausdrücklich **keinen „Ausführlicher lesen“-Button** und keine zusätzliche private Discord-Ansicht. Der verlinkte Originalartikel dient nur als Quellenangabe.
+
+Der Bot verwendet eine regelbasierte Darstellung ohne externen Übersetzungsdienst. Bei Build-/Changelog-Meldungen werden insbesondere **Buildnummern**, **neu hinzugefügte, entfernte und geänderte Zauber und Gegenstände** sowie Klassen- und Talentinformationen herausgearbeitet. Andere Arten von Meldungen erhalten einen kurzen deutschen Kontext. Wenn die Originalquelle keine zuverlässigen Angaben liefert, erfindet der Bot keine Übersetzung und behauptet nicht, den vollständigen Originalartikel wiederzugeben. Vollständige geschützte Artikeltexte werden nicht kopiert.
+
+Zurückliegende Community-Meldungen, die noch über die Feeds/Artikel erreichbar sind, werden anhand ihrer Discord-Nachrichten-ID *in-place* bearbeitet. Die Tabelle `forever_news_card_versions` verhindert doppelte Änderungen und zusätzliche Nachrichtenspam. Sobald neue Feed-Inhalte verfügbar werden, werden bislang nicht umformatierte ältere Posts bei einer späteren Prüfung erneut berücksichtigt.
+
+Die automatisch gespeicherte SQLite-Datenbank und sämtliche bereits erstellten Kanäle und Rollen bleiben unverändert.
