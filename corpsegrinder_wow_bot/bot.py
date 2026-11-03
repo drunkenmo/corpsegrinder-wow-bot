@@ -1582,7 +1582,10 @@ async def plan_signup(interaction, group_id, task, character_name=None):
                 return await interaction.followup.send(
                     "Dein ausgewählter Charakter wurde gelöscht. "
                     "Bitte erneut auswählen.",ephemeral=True)
-            previous = chosen_character("dungeon",group_id,me)
+            previous = db.execute(
+                "SELECT name FROM group_character_choices "
+                "WHERE kind='dungeon' AND group_id=? AND user=?",
+                (group_id,me)).fetchone()
             if task == current and previous and (
                     previous[0].casefold()==selected[0].casefold()):
                 return await interaction.followup.send(
@@ -2483,7 +2486,10 @@ async def join_level_group(interaction, group_id, joining, character_name=None):
             if selected is None:
                 return await interaction.followup.send(
                     "Dein Charakter wurde inzwischen gelöscht.",ephemeral=True)
-            previous=chosen_character("level",group_id,me)
+            previous=db.execute(
+                "SELECT name FROM group_character_choices "
+                "WHERE kind='level' AND group_id=? AND user=?",
+                (group_id,me)).fetchone()
             if me in players and previous and (
                     previous[0].casefold()==selected[0].casefold()):
                 return await interaction.followup.send(
