@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.20"
+VERSION = "1.0.21"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -140,18 +140,17 @@ def update_embed():
     embed = discord.Embed(
         title="🌋 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Blizzard-Blueposts jetzt direkt in #forever-news!** ⚔️\n\n"
-            "🔵 Unser News-Bot verfolgt jetzt auch die offiziellen "
-            "**WoW-Forever-Entwicklungsnotizen im Blizzard-Forum**.\n"
-            "🛠️ Neue Beiträge und Änderungen bestehender Patchnotizen "
-            "werden erkannt und mit betroffenen Klassen angezeigt.\n"
-            "♻️ Bereits veröffentlichte Blueposts werden bei einer "
-            "Überarbeitung aktualisiert statt doppelt gepostet.\n"
-            "🔎 **/forever_news_status** zeigt nun auch die Bluepost-Zahl "
-            "und die Erreichbarkeit der Forenquelle.\n\n"
-            "Die bestehenden Blizzard-News, Wowhead- und Community-Feeds "
-            "bleiben aktiv. Konkrete Zahlen und Buffs/Nerfs stehen "
-            "im verlinkten Originalbeitrag bei Blizzard."
+            "🇩🇪 **Blizzard-Klassenänderungen endlich direkt auf Deutsch!**\n\n"
+            "🔵 Im Kanal **#forever-news** stehen bei offiziellen "
+            "Entwicklungsnotizen nun direkt die wichtigsten erkannten "
+            "Buffs, Nerfs und Zahlen, sortiert nach Klassen.\n"
+            "✅ Die Werte stammen aus Blizzards Originalbeiträgen. "
+            "Bei unklaren Formulierungen wird nichts erfunden.\n"
+            "♻️ Bereits veröffentlichte Bluepost-Karten werden mit "
+            "der neuen deutschen Übersicht aktualisiert.\n\n"
+            "Die ausführlichen englischen Notizen bleiben als Quelle "
+            "verlinkt; es handelt sich um eine geprüfte Auswahl, "
+            "nicht um eine vollständige Übersetzung."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
