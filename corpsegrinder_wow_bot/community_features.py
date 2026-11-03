@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.19"
+VERSION = "1.0.20"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -140,25 +140,18 @@ def update_embed():
     embed = discord.Embed(
         title="🌋 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Ein besserer Einstieg für neue Horde-Mitglieder!** 🍻\n\n"
-            "📍 Die Serverstruktur folgt jetzt dieser Reihenfolge: "
-            "**#willkommen → #rollenwahl → #allgemein → #ankündigungen "
-            "→ #forever-news → #addons**. Danach kommen die übersichtlich "
-            "geordneten PvE-, PvP- und Charakterbereiche. "
-            "Bestehende Nachrichten, Rollen und Berechtigungen bleiben erhalten.\n\n"
-            "📖 **#willkommen** erklärt jetzt die wichtigsten Funktionen "
-            "mit direkt anklickbaren Kanälen: Charakterregistrierung, "
-            "Gruppenplanung, Sprachchat, Forever-News, Addons und Community.\n\n"
-            "♻️ Die angeheftete Willkommensseite wird beim Botstart "
-            "und nach Funktionsupdates **in derselben Nachricht** aktualisiert. "
-            "Mit **/willkommen_aktualisieren** lässt sie sich manuell "
-            "auffrischen. Mit **/willkommenshinweis** ergänzt die "
-            "Serverleitung eigene aktuelle Hinweise.\n\n"
-            "🧭 Neue Mitglieder werden in #allgemein zu #willkommen "
-            "und zur Rollenwahl geführt. Ein echter erster Onboarding-"
-            "Bildschirm erfordert zusätzlich den **Discord-Server-Leitfaden** "
-            "unter Servereinstellungen → Onboarding, den Administratoren "
-            "in Discord selbst konfigurieren."
+            "**Blizzard-Blueposts jetzt direkt in #forever-news!** ⚔️\n\n"
+            "🔵 Unser News-Bot verfolgt jetzt auch die offiziellen "
+            "**WoW-Forever-Entwicklungsnotizen im Blizzard-Forum**.\n"
+            "🛠️ Neue Beiträge und Änderungen bestehender Patchnotizen "
+            "werden erkannt und mit betroffenen Klassen angezeigt.\n"
+            "♻️ Bereits veröffentlichte Blueposts werden bei einer "
+            "Überarbeitung aktualisiert statt doppelt gepostet.\n"
+            "🔎 **/forever_news_status** zeigt nun auch die Bluepost-Zahl "
+            "und die Erreichbarkeit der Forenquelle.\n\n"
+            "Die bestehenden Blizzard-News, Wowhead- und Community-Feeds "
+            "bleiben aktiv. Konkrete Zahlen und Buffs/Nerfs stehen "
+            "im verlinkten Originalbeitrag bei Blizzard."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
