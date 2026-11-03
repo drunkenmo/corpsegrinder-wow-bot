@@ -416,18 +416,26 @@ async def on_member_join(member):
             await member.add_roles(community)
         except discord.Forbidden:
             logging.warning("Community-Rolle konnte nicht vergeben werden")
-    greeting = channel(member.guild, "willkommen")
-    if isinstance(greeting, discord.TextChannel):
-        roles_channel = channel(member.guild, "rollenwahl")
-        destination = roles_channel.mention if roles_channel else "#rollenwahl"
-        await greeting.send(
-            "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
-            "! Für die Horde! 🍻\n"
-            "Starte in " + destination +
-            ": **Rollen auswählen → Charakter registrieren**. "
-            "Du brauchst nur **Ingame-Name und Klasse**, keine Freigabe.",
-            allowed_mentions=discord.AllowedMentions(
-                users=True,roles=False,everyone=False))
+    # Welcome itself stays a clean, pinned manual rather than a stream of
+    # join messages that pushes the instructions off the newest-chat view.
+    greeting = channel(member.guild,"allgemein") or channel(member.guild,"willkommen")
+    if isinstance(greeting,discord.TextChannel):
+        welcome = channel(member.guild,"willkommen")
+        roles = channel(member.guild,"rollenwahl")
+        welcome_link = welcome.mention if welcome else "#willkommen"
+        role_link = roles.mention if roles else "#rollenwahl"
+        try:
+            await greeting.send(
+                "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
+                "! Für die Horde! 🍻\n"
+                "Starte mit unserer Orientierung in " + welcome_link +
+                ". Danach in " + role_link +
+                " Rollen wählen und **Ingame-Name + Klasse** registrieren. "
+                "Keine Freigabe erforderlich.",
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,roles=False,everyone=False))
+        except discord.HTTPException:
+            logging.warning("Begrüßung für neues Mitglied nicht möglich")
 
 # Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
 # Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
@@ -4543,7 +4551,7 @@ def gather_official_forever_articles(already_posted=None):
 
 
 async def ensure_forever_news_channel(guild):
-    """Place #forever-news directly below #ankündigungen, above #rollenwahl."""
+    """Keep #forever-news under #ankündigungen in the start section."""
     announcements = channel(guild, "ankündigungen")
     role_channel = channel(guild, "rollenwahl")
     category = (announcements.category if announcements else
@@ -4552,7 +4560,8 @@ async def ensure_forever_news_channel(guild):
         logging.warning("Forever-News: Start-Kategorie fehlt, kein Kanal erstellt.")
         return None
     target = channel(guild, "forever-news")
-    if target is None:
+    created = target is None
+    if created:
         bot_member = guild.me or guild.get_member(bot.user.id)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(send_messages=False),
@@ -4567,13 +4576,12 @@ async def ensure_forever_news_channel(guild):
             topic="📰 Offizielle Blizzard-News zu World of Warcraft: Forever "
                   "– automatische Meldungen alle 30 Minuten.",
             reason="Corpsegrinder: eigener Blizzard-Forever-News-Kanal")
-    if target.category_id == category.id and announcements and (
-            target.position != announcements.position + 1):
+    # Do not reorder on every 30-minute news check. Channel order is kept
+    # by the shared start-layout function; apply it only for new channels.
+    if created:
         try:
-            await target.edit(
-                position=announcements.position + 1,
-                reason="Forever-News direkt unter #ankündigungen einsortieren")
-        except discord.Forbidden:
+            await organize_start_channels(guild)
+        except discord.HTTPException:
             logging.warning("Forever-News: Kanalposition nicht änderbar.")
     embed = discord.Embed(
         title="📰 CORPSEGRINDER · FOREVER NEWS",
@@ -5415,7 +5423,8 @@ async def ensure_addons_channel(guild):
         logging.warning("Addon-Kanal: Start-Kategorie fehlt")
         return None
     target = channel(guild,"addons")
-    if target is None:
+    created = target is None
+    if created:
         member = guild.me or guild.get_member(bot.user.id)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(send_messages=False)
@@ -5429,12 +5438,11 @@ async def ensure_addons_channel(guild):
             topic="🧩 WoW Forever Addons – Empfehlungen & neue "
                   "Forever-Dateien direkt von CurseForge.",
             reason="Corpsegrinder: eigener Forever-Addon-Kanal")
-    if news and target.category_id == category.id and (
-            target.position != news.position+1):
+    # Avoid undoing #willkommen -> #rollenwahl on each 6-hour addon scan.
+    if created:
         try:
-            await target.edit(position=news.position+1,
-                              reason="Addons direkt unter Forever-News")
-        except discord.Forbidden:
+            await organize_start_channels(guild)
+        except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
     key="addons_intro_post_v114"
     existing = None
