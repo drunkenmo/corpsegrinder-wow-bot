@@ -43,6 +43,7 @@ db.execute("CREATE TABLE IF NOT EXISTS notification_preferences (user_id INTEGER
 db.execute("CREATE TABLE IF NOT EXISTS event_reminder_deliveries (kind TEXT NOT NULL, group_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(kind,group_id,user_id))")
 db.execute("CREATE TABLE IF NOT EXISTS blizzard_news_posts (article_id INTEGER PRIMARY KEY, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_community_posts (canonical_url TEXT PRIMARY KEY, source TEXT NOT NULL, published_utc INTEGER NOT NULL, discord_message_id INTEGER NOT NULL, title TEXT NOT NULL)")
+db.execute("CREATE TABLE IF NOT EXISTS forever_news_card_versions (canonical_url TEXT PRIMARY KEY, version INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
 
 db.commit()
@@ -3862,14 +3863,39 @@ async def seed_forever_news_reading(target):
 
 async def check_community_forever_news(target):
     async with _community_news_lock:
-        known = {row[0] for row in db.execute(
-            "SELECT canonical_url FROM forever_community_posts").fetchall()}
-        posts, errors = await asyncio.to_thread(gather_community_forever_news,known)
+        existing = dict(db.execute(
+            "SELECT canonical_url,discord_message_id FROM forever_community_posts"
+        ).fetchall())
+        known = set(existing)
+        upgraded = {row[0] for row in db.execute(
+            "SELECT canonical_url FROM forever_news_card_versions "
+            "WHERE version>=115").fetchall()}
+        pending_upgrade = known - upgraded
+        # Existing old cards are refreshed in-place (not reposted) while the
+        # official article/feed data remains available.
+        posts, errors = await asyncio.to_thread(
+            gather_community_forever_news, set() if pending_upgrade else known)
         count = 0
         # Chronological ordering makes the channel easy to read.
         for post in sorted(posts):
             when,url,title,summary,source = post
             if url in known:
+                if url in pending_upgrade:
+                    try:
+                        old = await target.fetch_message(int(existing[url]))
+                        if old.author.id == bot.user.id:
+                            await old.edit(embed=community_news_embed(post))
+                            db.execute(
+                                "INSERT OR REPLACE INTO forever_news_card_versions "
+                                "(canonical_url,version) VALUES (?,115)", (url,))
+                            db.commit()
+                    except (discord.NotFound, discord.Forbidden):
+                        logging.info(
+                            "Alte Forever-Nachricht nicht mehr bearbeitbar: %s", url)
+                    except discord.HTTPException:
+                        logging.exception(
+                            "Forever-Nachrichtenkarte konnte nicht erneuert werden: %s",
+                            url)
                 continue
             # Blizzard's official RSS mirror may repeat an article that our
             # primary official source already published.
@@ -3885,6 +3911,9 @@ async def check_community_forever_news(target):
                 "(canonical_url,source,published_utc,discord_message_id,title) "
                 "VALUES (?,?,?,?,?)",
                 (url,source,when,message.id,title))
+            db.execute(
+                "INSERT OR REPLACE INTO forever_news_card_versions "
+                "(canonical_url,version) VALUES (?,115)", (url,))
             db.commit()
             known.add(url)
             count += 1
