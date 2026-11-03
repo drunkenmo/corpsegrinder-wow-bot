@@ -223,3 +223,34 @@ Der Bot verwendet die **bestehende** `characters`-Tabelle (aus dem Slash-Befehl 
 `/ingame_nickname aktiv:true` setzt den Servernickname freiwillig auf `Grumok | Discordname` (mit Discord-Längenbegrenzung). Der vorherige Nickname wird gespeichert. `/ingame_nickname aktiv:false` stellt ihn wieder her, **wenn der aktuelle Name noch dem vom Bot gesetzten entspricht**. Von Mitgliedern später manuell geänderte Servernamen werden nicht überschrieben. Wird ein aktiver Main gewechselt, versucht der Bot den freiwilligen Nickname anzupassen. Erforderlich sind Discord-Bot-Rechte **Nicknames verwalten** und eine ausreichend hohe Rollenposition.
 
 Bei Berechtigungsfehlern bleibt das Profil bestehen und der Bot zeigt eine Fehlermeldung statt die gesamte Anmeldung abzubrechen.
+
+## Charakterregistrierung ohne Level und Onboarding-Buttons (Bot 1.0.17)
+
+**Dies ersetzt die Bedienungsanleitung aus 1.0.16 in Bezug auf Level und die Erstanmeldung.**
+
+### Was ist neu?
+
+Im Kanal **#rollenwahl** veröffentlicht der Bot automatisch eine zusätzliche Karte **„DEIN INGAME-NAME“** direkt im bestehenden Rollenwahlbereich:
+
+- **🎭 Charakter registrieren:** Nur der Spieler sieht die Klassen-Auswahl. Danach öffnet sich ein Discord-Eingabefenster für den **Ingame-Namen**. Keine Level-Eingabe, keine Berufe und keine Bestätigung eines Admins. Über denselben Ablauf lassen sich Twinks hinzufügen oder bestehende Klassen korrigieren.
+- **👑 Meine Charaktere:** Privates Profil mit allen Charakteren und Button **Hauptcharakter ändern**. Hauptcharakter wird bei der ersten Registrierung automatisch festgelegt.
+- **✏️ Servername an/aus:** Nur auf freiwilligen Klick. Der Bot ändert den Server-Nickname zum Hauptcharakter oder stellt den vorherigen Namen wieder her, wenn die Discord-Berechtigungen es erlauben. Die Anmeldekarten funktionieren auch ohne diese Option.
+
+Der gleiche Ablauf steht mit `/charakter name:<Name> klasse:<Klasse>` weiterhin als Slash-Befehl bereit; die früher verpflichtende Eingabe `level` ist entfernt.
+
+### Neue Mitglieder
+
+- In **#willkommen** weist die Willkommenskarte auf `#rollenwahl` und die neue Charakterregistrierung hin.
+- Beim Betreten des Servers informiert die Bot-Begrüßung ebenfalls über die Schritte **Rollen auswählen → Charakter registrieren**.
+- Neue Spieler müssen **nichts beantragen und nicht auf eine Freigabe warten**.
+- Nach der Anmeldung zeigen Gruppenkarten den Ingame-Namen und die Klasse vor dem verlinkten Discord-Account.
+
+### Technische Kompatibilität
+
+Die SQLite-Tabelle `characters` bleibt unverändert, inklusive der Alt-Spalten `level`, `beruf1`, `beruf2`, um keine bestehenden Daten zu verlieren und die alten DB-Versionen weiterhin öffnen zu können. Neuen Charakteren wird intern ein neutraler Platzhalterwert zugewiesen, der weder im Profil noch auf Gruppenkarten oder in Dropdowns erscheint. Bestehende alte Werte werden beim Bearbeiten nicht überschrieben.
+
+**Gruppen-Levelbereiche** zur Planung von Levelgruppen bleiben erhalten, da sie unabhängig vom Charakterprofil sind.
+
+Das neue Charakterpanel hat einen eindeutigen Discord-Marker `corpsegrinder:character-panel` und ist über `character_panel_message_v117` persistiert. Der Bot lädt die zugehörigen dauerhaften Buttons bei jedem Start und aktualisiert dieselbe Nachricht. Als Administrator kannst du jederzeit `/rollenmenue_erneuern` verwenden; dabei wird auch das Charakterpanel erneuert. Der gewünschte Komfort-Workflow benötigt keine neuen Python-Abhängigkeiten.
+
+Bei Slash-Kommandos kann die Discord-App unmittelbar nach einem Update noch die alte Auswahlliste im Cache zeigen; die App neu öffnen, falls `/charakter` weiterhin ein Level verlangt.
