@@ -1397,6 +1397,102 @@ def planned_embed(plan):
     return embed
 
 
+class GroupCharacterPicker(discord.ui.View):
+    """Ephemeral dropdown; selections are validated again under the group lock."""
+    def __init__(self, owner_id, kind, group_id, role=None):
+        super().__init__(timeout=180)
+        self.owner_id = owner_id
+        self.kind = kind
+        self.group_id = group_id
+        self.role = role
+        chars = user_characters(owner_id)[:25]
+        options = [
+            discord.SelectOption(
+                label=name[:100],value=name,
+                description=f"{klass} · Stufe {level}"[:100],
+                emoji="👑" if index==0 else "⚔️")
+            for index,(name,klass,level) in enumerate(chars)]
+        select = discord.ui.Select(
+            placeholder="Mit welchem Ingame-Charakter spielst du?",
+            min_values=1,max_values=1,options=options,
+            custom_id=f"corpse_charchoice_{kind}_{group_id}")
+        select.callback = self.choose_character
+        self.add_item(select)
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id==self.owner_id and allowed(interaction):
+            return True
+        await interaction.response.send_message(
+            "Diese private Charakterauswahl gehört einem anderen Spieler.",
+            ephemeral=True)
+        return False
+
+    async def choose_character(self, interaction):
+        name = self.children[0].values[0]
+        if self.kind=="dungeon":
+            await plan_signup(interaction,self.group_id,self.role,character_name=name)
+        else:
+            await join_level_group(
+                interaction,self.group_id,True,character_name=name)
+
+
+async def offer_group_character_picker(interaction, kind, group_id, role=None):
+    chars = user_characters(interaction.user.id)
+    if not chars:
+        await answer(
+            interaction,
+            "⚔️ Trage erst einen Ingame-Charakter über **/charakter** ein. "
+            "Danach kannst du dich mit diesem Namen für die Gruppe anmelden.")
+        return True
+    if len(chars)>MAX_USER_CHARACTERS:
+        await answer(
+            interaction,
+            "Du hast mehr als 25 Charaktere. Bitte entferne nicht mehr "
+            "genutzte Twinks über **/charakter_loeschen**.")
+        return True
+    if len(chars)>1:
+        embed=discord.Embed(
+            title="⚔️ Welcher Charakter kommt mit?",
+            description=(
+                "Wähle deinen Charakter für diese Gruppe. "
+                "**Nur du** siehst diese Auswahl; "
+                "auf der Gruppenkarte erscheint der Ingame-Name "
+                "und darunter dein anklickbarer Discord-Account."),
+            colour=discord.Colour.gold())
+        await interaction.response.send_message(
+            embed=embed,
+            view=GroupCharacterPicker(
+                interaction.user.id,kind,group_id,role),
+            ephemeral=True)
+        return True
+    return False
+
+
+async def change_group_character(interaction,kind,group_id):
+    if not allowed(interaction):
+        return await answer(interaction,"Nur auf Corpsegrinder.")
+    if kind=="dungeon":
+        current = dict(plan_members(group_id)).get(interaction.user.id)
+        group = load_plan(group_id)
+        if not plan_open(group) or current is None:
+            return await answer(
+                interaction,"Du musst für diese Dungeon-Gruppe angemeldet sein.")
+    else:
+        current = None
+        group = level_record(group_id)
+        if not level_open(group) or interaction.user.id not in level_players(group_id):
+            return await answer(
+                interaction,"Du musst für diese Levelgruppe angemeldet sein.")
+    if await offer_group_character_picker(
+            interaction,kind,group_id,current):
+        return
+    character_name = user_characters(interaction.user.id)[0][0]
+    if kind=="dungeon":
+        await plan_signup(interaction,group_id,current,character_name)
+    else:
+        await join_level_group(interaction,group_id,True,character_name)
+
+
 class PlannedView(discord.ui.View):
     def __init__(self, group_id):
         super().__init__(timeout=None)
@@ -1424,6 +1520,14 @@ class PlannedView(discord.ui.View):
             await finish_scheduled_group(interaction, "dungeon", group_id)
         finish.callback = completed
         self.add_item(finish)
+        character = discord.ui.Button(
+            label="Charakter ändern", emoji="🎭",
+            style=discord.ButtonStyle.secondary, row=1,
+            custom_id=f"corpse_plan_{group_id}_character")
+        async def switch_character(interaction):
+            await change_group_character(interaction,"dungeon",group_id)
+        character.callback = switch_character
+        self.add_item(character)
 
 
 async def refresh_planned_message(plan):
@@ -2261,13 +2365,21 @@ class LevelGroupView(discord.ui.View):
     async def finish(self, interaction, button):
         await finish_scheduled_group(interaction, "level", self.group_id)
 
+    @discord.ui.button(label="Charakter ändern", emoji="🎭",
+                       custom_id="corpse_level_character_placeholder",
+                       style=discord.ButtonStyle.secondary)
+    async def character(self, interaction, button):
+        await change_group_character(interaction,"level",self.group_id)
+
 
 def level_group_view(group_id):
     view = LevelGroupView(group_id)
     for item in view.children:
         if isinstance(item, discord.ui.Button):
             prefix = ("join" if item.label == "Dabei sein"
-                      else "finish" if item.label == "Abschließen" else "leave")
+                      else "finish" if item.label == "Abschließen"
+                      else "character" if item.label == "Charakter ändern"
+                      else "leave")
             item.custom_id = f"corpse_level_{group_id}_{prefix}"
     return view
 
