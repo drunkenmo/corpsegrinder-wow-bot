@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.20 – Offizielle Blizzard-Blueposts und Entwicklernotizen
+
+- Der Bot überwacht neben Blizzard-News, Wowhead und Community-Feeds jetzt auch die öffentliche WoW-Forever-Entwicklungskategorie im offiziellen Blizzard-Forum sowie den bekannten Beta-Entwicklungsnotizen-Thread.
+- Nur bestätigte Blizzard-Mitarbeiterbeiträge werden berücksichtigt; normale Nutzerantworten bleiben außen vor.
+- Neue oder innerhalb von 7 Tagen bearbeitete Entwicklerbeiträge landen mit deutschen Hinweisen, betroffenen Klassen und offiziellem Quelllink in `#forever-news`.
+- Wird ein bereits veröffentlichter Beitrag bearbeitet, aktualisiert der Bot die vorhandene Discord-Karte statt eine zweite Meldung zu posten.
+- `/forever_news_status` zeigt jetzt auch die Zahl der Blueposts; Quellenfehler werden getrennt im Status angezeigt. Alle bisherigen Nachrichtenquellen und Daten bleiben bestehen.
+- Für das Update genügt wie gewohnt `/bot_update` und anschließend der normale Bot-Neustart; keine neue Home-Assistant-App nötig.
+
+
 ## 1.0.19 – Willkommensseite, Server-Einstieg und klare Kanalreihenfolge
 
 - Die Start-Kategorie **🌋 WOW FOREVER | START** steht jetzt ganz oben. Darin ordnet der Bot seine bestehenden Kanäle als **#willkommen → #rollenwahl → #allgemein → #ankündigungen → #forever-news → #addons** an.
