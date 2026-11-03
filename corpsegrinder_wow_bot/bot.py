@@ -687,12 +687,12 @@ def character_member_line(kind, group_id, user_id):
     row = chosen_character(kind,group_id,user_id)
     if not row:
         return f"<@{user_id}> · *Noch kein Charakter eingetragen*"
-    name,klass,level = row
+    name,klass,_stored_level = row
     name = discord.utils.escape_markdown(name[:40])
     if klass is None:
         return f"**{name}** · *Charakter aus Profil entfernt*\n<@{user_id}>"
-    return (f"**{name}** · {discord.utils.escape_markdown(klass)} "
-            f"· Stufe {int(level)}\n<@{user_id}>")
+    return (f"**{name}** · {discord.utils.escape_markdown(klass)}\n"
+            f"<@{user_id}>")
 
 
 async def refresh_user_character_cards(user_id):
@@ -762,45 +762,58 @@ def profile_embed(user_id):
     if not rows:
         embed.add_field(
             name="Noch kein Charakter eingetragen",
-            value="Nutze **/charakter**, um deinen ersten Charakter "
-                  "mit Klasse und Stufe einzutragen.",
+            value="Nutze **Charakter registrieren** in #rollenwahl "
+                  "oder den Befehl **/charakter**.",
             inline=False)
-    for index,(name,klass,level) in enumerate(rows[:25]):
+    for index,(name,klass,_stored_level) in enumerate(rows[:25]):
         head = "👑 Hauptcharakter" if index==0 else "🌿 Twink"
         embed.add_field(
             name=head+" · "+discord.utils.escape_markdown(name),
-            value=(f"**{discord.utils.escape_markdown(klass)}** · "
-                   f"Stufe **{level}**"),inline=False)
+            value=f"**{discord.utils.escape_markdown(klass)}**",
+            inline=False)
     embed.set_footer(
         text="/hauptcharakter wählt deinen Main · "
              "/ingame_nickname optional · Charaktere bleiben privat verwaltbar")
     return embed
 
 
-@bot.tree.command(name="charakter", description="Deinen Ingame-Charakter oder Twink anlegen/aktualisieren", guild=SERVER)
-@app_commands.describe(name="Ingame-Charaktername", klasse="Klasse", level="Stufe",
-                       beruf1="Beruf 1", beruf2="Beruf 2")
+def save_character_without_level(user_id, name, klass):
+    """Preserve old schema, old levels and professions without displaying them."""
+    normalized = normalize_character_name(name)
+    if klass not in CLASSES:
+        raise ValueError("Ungültige Klasse.")
+    existing = owned_character(user_id,normalized)
+    if not existing and len(user_characters(user_id)) >= MAX_USER_CHARACTERS:
+        raise ValueError("Maximal 25 Charaktere je Mitglied.")
+    if existing:
+        db.execute(
+            "UPDATE characters SET klass=? WHERE guild=? AND user=? "
+            "AND name=? COLLATE NOCASE",
+            (klass,GUILD_ID,user_id,normalized))
+    else:
+        db.execute(
+            "INSERT INTO characters(guild,user,name,klass,level,beruf1,beruf2) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (GUILD_ID,user_id,normalized,klass,1,"",""))
+    db.commit()
+    ensure_main_character(user_id)
+    return normalized, existing is not None
+
+
+@bot.tree.command(name="charakter",
+                  description="Ingame-Charakter eintragen (Name und Klasse)",
+                  guild=SERVER)
+@app_commands.describe(name="Ingame-Charaktername", klasse="Klasse")
 @app_commands.choices(klasse=[app_commands.Choice(name=name, value=name) for name in CLASSES])
-async def character(i: discord.Interaction, name: str, klasse: app_commands.Choice[str],
-                    level: app_commands.Range[int, 1, 80],
-                    beruf1: str = "", beruf2: str = ""):
+async def character(i: discord.Interaction, name: str,
+                    klasse: app_commands.Choice[str]):
     if not allowed(i):
         return await answer(i,"Nur auf Corpsegrinder verfügbar.")
     try:
-        name = normalize_character_name(name)
+        name, existing = save_character_without_level(
+            i.user.id,name,klasse.value)
     except ValueError as exc:
         return await answer(i,str(exc))
-    existing = owned_character(i.user.id,name)
-    if not existing and len(user_characters(i.user.id)) >= MAX_USER_CHARACTERS:
-        return await answer(i,"Maximal 25 Charaktere pro Mitglied. "
-                            "Lösche zuerst einen nicht mehr benötigten Twink.")
-    db.execute(
-        "INSERT OR REPLACE INTO characters(guild,user,name,klass,level,beruf1,beruf2) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (GUILD_ID,i.user.id,name,klasse.value,level,
-         beruf1[:50],beruf2[:50]))
-    db.commit()
-    ensure_main_character(i.user.id)
     await sync_optional_character_nickname(i.user)
     await refresh_user_character_cards(i.user.id)
     await answer(i,(
@@ -825,8 +838,8 @@ async def autocomplete_own_characters(
         interaction: discord.Interaction, current: str):
     return [
         app_commands.Choice(
-            name=f"{name} · {klass} · Stufe {level}",value=name)
-        for name,klass,level in user_characters(interaction.user.id)[:25]
+            name=f"{name} · {klass}",value=name)
+        for name,klass,_stored_level in user_characters(interaction.user.id)[:25]
         if current.casefold() in name.casefold()
     ][:25]
 
@@ -1414,9 +1427,9 @@ class GroupCharacterPicker(discord.ui.View):
         options = [
             discord.SelectOption(
                 label=name[:100],value=name,
-                description=f"{klass} · Stufe {level}"[:100],
+                description=klass[:100],
                 emoji="👑" if index==0 else "⚔️")
-            for index,(name,klass,level) in enumerate(chars)]
+            for index,(name,klass,_stored_level) in enumerate(chars)]
         select = discord.ui.Select(
             placeholder="Mit welchem Ingame-Charakter spielst du?",
             min_values=1,max_values=1,options=options,
@@ -2068,9 +2081,9 @@ class WizardStepTwo(PrivateWizard):
                 state,"character","🎭 Mit welchem Charakter spielst du?",
                 [discord.SelectOption(
                     label=name,value=name,
-                    description=f"{klass} · Stufe {level}",
+                    description=klass,
                     default=(state.get("character")==name))
-                    for name,klass,level in roster],row=3))
+                    for name,klass,_stored_level in roster],row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
                        style=discord.ButtonStyle.secondary, row=4)
@@ -2759,9 +2772,9 @@ class LevelWizardTwo(LevelPrivateWizard):
                 state,"character",
                 [discord.SelectOption(
                     label=name,value=name,
-                    description=f"{klass} · Stufe {level}",
+                    description=klass,
                     default=(state.get("character")==name))
-                    for name,klass,level in roster],
+                    for name,klass,_stored_level in roster],
                 "🎭 Dein Ingame-Charakter",row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
