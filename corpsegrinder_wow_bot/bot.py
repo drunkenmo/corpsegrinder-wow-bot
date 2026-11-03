@@ -3757,4 +3757,376 @@ async def check_forever_news():
 
 
 
+
+# --- Forever Addons: Kuratierte Empfehlungen + neue Forever-Dateien ---------
+# CurseForge wird nur über Projekt-/Dateiseiten gelesen (keine API-Keys,
+# keine Weiterleitung auf Download-Hosts, keine automatische Installation).
+ADDON_SOURCES = (
+    ("questie", "Questie", "Quests und Leveln",
+     "Questziele, Questgeber und Orientierung in Azeroth"),
+    ("leatrix-plus", "Leatrix Plus", "Komfort",
+     "Viele einzeln aktivierbare Verbesserungen der Oberfläche"),
+    ("leatrix-maps", "Leatrix Maps", "Karte",
+     "Kartenverbesserungen, Koordinaten und Points of Interest"),
+    ("auctionator", "Auctionator", "Auktionshaus",
+     "Auktionen leichter durchsuchen und verwalten"),
+    ("baganator", "Baganator", "Inventar",
+     "Ein übersichtlicheres Taschen- und Inventarsystem"),
+    ("tomtom", "TomTom", "Navigation",
+     "Koordinaten und Wegpunkt-Pfeile"),
+    ("deadly-boss-mods", "Deadly Boss Mods", "Dungeon-Helfer",
+     "Bosswarnungen; Forever-Bossabdeckung gesondert prüfen"),
+    ("questforever", "QuestForever", "Quests und Leveln",
+     "Eigenständige Questmarkierungen speziell für Forever"),
+)
+ADDON_PROJECT_BASE = "https://www.curseforge.com/wow/addons/"
+ADDON_DISCOVERY_URL = (
+    "https://www.curseforge.com/wow/search?"
+    "class=addons&page=1&pageSize=20&sortBy=dateCreated&version=1.60.1")
+ADDON_CHECK_INTERVAL = 6 * 3600
+ADDON_MARKER = "corpsegrinder:forever-addon-panel"
+_ADDONS_LOCK = asyncio.Lock()
+
+
+def addon_project_url(slug):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,80}", slug):
+        raise ValueError("Ungültige CurseForge-Projektkennung")
+    return ADDON_PROJECT_BASE + slug
+
+
+def read_curseforge_page(url):
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in (
+            "www.curseforge.com", "curseforge.com"):
+        raise ValueError("Nur CurseForge-Projektseiten sind erlaubt")
+    request = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; CorpsegrinderAddons/1.0)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    })
+    with urlopen(request, timeout=18) as response:
+        actual = urlparse(response.geturl())
+        if actual.scheme != "https" or actual.hostname not in (
+                "www.curseforge.com", "curseforge.com"):
+            raise ValueError("Unerwartete Weiterleitung")
+        data = response.read(1_500_001)
+        if len(data) > 1_500_000:
+            raise ValueError("CurseForge-Antwort zu groß")
+        return data.decode("utf-8", errors="replace")
+
+
+class CurseForgeText(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.text = []
+        self.ignored = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.ignored += 1
+        if not self.ignored and tag in (
+                "h1", "h2", "h3", "h4", "h5", "p", "section", "div", "li", "tr"):
+            self.text.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.ignored:
+            self.ignored -= 1
+        if not self.ignored and tag in ("h1", "h2", "h3", "h4", "div", "tr"):
+            self.text.append(" ")
+
+    def handle_data(self, data):
+        if not self.ignored:
+            self.text.append(data)
+
+
+def extract_curseforge_forever_version(page):
+    """Read the Forever Latest-release entry, not generic retail latest."""
+    parser = CurseForgeText()
+    parser.feed(page)
+    visible = re.sub(r"\s+", " ", " ".join(parser.text))
+    # Typical CurseForge card: "WoW Forever 1.60.25-forever
+    # Latest release R Forever Oct 21, 2026".
+    match = re.search(
+        r"WoW\s+Forever\s+([A-Za-z0-9][A-Za-z0-9.+_-]{1,65})\s+"
+        r"Latest release\s+R\s+Forever\b",
+        visible, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    # Some filtered file pages render as "R <file> 1.60.1 Forever"
+    match = re.search(
+        r"\bR\s+([A-Za-z0-9][A-Za-z0-9.+_-]{1,65})\s+"
+        r"1\.60\.1\s+Forever\b", visible, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+class CurseForgeDiscovery(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.active = None
+        self.slugs = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+        href = dict(attrs).get("href", "")
+        parsed = urlparse(urljoin("https://www.curseforge.com", href))
+        if parsed.hostname not in ("www.curseforge.com","curseforge.com"):
+            return
+        match = re.fullmatch(r"/wow/addons/([a-z0-9][a-z0-9-]{1,80})",
+                             parsed.path.rstrip("/"))
+        if match:
+            self.active = match.group(1)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a":
+            self.active = None
+
+    def handle_data(self, data):
+        if self.active and data.strip():
+            if self.active not in self.slugs:
+                self.slugs.append(self.active)
+
+
+def scan_forever_addons(already_seen=None):
+    """Single-thread network task; curate source first, then a few new entries."""
+    known = set(already_seen or ())
+    results, errors = [], []
+    curated = {row[0]: row for row in ADDON_SOURCES}
+    candidates = list(curated)
+    try:
+        page = read_curseforge_page(ADDON_DISCOVERY_URL)
+        parser = CurseForgeDiscovery()
+        parser.feed(page)
+        # Only inspect a few discovered projects per cycle.
+        candidates += [slug for slug in parser.slugs
+                       if slug not in curated and slug not in known][:4]
+    except (ValueError, OSError) as exc:
+        errors.append("CurseForge-Suche: " + str(exc)[:160])
+    for slug in candidates:
+        try:
+            latest = extract_curseforge_forever_version(
+                read_curseforge_page(addon_project_url(slug)))
+        except (OSError, ValueError) as exc:
+            errors.append(f"{slug}: {str(exc)[:100]}")
+            continue
+        if not latest:
+            continue  # No reliably identified Forever file: do not advertise it.
+        item = curated.get(slug)
+        title = item[1] if item else slug.replace("-", " ").title()
+        area = item[2] if item else "Neu entdeckt"
+        summary = item[3] if item else (
+            "CurseForge führt eine Forever-Datei. "
+            "Funktionen und Vertrauenswürdigkeit noch selbst prüfen.")
+        results.append((slug, title, area, summary, latest))
+    return results, errors
+
+
+def addon_intro_embed():
+    embed = discord.Embed(
+        title="🧩 CORPSEGRINDER · FOREVER ADDONS",
+        description=(
+            "**Hilfreiche Addons für Azeroth – ohne Retail-Verwechslungen!**\n\n"
+            "Hier findest du eine kleine Auswahl verbreiteter Addons und "
+            "automatische Hinweise auf aktualisierte **Forever-Dateien**.\n"
+            "Eine gelistete Datei ist kein Garantieversprechen für alle Funktionen.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+        colour=discord.Colour.from_rgb(52, 128, 86))
+    for slug,name,area,summary in ADDON_SOURCES:
+        embed.add_field(
+            name=f"🛠️ {name} · {area}",
+            value=f"{summary}\n[CurseForge-Projekt öffnen]({addon_project_url(slug)})",
+            inline=False)
+    embed.add_field(
+        name="⚠️ Wichtig: Die richtige Spielversion",
+        value="In CurseForge eine Datei für **WoW Forever / 1.60.1** "
+              "auswählen, nicht eine Retail- oder normale Classic-Version. "
+              "Der Bot installiert keine Dateien.",
+        inline=False)
+    embed.set_footer(text="Corpsegrinder • Addon-Empfehlungen • " + ADDON_MARKER)
+    return embed
+
+
+async def ensure_addons_channel(guild):
+    news = channel(guild,"forever-news")
+    announcements = channel(guild,"ankündigungen")
+    category = (news.category if news else announcements.category
+                if announcements else None)
+    if category is None:
+        logging.warning("Addon-Kanal: Start-Kategorie fehlt")
+        return None
+    target = channel(guild,"addons")
+    if target is None:
+        member = guild.me or guild.get_member(bot.user.id)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(send_messages=False)
+        }
+        if member is not None:
+            overwrites[member] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True,
+                embed_links=True, read_message_history=True)
+        target = await guild.create_text_channel(
+            "addons", category=category, overwrites=overwrites,
+            topic="🧩 WoW Forever Addons – Empfehlungen & neue "
+                  "Forever-Dateien direkt von CurseForge.",
+            reason="Corpsegrinder: eigener Forever-Addon-Kanal")
+    if news and target.category_id == category.id and (
+            target.position != news.position+1):
+        try:
+            await target.edit(position=news.position+1,
+                              reason="Addons direkt unter Forever-News")
+        except discord.Forbidden:
+            logging.warning("Addon-Kanal konnte nicht einsortiert werden")
+    key="addons_intro_post_v114"
+    existing = None
+    saved = setting(key)
+    if saved:
+        try:
+            saved_message=await target.fetch_message(int(saved))
+            if saved_message.author.id==bot.user.id:
+                existing=saved_message
+        except (discord.NotFound,discord.HTTPException,ValueError):
+            pass
+    if existing is None:
+        try:
+            async for msg in target.history(limit=45):
+                if msg.author.id==bot.user.id and any(
+                        ADDON_MARKER in (e.footer.text or "")
+                        for e in msg.embeds):
+                    existing=msg
+                    break
+        except discord.HTTPException:
+            pass
+    if existing is None:
+        existing=await target.send(
+            embed=addon_intro_embed(),allowed_mentions=discord.AllowedMentions.none())
+    else:
+        await existing.edit(embed=addon_intro_embed())
+    save_setting(key,existing.id)
+    if not existing.pinned:
+        try:
+            await existing.pin(reason="Corpsegrinder: Addon-Empfehlungen")
+        except discord.HTTPException:
+            logging.warning("Addon-Übersicht konnte nicht angepinnt werden")
+    return target
+
+
+def addon_version_embed(slug,title,area,summary,latest,new):
+    embed = discord.Embed(
+        title=("🧩 Neu entdeckt: " if new else "🔄 Neue Forever-Datei: ")+title,
+        description=summary[:280],
+        url=addon_project_url(slug),
+        colour=discord.Colour.gold() if new else discord.Colour.green())
+    embed.add_field(name="🎮 Spielversion",value="WoW Forever · 1.60.1",inline=True)
+    embed.add_field(name="📦 Datei",value=latest[:70],inline=True)
+    embed.add_field(name="🔗 Offizielle Projektseite",
+                    value=f"[Auf CurseForge ansehen]({addon_project_url(slug)})",
+                    inline=False)
+    embed.set_footer(
+        text="CurseForge • " + (
+            "Neu gefunden, keine Qualitätsempfehlung" if new
+            else "Bekannte Addon-Quelle – Kompatibilität selbst prüfen"))
+    return embed
+
+
+async def check_forever_addons():
+    async with _ADDONS_LOCK:
+        guild=bot.get_guild(GUILD_ID)
+        if guild is None:
+            return 0,"Server nicht erreichbar"
+        target=await ensure_addons_channel(guild)
+        if target is None:
+            return 0,"Start-Kategorie fehlt"
+        known={row[0]:row[1] for row in db.execute(
+            "SELECT slug,latest_version FROM forever_addon_files").fetchall()}
+        candidates,errors=await asyncio.to_thread(scan_forever_addons,known)
+        now=int(datetime.now(timezone.utc).timestamp())
+        posted=0
+        # Avoid a flood during the initial import; base guide covers the basics.
+        first_run=(not setting("addons_initial_import_complete"))
+        max_messages = 3 if first_run else 6
+        for slug,title,area,summary,version in candidates:
+            previous=known.get(slug)
+            if previous==version:
+                continue
+            is_new=slug not in {item[0] for item in ADDON_SOURCES}
+            # When the bot first sees curated addons, store all versions but
+            # only post a few fresh Forever-file cards.
+            send_card = not first_run or (posted<max_messages and not is_new)
+            message_id=0
+            if send_card:
+                msg=await target.send(
+                    embed=addon_version_embed(
+                        slug,title,area,summary,version,is_new),
+                    allowed_mentions=discord.AllowedMentions.none())
+                message_id=msg.id
+                posted+=1
+            db.execute(
+                "INSERT INTO forever_addon_files "
+                "(slug,latest_version,message_id,first_seen_utc,last_seen_utc) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET "
+                "latest_version=excluded.latest_version, "
+                "message_id=excluded.message_id,last_seen_utc=excluded.last_seen_utc",
+                (slug,version,message_id,now,now))
+            db.commit()
+            known[slug]=version
+            if posted>=max_messages and not first_run:
+                break
+        save_setting("addons_initial_import_complete","1")
+        save_setting("addons_last_checked",now)
+        save_setting("addons_last_result",
+                     f"{posted} neue Meldungen; {len(errors)} Quellen-/Prüffehler")
+        if errors:
+            logging.warning("Addon-Quellen: %s"," | ".join(errors)[:700])
+        return posted,"OK" if not errors else f"Teilweise erreichbar ({len(errors)} Fehler)"
+
+
+async def forever_addons_worker():
+    while not bot.is_closed():
+        try:
+            await check_forever_addons()
+        except Exception:
+            logging.exception("Addon-Updateprüfung fehlgeschlagen")
+            save_setting("addons_last_result","Fehler bei CurseForge-Abfrage")
+        await asyncio.sleep(ADDON_CHECK_INTERVAL)
+
+
+@bot.tree.command(name="addons_pruefen",
+                  description="Forever-Addon-Versionen auf CurseForge prüfen (Admin)",
+                  guild=SERVER)
+async def check_addons_command(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction,"Nur für Administratoren.")
+    await interaction.response.defer(ephemeral=True,thinking=True)
+    try:
+        number,status=await check_forever_addons()
+        await interaction.followup.send(
+            f"🧩 **Addon-Prüfung beendet**\n"
+            f"Neue Meldungen: **{number}**\nStatus: {status}\nKanal: #addons",
+            ephemeral=True)
+    except Exception:
+        logging.exception("Manuelle Addon-Prüfung fehlgeschlagen")
+        await interaction.followup.send(
+            "CurseForge war nicht abrufbar. Die angepinnte Empfehlungsliste "
+            "bleibt weiterhin verfügbar.",ephemeral=True)
+
+
+@bot.tree.command(name="addons_status",
+                  description="Status der automatischen Forever-Addon-Updates",
+                  guild=SERVER)
+async def addon_status_command(interaction: discord.Interaction):
+    if not allowed(interaction):
+        return await answer(interaction,"Nur auf Corpsegrinder.")
+    num=db.execute("SELECT COUNT(*) FROM forever_addon_files").fetchone()[0]
+    last=setting("addons_last_checked")
+    status=setting("addons_last_result") or "Noch nicht geprüft"
+    await answer(interaction,
+                 f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
+                 f"Abfrage alle **6 Stunden**\n"
+                 + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
+                 + f"Status: {status}")
+
+
+
 bot.run(TOKEN, log_handler=None)
