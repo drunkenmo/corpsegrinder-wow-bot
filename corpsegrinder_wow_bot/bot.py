@@ -800,6 +800,283 @@ def save_character_without_level(user_id, name, klass):
     return normalized, existing is not None
 
 
+
+# --- Einfache Charakter-Einrichtung für neue und bestehende Mitglieder -------
+# Neues Panel in #rollenwahl, statt einem Slash-Befehl als Einstieg.
+# Der Button bleibt nach Bot-Neustarts erhalten (timeout=None + custom_id).
+CHARACTER_PANEL_MARKER = "corpsegrinder:character-panel"
+CHARACTER_PANEL_KEY = "character_panel_message_v117"
+
+
+class CharacterNameModal(discord.ui.Modal, title="Ingame-Charakter registrieren"):
+    character_name = discord.ui.TextInput(
+        label="Ingame-Name", min_length=2, max_length=40,
+        placeholder="Zum Beispiel Grumok",
+        required=True)
+
+    def __init__(self, owner_id, klass):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+        self.klass = klass
+
+    async def on_submit(self, interaction):
+        if not allowed(interaction) or interaction.user.id != self.owner_id:
+            return await interaction.response.send_message(
+                "Diese Charakterregistrierung gehört jemand anderem.",
+                ephemeral=True)
+        try:
+            name, existed = save_character_without_level(
+                interaction.user.id, str(self.character_name.value), self.klass)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc), ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await sync_optional_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        response = (
+            "✅ **" + discord.utils.escape_markdown(name) +
+            "** · **" + discord.utils.escape_markdown(self.klass) +
+            "** " + ("aktualisiert." if existed else "registriert.") +
+            "\nDeinen Hauptcharakter und deine Twinks findest du "
+            "über **Meine Charaktere** in #rollenwahl.")
+        await interaction.followup.send(
+            response, ephemeral=True)
+
+
+class CharacterClassView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id = owner_id
+        select = discord.ui.Select(
+            placeholder="Wähle die Klasse deines Charakters",
+            min_values=1,max_values=1,
+            options=[discord.SelectOption(
+                label=klasse, value=klasse,
+                emoji=EMOJI.get(klasse)) for klasse in CLASSES])
+        select.callback = self.choose_class
+        self.add_item(select)
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id == self.owner_id and allowed(interaction):
+            return True
+        await interaction.response.send_message(
+            "Diese private Auswahl gehört einem anderen Mitglied.",
+            ephemeral=True)
+        return False
+
+    async def choose_class(self, interaction):
+        chosen = self.children[0].values[0]
+        await interaction.response.send_modal(
+            CharacterNameModal(self.owner_id,chosen))
+
+
+class CharacterMainSelectView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id = owner_id
+        options = [
+            discord.SelectOption(
+                label=name, value=name, description=klass)
+            for name,klass,_stored_level in user_characters(owner_id)[:25]]
+        choose=discord.ui.Select(
+            placeholder="Hauptcharakter auswählen",options=options)
+        choose.callback=self.change_main
+        self.add_item(choose)
+
+    async def interaction_check(self, interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Nur der Eigentümer darf seinen Hauptcharakter auswählen.",
+            ephemeral=True)
+        return False
+
+    async def change_main(self, interaction):
+        selected=self.children[0].values[0]
+        try:
+            char=select_main_character(interaction.user.id,selected)
+        except ValueError as exc:
+            return await interaction.response.send_message(
+                str(exc),ephemeral=True)
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        await sync_optional_character_nickname(interaction.user)
+        await refresh_user_character_cards(interaction.user.id)
+        await interaction.followup.send(
+            "👑 **"+discord.utils.escape_markdown(char[0])+
+            "** ist jetzt dein Hauptcharakter. Deine schon "
+            "gespeicherten Gruppencharaktere bleiben unverändert.",
+            ephemeral=True)
+
+
+class CharacterProfileActionsView(discord.ui.View):
+    def __init__(self, owner_id):
+        super().__init__(timeout=180)
+        self.owner_id=owner_id
+
+    async def interaction_check(self, interaction):
+        if allowed(interaction) and interaction.user.id==self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Dieses Charakterprofil gehört einem anderen Spieler.",
+            ephemeral=True)
+        return False
+
+    @discord.ui.button(
+        label="Hauptcharakter ändern", emoji="👑",
+        style=discord.ButtonStyle.primary)
+    async def choose_main(self, interaction, button):
+        rows=user_characters(interaction.user.id)
+        if not rows:
+            return await interaction.response.send_message(
+                "Du hast noch keinen Charakter. Nutze "
+                "**Charakter registrieren** in #rollenwahl.",ephemeral=True)
+        await interaction.response.send_message(
+            "👑 Wähle den Charakter, mit dem du hauptsächlich spielst.",
+            view=CharacterMainSelectView(interaction.user.id),
+            ephemeral=True)
+
+
+async def toggle_character_server_nick(member):
+    """Toggle is opt-in; do not overwrite a manually changed nickname."""
+    stored = db.execute(
+        "SELECT 1 FROM character_nickname_preferences WHERE guild=? AND user=?",
+        (GUILD_ID,member.id)).fetchone()
+    if stored:
+        if await restore_character_nickname(member):
+            return "✅ Dein vorheriger Discord-Servername wurde wiederhergestellt, soweit er unverändert war."
+        return ("⚠️ Der Bot konnte deinen Servernamen nicht zurücksetzen. "
+                "Bitte prüfe die Berechtigungen oder ändere ihn manuell.")
+    main=main_character(member.id)
+    if not main:
+        return "⚔️ Registriere zuerst deinen Ingame-Charakter in #rollenwahl."
+    old_nick=member.nick
+    new_nick=ingame_server_nickname(main,member)
+    try:
+        await member.edit(
+            nick=new_nick,
+            reason="Corpsegrinder: freiwilliger Ingame-Servernickname")
+    except (discord.Forbidden,discord.HTTPException):
+        return ("⚠️ Der Bot darf deinen Servernamen nicht ändern. "
+                "Benötigt werden **Nicknames verwalten** und eine "
+                "ausreichend hohe Bot-Rollenposition.")
+    db.execute(
+        "INSERT OR REPLACE INTO character_nickname_preferences "
+        "(guild,user,original_nick,assigned_nick) VALUES (?,?,?,?)",
+        (GUILD_ID,member.id,old_nick,new_nick))
+    db.commit()
+    return (
+        "✅ Dein Servername lautet jetzt **"+
+        discord.utils.escape_markdown(new_nick)+
+        "**. Mit derselben Schaltfläche kannst du es rückgängig machen.")
+
+
+class CharacterPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Charakter registrieren", emoji="🎭",
+        style=discord.ButtonStyle.success,
+        custom_id="corpse_character_register_v117")
+    async def register(self, interaction, button):
+        if not allowed(interaction):
+            return await answer(interaction,"Nur auf Corpsegrinder.")
+        await interaction.response.send_message(
+            "🎭 **Dein Charakterprofil**\n"
+            "1. Wähle deine Klasse.\n"
+            "2. Gib deinen Ingame-Namen ein.\n\n"
+            "**Kein Level und keine Freigabe erforderlich.**",
+            view=CharacterClassView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Meine Charaktere", emoji="👑",
+        style=discord.ButtonStyle.primary,
+        custom_id="corpse_character_profile_v117")
+    async def profile(self, interaction, button):
+        if not allowed(interaction):
+            return await answer(interaction,"Nur auf Corpsegrinder.")
+        ensure_main_character(interaction.user.id)
+        await interaction.response.send_message(
+            embed=profile_embed(interaction.user.id),
+            view=CharacterProfileActionsView(interaction.user.id),
+            ephemeral=True)
+
+    @discord.ui.button(
+        label="Servername an/aus", emoji="✏️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="corpse_character_nick_v117")
+    async def nickname(self, interaction, button):
+        if not allowed(interaction):
+            return await answer(interaction,"Nur auf Corpsegrinder.")
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        message = await toggle_character_server_nick(interaction.user)
+        await interaction.followup.send(message,ephemeral=True)
+
+
+def character_panel_embed():
+    embed=discord.Embed(
+        title="🎭 CORPSEGRINDER · DEIN INGAME-NAME",
+        description=(
+            "**Damit wir dich im Spiel erkennen!** ⚔️\n\n"
+            "Trage **Ingame-Name und Klasse** ein. Das dauert nur wenige "
+            "Klicks – ohne Slash-Befehle und ohne Freigabe.\n\n"
+            "🎭 **Charakter registrieren:** Klasse wählen, Namen eingeben. "
+            "Für weitere Charaktere einfach erneut verwenden.\n"
+            "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen "
+            "oder deinen Main ändern.\n"
+            "✏️ **Servername an/aus:** freiwillig deinen Discord-Servernamen "
+            "an den Hauptcharakter anpassen.\n\n"
+            "In Dungeon- und Levelgruppen steht dein **Ingame-Name zuerst**, "
+            "danach dein anklickbarer Discord-Account. "
+            "**Keine Stufe nötig.**"),
+        colour=discord.Colour.from_rgb(146,45,29))
+    embed.set_footer(text="Corpsegrinder • "+CHARACTER_PANEL_MARKER)
+    return embed
+
+
+async def publish_character_panel(guild):
+    target=channel(guild,"rollenwahl")
+    if not isinstance(target,discord.TextChannel):
+        raise RuntimeError("Kanal #rollenwahl fehlt.")
+    saved=setting(CHARACTER_PANEL_KEY)
+    existing=None
+    if saved:
+        try:
+            msg=await target.fetch_message(int(saved))
+            if msg.author.id==bot.user.id:
+                existing=msg
+        except (discord.NotFound,discord.HTTPException,ValueError):
+            pass
+    if existing is None:
+        try:
+            async for msg in target.history(limit=75):
+                if (msg.author.id==bot.user.id and
+                        any(CHARACTER_PANEL_MARKER in (embed.footer.text or "")
+                            for embed in msg.embeds)):
+                    existing=msg
+                    break
+        except discord.HTTPException:
+            pass
+    if existing:
+        await existing.edit(
+            content=None,embed=character_panel_embed(),
+            view=CharacterPanelView())
+    else:
+        existing=await target.send(
+            embed=character_panel_embed(),
+            view=CharacterPanelView(),
+            allowed_mentions=discord.AllowedMentions.none())
+    save_setting(CHARACTER_PANEL_KEY,existing.id)
+    if not existing.pinned:
+        try:
+            await existing.pin(
+                reason="Corpsegrinder: Charakterregistrierung für neue Mitglieder")
+        except discord.HTTPException:
+            logging.info("Charakter-Panel konnte nicht angepinnt werden")
+    return existing
+
+
 @bot.tree.command(name="charakter",
                   description="Ingame-Charakter eintragen (Name und Klasse)",
                   guild=SERVER)
