@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.14"
+VERSION = "1.0.15"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -86,20 +86,21 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🧩 Corpsegrinder Bot – Update " + VERSION,
+        title="📰 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Forever-News + eigener Addon-Kanal!**\n\n"
-            "📰 In **#forever-news** erscheinen nun auch relevante Meldungen aus "
-            "Wowheads eigenem Forever-Bereich und den Community-Feeds von "
-            "WoW Forever GG. Offizielle Blizzard-News werden weiterhin extra "
-            "gekennzeichnet. Drei echte Wowhead-Lesetipps füllen den Einstieg.\n\n"
-            "🧩 Direkt darunter eröffnet **#addons** mit einer kompakten "
-            "Empfehlungsliste von Questie, Leatrix, Auctionator, Baganator, "
-            "TomTom und DBM.\n\n"
-            "🔄 Alle 6 Stunden prüft der Bot auf explizite **Forever-Dateien** "
-            "bei CurseForge und meldet neue Versionen. Neu entdeckte Addons "
-            "werden von Empfehlungen unterschieden.\n\n"
-            "Admin: **/forever_news_pruefen** und **/addons_pruefen**."
+            "**Forever-News direkt in Discord lesen!**\n\n"
+            "Die neuen Nachrichtenkarten zeigen den **deutschen Überblick direkt "
+            "im Kanal** – ohne Schaltfläche »Ausführlicher lesen«, ohne zusätzliche "
+            "Fenster oder private Ansichten.\n\n"
+            "🔎 Der Bot bereitet belegbare Angaben zu Builds, Zaubern, "
+            "Gegenständen, Klassen und Talenten übersichtlich auf und verlinkt "
+            "den englischen Originalartikel nur noch als optionale Quelle.\n\n"
+            "♻️ Bereits veröffentlichte Community-Meldungen werden soweit die "
+            "Quelle noch erreichbar ist **an Ort und Stelle** aktualisiert, "
+            "statt erneut in den Kanal gepostet.\n\n"
+            "ℹ️ Ohne zuverlässige Detailangaben zeigt der Bot ausdrücklich "
+            "nur einen kurzen Überblick, statt Fakten oder Übersetzungen "
+            "zu erfinden."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
