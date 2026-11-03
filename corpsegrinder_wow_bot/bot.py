@@ -1381,10 +1381,11 @@ def planned_embed(plan):
         value=("🟥" * filled + "⬛" * (5-filled)),
         inline=False)
     for role, emoji in (("Tank", "🛡️"), ("Heiler", "💚"), ("DD", "💥")):
-        players = [f"<@{user}>" for user, task in members if task == role]
+        players = [character_member_line("dungeon",group_id,user)
+                   for user, task in members if task == role]
         embed.add_field(
             name=f"{emoji} {role} · {len(players)}/{PLAN_LIMITS[role]}",
-            value="\n".join(players) if players else "*Noch frei*",
+            value="\n\n".join(players) if players else "*Noch frei*",
             inline=True)
     meta = event_meta("dungeon", group_id, create=False)
     if meta and meta[4]:
@@ -1393,7 +1394,7 @@ def planned_embed(plan):
             value=f"<#{meta[4]}> · **5 Plätze** · ab 15 Min. vor Termin",
             inline=False)
     embed.set_footer(
-        text="Für die Horde! • Rolle anklicken = anmelden/wechseln • Abmelden • Organisator: Abschließen")
+        text="Für die Horde! • Rolle & Ingame-Charakter wählen • Charakter ändern • Abmelden")
     return embed
 
 
@@ -1541,45 +1542,70 @@ async def refresh_planned_message(plan):
         allowed_mentions=discord.AllowedMentions.none())
 
 
-async def plan_signup(interaction, group_id, task):
+async def plan_signup(interaction, group_id, task, character_name=None):
     if not allowed(interaction):
         return await answer(interaction, "Dieser Termin gehört zu Corpsegrinder.")
+    if task is not None:
+        if character_name is None:
+            if await offer_group_character_picker(
+                    interaction,"dungeon",group_id,task):
+                return
+            character_name = user_characters(interaction.user.id)[0][0]
+        elif not owned_character(interaction.user.id, character_name):
+            return await answer(
+                interaction, "Charakter nicht mehr vorhanden. "
+                "Bitte wähle einen deiner eigenen Charaktere.")
     await interaction.response.defer(ephemeral=True, thinking=True)
     async with plan_lock(group_id):
         plan = load_plan(group_id)
         if not plan_open(plan):
             return await interaction.followup.send(
                 "Der Termin ist nicht mehr offen.", ephemeral=True)
-        current = dict(plan_members(group_id)).get(interaction.user.id)
+        me = interaction.user.id
+        current = dict(plan_members(group_id)).get(me)
         if task is None:
             if current is None:
                 return await interaction.followup.send(
                     "Du bist noch nicht angemeldet.", ephemeral=True)
             db.execute(
                 "DELETE FROM planned_signups WHERE group_id=? AND user=?",
-                (group_id, interaction.user.id))
+                (group_id,me))
+            forget_group_character("dungeon",group_id,me)
             result = "Du bist abgemeldet."
         else:
-            if task == current:
+            selected = owned_character(me,character_name)
+            if selected is None:
                 return await interaction.followup.send(
-                    "Du bist bereits als " + task + " angemeldet.", ephemeral=True)
-            if plan_counts(group_id)[task] >= PLAN_LIMITS[task]:
+                    "Dein ausgewählter Charakter wurde gelöscht. "
+                    "Bitte erneut auswählen.",ephemeral=True)
+            previous = chosen_character("dungeon",group_id,me)
+            if task == current and previous and (
+                    previous[0].casefold()==selected[0].casefold()):
+                return await interaction.followup.send(
+                    "Du bist bereits als **"+task+"** mit **"+
+                    discord.utils.escape_markdown(selected[0])+
+                    "** angemeldet.",ephemeral=True)
+            if task != current and plan_counts(group_id)[task]>=PLAN_LIMITS[task]:
                 return await interaction.followup.send(
                     "Dieser Platz ist bereits belegt. Wähle eine andere Rolle.",
                     ephemeral=True)
             db.execute(
-                "INSERT OR REPLACE INTO planned_signups(group_id,user,role) VALUES (?,?,?)",
-                (group_id, interaction.user.id, task))
-            result = "Du bist jetzt als " + task + " angemeldet."
+                "INSERT OR REPLACE INTO planned_signups(group_id,user,role) "
+                "VALUES (?,?,?)",(group_id,me,task))
+            remember_group_character("dungeon",group_id,me,selected[0])
+            result = (
+                "✅ Du spielst **"+discord.utils.escape_markdown(selected[0])+
+                "** als **"+task+"**.")
         db.commit()
         try:
             await refresh_planned_message(plan)
             result += " Die Übersicht wurde aktualisiert."
         except discord.HTTPException:
-            logging.exception("Termin #%s gespeichert, Embed nicht aktualisiert", group_id)
-            result += " Gespeichert, aber Discord konnte die Anzeige nicht aktualisieren."
-        await event_changed("dungeon", group_id)
-        await interaction.followup.send(result, ephemeral=True)
+            logging.exception(
+                "Termin #%s gespeichert, Embed nicht aktualisiert",group_id)
+            result += " Gespeichert, aber Discord konnte die Karte nicht aktualisieren."
+        await event_changed("dungeon",group_id)
+        await interaction.followup.send(result,ephemeral=True)
 
 
 
@@ -2323,8 +2349,9 @@ def level_card(record):
         inline=False)
     embed.add_field(
         name="🍃 DIE ABENTEURER",
-        value=("\n".join(f"• <@{user}>" for user in members)
-               if members else "*Noch keine Anmeldung*"),
+        value=("\n\n".join(
+            character_member_line("level",group_id,user)
+            for user in members) if members else "*Noch keine Anmeldung*"),
         inline=False)
     if level_open(record) and len(members) < 5:
         embed.add_field(
@@ -2338,7 +2365,7 @@ def level_card(record):
             value=f"<#{meta[4]}> · max. 5 Mitspieler",
             inline=False)
     embed.set_footer(
-        text="Corpsegrinder • Dabei sein / Abmelden • Organisator: Abschließen")
+        text="Corpsegrinder • Ingame-Charakter wählen • Dabei sein / Abmelden")
     return embed
 
 
@@ -2395,42 +2422,70 @@ async def refresh_level_card(record):
         allowed_mentions=discord.AllowedMentions.none())
 
 
-async def join_level_group(interaction, group_id, joining):
+async def join_level_group(interaction, group_id, joining, character_name=None):
     if not allowed(interaction):
         return await answer(interaction, "Dieser Termin gehört nicht zu Corpsegrinder.")
+    if joining:
+        if character_name is None:
+            if await offer_group_character_picker(
+                    interaction,"level",group_id):
+                return
+            character_name=user_characters(interaction.user.id)[0][0]
+        elif not owned_character(interaction.user.id,character_name):
+            return await answer(
+                interaction,"Dieser Charakter ist nicht in deinem Profil.")
     await interaction.response.defer(ephemeral=True, thinking=True)
     async with level_lock(group_id):
-        group = level_record(group_id)
+        group=level_record(group_id)
         if not level_open(group):
             return await interaction.followup.send(
-                "Diese Levelgruppe ist nicht mehr offen.", ephemeral=True)
-        players = level_players(group_id)
-        me = interaction.user.id
-        if joining and me in players:
-            return await interaction.followup.send(
-                "Du bist bereits angemeldet.", ephemeral=True)
+                "Diese Levelgruppe ist nicht mehr offen.",ephemeral=True)
+        players=level_players(group_id)
+        me=interaction.user.id
         if not joining and me not in players:
             return await interaction.followup.send(
-                "Du bist nicht angemeldet.", ephemeral=True)
+                "Du bist nicht angemeldet.",ephemeral=True)
         if joining:
-            if len(players) >= 5:
+            selected=owned_character(me,character_name)
+            if selected is None:
                 return await interaction.followup.send(
-                    "Die Gruppe ist voll (5/5).", ephemeral=True)
-            db.execute("INSERT OR IGNORE INTO level_signups(group_id,user) VALUES (?,?)",
-                       (group_id, me))
-            response = "✅ Du bist jetzt für diese Levelgruppe angemeldet!"
+                    "Dein Charakter wurde inzwischen gelöscht.",ephemeral=True)
+            previous=chosen_character("level",group_id,me)
+            if me in players and previous and (
+                    previous[0].casefold()==selected[0].casefold()):
+                return await interaction.followup.send(
+                    "Du bist mit **"+
+                    discord.utils.escape_markdown(selected[0])+
+                    "** bereits angemeldet.",ephemeral=True)
+            if me not in players:
+                if len(players)>=5:
+                    return await interaction.followup.send(
+                        "Die Gruppe ist voll (5/5).",ephemeral=True)
+                db.execute(
+                    "INSERT OR IGNORE INTO level_signups(group_id,user) "
+                    "VALUES (?,?)",(group_id,me))
+            remember_group_character("level",group_id,me,selected[0])
+            response=(
+                "✅ Du bist jetzt mit **"+
+                discord.utils.escape_markdown(selected[0])+
+                "** für diese Levelgruppe angemeldet!")
         else:
-            db.execute("DELETE FROM level_signups WHERE group_id=? AND user=?",
-                       (group_id, me))
-            response = "❌ Du bist aus der Levelgruppe ausgetragen."
+            db.execute(
+                "DELETE FROM level_signups WHERE group_id=? AND user=?",
+                (group_id,me))
+            forget_group_character("level",group_id,me)
+            response="❌ Du bist aus der Levelgruppe ausgetragen."
         db.commit()
         try:
             await refresh_level_card(group)
         except discord.HTTPException:
-            logging.exception("Levelgruppe #%s gespeichert, Nachricht nicht aktualisiert", group_id)
-            response += " Die Übersicht konnte gerade nicht aktualisiert werden."
-        await event_changed("level", group_id)
-        await interaction.followup.send(response, ephemeral=True)
+            logging.exception(
+                "Levelgruppe #%s gespeichert, Karte nicht aktualisiert",group_id)
+            response+=" Die Karte konnte gerade nicht aktualisiert werden."
+        await event_changed("level",group_id)
+        await interaction.followup.send(response,ephemeral=True)
+
+
 
 
 async def publish_level_group(guild, user_id, area, low, high, when, display, note=""):
