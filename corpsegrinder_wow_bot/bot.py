@@ -73,9 +73,9 @@ EMOJI = {
 }
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
-        ("willkommen", "text"), ("ankündigungen", "text"),
-        ("forever-news", "text"), ("addons", "text"),
-        ("rollenwahl", "text"), ("allgemein", "text")],
+        ("willkommen", "text"), ("rollenwahl", "text"),
+        ("allgemein", "text"), ("ankündigungen", "text"),
+        ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
         ("pve-gruppensuche", "text"), ("dungeons", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
@@ -89,6 +89,62 @@ STRUCTURE = {
         ("charaktere-und-berufe", "text"), ("handel-und-crafting", "text"),
         ("screenshots", "text")],
 }
+
+
+START_CATEGORY_NAME = "🌋 WOW FOREVER | START"
+START_CHANNEL_ORDER = tuple(name for name,_kind in STRUCTURE[START_CATEGORY_NAME])
+SERVER_SECTION_ORDER = tuple(STRUCTURE)
+_start_order_lock = asyncio.Lock()
+
+
+async def organize_start_channels(guild):
+    """Sort only the known starting channels, retaining all other content.
+
+    Never delete categories, move unrelated channels, recreate channels or
+    sync/overwrite custom permission sets. Reapply only when order differs.
+    """
+    async with _start_order_lock:
+        start = discord.utils.get(guild.categories, name=START_CATEGORY_NAME)
+        if start is None:
+            return "Start-Kategorie fehlt; nichts verschoben."
+        updated = []
+        # Keep existing categories and permissions; move the entire start
+        # category above PvE/PvP/etc. when required.
+        if guild.categories and guild.categories[0].id != start.id:
+            await start.move(
+                beginning=True, reason="Corpsegrinder: Einstieg ganz oben")
+            updated.append("Start-Kategorie an erste Stelle")
+        # Some old setups may have placed a known start channel in an
+        # unexpected category; only move names belonging to our start area.
+        for name in START_CHANNEL_ORDER:
+            item = channel(guild,name)
+            if isinstance(item,discord.TextChannel) and item.category_id!=start.id:
+                await item.edit(
+                    category=start, sync_permissions=False,
+                    reason="Corpsegrinder: Einstiegskanal einsortieren")
+                updated.append("#"+name+" in Start-Kategorie")
+        current = [
+            item.name for item in start.text_channels
+            if item.name in START_CHANNEL_ORDER
+        ]
+        expected = [
+            name for name in START_CHANNEL_ORDER
+            if isinstance(channel(guild,name),discord.TextChannel)
+            and channel(guild,name).category_id==start.id
+        ]
+        if current != expected:
+            # Moving each known channel to the beginning in reverse order
+            # results in welcome, roles, general, announcements, news, addons.
+            # Unrelated custom channels remain intact below these entries.
+            for name in reversed(expected):
+                item = channel(guild,name)
+                await item.move(
+                    beginning=True, category=start,
+                    reason="Corpsegrinder: logische Kanalreihenfolge")
+            updated.append("Start-Kanäle neu geordnet")
+        return "; ".join(updated) if updated else "Reihenfolge ist bereits korrekt."
+
+
 
 def role(guild, name):
     return (discord.utils.get(guild.roles, name=visual_name(name))
