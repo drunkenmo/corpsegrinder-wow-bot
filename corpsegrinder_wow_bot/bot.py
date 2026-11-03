@@ -3373,8 +3373,8 @@ def forever_news_embed(row):
     return embed
 
 
-async def check_forever_news():
-    """One shared check for manual trigger + 30-minute worker."""
+async def check_blizzard_forever_news():
+    """Existing official Blizzard source; community news supplements it."""
     async with _forever_news_lock:
         guild = bot.get_guild(GUILD_ID)
         if guild is None:
@@ -3457,5 +3457,304 @@ async def forever_news_status(interaction: discord.Interaction):
                  f"Bereits gepostete Blizzard-Artikel: **{total}**\n"
                  + (f"Letzter erfolgreicher Check: <t:{last}:F>\n"
                     if last else "") + f"Status: {status}")
+
+
+# --- Forever-News 1.0.14: ergänzende, klar markierte Community-Quellen -------
+# Quellen: offizielle Blizzard-Beiträge, Wowheads dedizierte Forever-Rubrik
+# sowie eine spezialisierte Community-Seite. Nur der Link zum Original wird
+# geteilt; Artikeltexte werden nicht kopiert.
+FOREVER_COMMUNITY_RSS = (
+    "https://wow-forever.gg/rss.xml",
+    "https://wow-forever.gg/official.xml",
+)
+FOREVER_WOWHEAD_INDEX = "https://www.wowhead.com/forever/news"
+FOREVER_COMMUNITY_LOOKBACK = 7 * 86400
+FOREVER_COMMUNITY_LIMIT = 5
+FOREVER_COMMUNITY_HOSTS = frozenset((
+    "wow-forever.gg", "www.wow-forever.gg",
+    "www.wowhead.com", "wowhead.com",
+    "worldofwarcraft.blizzard.com", "news.blizzard.com",
+))
+_community_news_lock = asyncio.Lock()
+
+
+def fetch_community_page(url, max_size=2_000_000):
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in FOREVER_COMMUNITY_HOSTS:
+        raise ValueError("Unbekannte Forever-Community-Quelle")
+    request = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; CorpsegrinderForeverFeed/1.0)",
+        "Accept": "text/html,application/xml,application/rss+xml;q=0.9,*/*;q=0.5",
+        "Accept-Language": "de-DE,de;q=0.8,en;q=0.5",
+    })
+    with urlopen(request, timeout=18) as response:
+        effective = urlparse(response.geturl())
+        if effective.scheme != "https" or effective.hostname not in FOREVER_COMMUNITY_HOSTS:
+            raise ValueError("Community-Quelle hat auf eine fremde Seite weitergeleitet")
+        data = response.read(max_size + 1)
+        if len(data) > max_size:
+            raise ValueError("Zu große Antwort")
+        return data.decode("utf-8", errors="replace")
+
+
+def wowhead_forever_link(href, base=FOREVER_WOWHEAD_INDEX):
+    if not href:
+        return None
+    value = urlparse(urljoin(base, html.unescape(href)))
+    if value.scheme != "https" or value.hostname not in ("www.wowhead.com","wowhead.com"):
+        return None
+    # Format: /forever/news/the-story-383670 or /news/the-story-383670
+    match = re.fullmatch(
+        r"/(?:forever/)?(?:de/)?news/(?:[a-zA-Z0-9_-]*?-)?(\d{6,8})",
+        value.path.rstrip("/"), re.IGNORECASE)
+    if not match:
+        return None
+    return (match.group(1),
+            "https://www.wowhead.com" + value.path.rstrip("/"))
+
+
+class WowheadForeverIndex(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.active = None
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "a":
+            props = dict(attrs)
+            link = wowhead_forever_link(props.get("href"))
+            if link:
+                self.active = (link, [])
+            else:
+                self.active = None
+
+    def handle_data(self, data):
+        if self.active is not None:
+            self.active[1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self.active is not None:
+            (id_and_link, parts) = self.active
+            self.active = None
+            title = clean_official_text(" ".join(parts), 160)
+            if title and len(title) > 12:
+                self.links.append((id_and_link[0], id_and_link[1], title))
+
+
+def parse_community_rss(payload, source):
+    """Return verified dated posts from RSS/Atom, never invent timestamps."""
+    entries = []
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return []
+    for node in list(root.findall(".//item")) + list(root.findall(".//{*}entry")):
+        def field(name):
+            element = node.find(name)
+            if element is None:
+                element = node.find("{*}" + name)
+            return (element.text or "").strip() if element is not None else ""
+        title = clean_official_text(field("title"), 180)
+        link = field("link")
+        if not link:
+            for element in node.findall("{*}link"):
+                if element.get("href"):
+                    link = element.get("href")
+                    break
+        url = urlparse(link)
+        if (url.scheme != "https" or url.hostname not in FOREVER_COMMUNITY_HOSTS
+                or not title or any(word in title.casefold() for word in (
+                    "midnight", "retail", "burning crusade", "titan reforged"))):
+            continue
+        stamp = (field("pubDate") or field("published") or field("updated"))
+        when = parse_blizzard_publication_date(stamp)
+        if when is None:
+            continue
+        # Only specialist Forever site paths, never random pages.
+        if url.hostname in ("wow-forever.gg", "www.wow-forever.gg"):
+            if not (url.path.startswith(("/news/", "/official/", "/changelog/"))
+                    or source == "Forever-Community"):
+                continue
+        summary = clean_official_text(field("description") or field("summary"), 280)
+        canonical = f"https://{url.hostname}{url.path.rstrip('/')}"
+        entries.append((when, canonical, title, summary, source))
+    return entries
+
+
+def inspect_wowhead_article(raw, fallback_title):
+    parser = ForeverArticleParser()
+    parser.feed(raw)
+    title = clean_official_text(" ".join(parser.headline)
+                                or parser.meta.get("og:title")
+                                or fallback_title, 170)
+    summary = clean_official_text(
+        parser.meta.get("og:description")
+        or parser.meta.get("description") or "", 280)
+    # The article itself must contain Forever even if the category index does.
+    if "forever" not in (title + " " + summary).casefold():
+        return None
+    dates = [parser.meta.get(key, "") for key in (
+        "article:published_time", "datepublished", "publication_date",
+        "published", "date", "datecreated")]
+    dates += parser.dates
+    dates += re.findall(
+        r'''(?i)["']datePublished["']\s*:\s*["']([^"'<>]{8,60})["']''',
+        raw)
+    when = next((value for date in dates
+                 if (value := parse_blizzard_publication_date(date)) is not None),
+                None)
+    return (title, summary, when) if when is not None else None
+
+
+def gather_community_forever_news(already_known=None):
+    known = set(already_known or ())
+    posts, errors = [], []
+    now = int(datetime.now(timezone.utc).timestamp())
+    for address in FOREVER_COMMUNITY_RSS:
+        try:
+            feed = fetch_community_page(address)
+            for post in parse_community_rss(feed, "Forever-Community"):
+                when, url, *_ = post
+                if now-FOREVER_COMMUNITY_LOOKBACK <= when <= now+60 and url not in known:
+                    posts.append(post)
+        except (OSError, ValueError) as exc:
+            errors.append(f"{address}: {exc}")
+    try:
+        index = WowheadForeverIndex()
+        index.feed(fetch_community_page(FOREVER_WOWHEAD_INDEX))
+        seen = set()
+        for _, link, listed_title in index.links:
+            if link in seen or link in known:
+                continue
+            seen.add(link)
+            if len(seen) > 16:
+                break
+            try:
+                article = inspect_wowhead_article(
+                    fetch_community_page(link), listed_title)
+                if article and now-FOREVER_COMMUNITY_LOOKBACK <= article[2] <= now+60:
+                    title, summary, when = article
+                    posts.append((when, link, title, summary, "Wowhead"))
+            except (OSError, ValueError) as exc:
+                logging.info("Wowhead-Artikel nicht abrufbar (%s): %s",link,exc)
+    except (OSError, ValueError) as exc:
+        errors.append(f"Wowhead: {exc}")
+    deduped = {}
+    for post in posts:
+        deduped[post[1]] = post
+    if errors:
+        logging.warning("Forever-Communityquellen teilweise nicht erreichbar: %s",
+                        " | ".join(errors)[:800])
+    return (sorted(deduped.values(), key=lambda p:p[0],
+                   reverse=True)[:FOREVER_COMMUNITY_LIMIT], errors)
+
+
+def community_news_embed(post):
+    when, url, title, summary, source = post
+    embed = discord.Embed(
+        title="📰 " + title[:230],
+        url=url,
+        description=(summary[:280] if summary else
+                     "Neuer Beitrag aus einer Forever-Communityquelle. "
+                     "Die Details stehen im Originalartikel."),
+        colour=discord.Colour.from_rgb(165, 111, 36))
+    embed.add_field(name="🗞️ Quelle",
+                    value=("Wowhead · Forever" if source=="Wowhead"
+                           else "WoW Forever GG · Community"),
+                    inline=False)
+    embed.add_field(name="📅 Veröffentlicht", value=f"<t:{when}:F>",inline=False)
+    embed.set_footer(text="Community-News · keine offizielle Blizzard-Mitteilung")
+    return embed
+
+
+FOREVER_STARTER_READING = (
+    ("⚔️ Klassenänderungen: Druiden und Paladine",
+     "https://www.wowhead.com/forever/news/massive-talent-tree-changes-to-druids-and-paladins-class-tuning-for-wow-forever-383670"),
+    ("🏹 Neueinsteiger-Guide für WoW Forever",
+     "https://www.wowhead.com/news/new-player-s-starter-guide-for-world-of-warcraft-forever-383632"),
+    ("📊 Mehr als acht Millionen Beta-Charaktere erstellt",
+     "https://www.wowhead.com/forever/news/over-8-million-characters-were-created-in-the-wow-forever-beta-383669"),
+)
+
+
+async def seed_forever_news_reading(target):
+    """Real, editor-picked links, not falsely dated as fresh Blizzard posts."""
+    key = "forever_news_reading_v114"
+    if setting(key):
+        return
+    embed = discord.Embed(
+        title="🗞️ Forever-Lesetipps zum Einstieg",
+        description=(
+            "Die Blizzard-Quelle veröffentlicht nicht jeden Tag neue Beiträge. "
+            "Darum findest du hier drei **echte Wowhead-Beiträge**, damit die "
+            "Gruppennachrichten nicht leer bleiben. Dies sind ausgewählte "
+            "Lesetipps, **keine neu datierten Blizzard-Ankündigungen**."),
+        colour=discord.Colour.gold())
+    for title,url in FOREVER_STARTER_READING:
+        embed.add_field(name=title,value=f"[Beitrag bei Wowhead öffnen]({url})",
+                        inline=False)
+    embed.set_footer(text="Corpsegrinder • Startauswahl • Wowhead")
+    message = await target.send(
+        embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    save_setting(key,message.id)
+
+
+async def check_community_forever_news(target):
+    async with _community_news_lock:
+        known = {row[0] for row in db.execute(
+            "SELECT canonical_url FROM forever_community_posts").fetchall()}
+        posts, errors = await asyncio.to_thread(gather_community_forever_news,known)
+        count = 0
+        # Chronological ordering makes the channel easy to read.
+        for post in sorted(posts):
+            when,url,title,summary,source = post
+            if url in known:
+                continue
+            message = await target.send(embed=community_news_embed(post),
+                                        allowed_mentions=discord.AllowedMentions.none())
+            db.execute(
+                "INSERT OR IGNORE INTO forever_community_posts "
+                "(canonical_url,source,published_utc,discord_message_id,title) "
+                "VALUES (?,?,?,?,?)",
+                (url,source,when,message.id,title))
+            db.commit()
+            known.add(url)
+            count += 1
+        save_setting("community_news_last_checked",
+                     int(datetime.now(timezone.utc).timestamp()))
+        save_setting("community_news_last_result",
+                     f"{count} neue Artikel; {len(errors)} Quellenfehler")
+        return count
+
+
+async def check_forever_news():
+    """Blizzard is independent from community sources, so one failure cannot
+    block the whole channel. Status exposes partial source failures."""
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return (0, "Discord-Server nicht verfügbar")
+    target = await ensure_forever_news_channel(guild)
+    if not target:
+        return (0, "Kanal fehlt")
+    await seed_forever_news_reading(target)
+    total, statuses = 0, []
+    try:
+        n, status = await check_blizzard_forever_news()
+        total += n
+        statuses.append(f"Blizzard: {status} ({n})")
+    except Exception:
+        logging.exception("Offizielle Blizzard-Quelle nicht verfügbar")
+        statuses.append("Blizzard: Quelle nicht verfügbar")
+    try:
+        n = await check_community_forever_news(target)
+        total += n
+        statuses.append(f"Community: {n} neu")
+    except Exception:
+        logging.exception("Forever-Communityquellen nicht verfügbar")
+        statuses.append("Community: Abruffehler")
+    save_setting("forever_news_last_result", " · ".join(statuses))
+    return total, " · ".join(statuses)
+
+
 
 bot.run(TOKEN, log_handler=None)
