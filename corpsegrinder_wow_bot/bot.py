@@ -142,6 +142,44 @@ async def organize_start_channels(guild):
                     beginning=True, category=start,
                     reason="Corpsegrinder: logische Kanalreihenfolge")
             updated.append("Start-Kanäle neu geordnet")
+        # Keep the other bot-managed areas in logical order, without touching
+        # unknown user-created categories/channels or custom permissions.
+        known_categories = [
+            name for name in SERVER_SECTION_ORDER
+            if discord.utils.get(guild.categories,name=name) is not None
+        ]
+        actual_categories=[
+            item.name for item in guild.categories
+            if item.name in known_categories
+        ]
+        if actual_categories != known_categories:
+            for name in reversed(known_categories):
+                item=discord.utils.get(guild.categories,name=name)
+                await item.move(
+                    beginning=True,reason="Corpsegrinder: Kategorien ordnen")
+            updated.append("Server-Kategorien geordnet")
+        for section, entries in list(STRUCTURE.items())[1:]:
+            category=discord.utils.get(guild.categories,name=section)
+            if category is None:
+                continue
+            for kind in ("text","voice"):
+                names=[name for name,entry_kind in entries
+                       if entry_kind==kind]
+                type_check=discord.TextChannel if kind=="text" else discord.VoiceChannel
+                expected=[
+                    name for name in names
+                    if isinstance(channel(guild,name),type_check)
+                    and channel(guild,name).category_id==category.id
+                ]
+                items=(category.text_channels if kind=="text"
+                       else category.voice_channels)
+                current=[item.name for item in items if item.name in names]
+                if current!=expected:
+                    for name in reversed(expected):
+                        await channel(guild,name).move(
+                            beginning=True,category=category,
+                            reason="Corpsegrinder: Kanalreihenfolge")
+                    updated.append(section+" ("+kind+")")
         return "; ".join(updated) if updated else "Reihenfolge ist bereits korrekt."
 
 
@@ -1629,9 +1667,11 @@ class WelcomeView(discord.ui.View):
     def __init__(self, guild):
         super().__init__(timeout=None)
         links = (
-            ("🎭 Rollenwahl", "rollenwahl", discord.ButtonStyle.link),
+            ("🎭 Rollen & Charakter", "rollenwahl", discord.ButtonStyle.link),
+            ("💬 Allgemein", "allgemein", discord.ButtonStyle.link),
             ("⚔️ Dungeons", "dungeons", discord.ButtonStyle.link),
             ("🌿 Levelgruppen", "pve-gruppensuche", discord.ButtonStyle.link),
+            ("📰 Forever-News", "forever-news", discord.ButtonStyle.link),
         )
         for label, name, style in links:
             target = channel(guild, name)
