@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.15 – Forever-News direkt im Discord-Chat lesen
+
+- Jede neue Forever-News wird in derselben Discord-Nachricht als deutschsprachiger Überblick angezeigt, ohne zusätzlichen Button „Ausführlicher lesen“.
+- Build- und Changelog-Meldungen zeigen nun konkrete veröffentlichte Fakten, etwa Buildnummern, neue/geänderte/entfernte Zauber und Gegenstände, Klassen- und Talenthinweise.
+- Der Link auf den Originalartikel ist als Quellenbeleg weiterhin optional verfügbar, aber zum Lesen der Kurzfassung nicht erforderlich.
+- RSS-/Atom-Content wird zur Ermittlung tatsächlicher Zahlen berücksichtigt; ganze fremde Artikel werden aus Urheberrechtsgründen nicht kopiert.
+- Der Bot nutzt nachvollziehbare faktenbasierte Vorlagen. Wenn eine detailgetreue deutsche Inhaltswiedergabe technisch nicht möglich ist, meldet er diese Grenze, statt Inhalte zu erfinden.
+- Bereits veröffentlichte Forever-Community-News werden anhand der gespeicherten Nachrichten-ID nachträglich im vorhandenen Post aktualisiert, soweit Artikel/Feed noch verfügbar sind; keine Doppelpostings.
+- Wie bisher per /bot_update installierbar, keine neue HA-App und keine zusätzlichen API-Schlüssel nötig.
+
 ## 1.0.14 – Mehr Forever-News und neuer #addons-Kanal
 
 - Der bisherige #forever-news-Kanal wird nicht mehr ausschließlich aus seltenen Blizzard-Artikeln gespeist: die klar gekennzeichneten Communityquellen Wowhead (/forever/news) und wow-forever.gg (RSS) ergänzen die offiziellen Blizzard-Posts.
