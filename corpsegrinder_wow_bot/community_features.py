@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.18"
+VERSION = "1.0.19"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -26,44 +26,89 @@ ROLE_STYLE = {
 def visual_name(name):
     return ROLE_STYLE[name][0] if name in ROLE_STYLE else name
 
-def welcome_embed():
+# This single guide is updated on each Bot release/restart. New features only
+# require one additional entry here; no extra Discord messages are created.
+WELCOME_FEATURES = (
+    ("🎭 ERSTE SCHRITTE", (
+        ("rollenwahl", "Rollen wählen (PvE/PvP, Tank, Heiler, DD, News) und "
+         "den **Ingame-Namen + Klasse** registrieren – ohne Level oder Freigabe"),
+        ("allgemein", "Mit der Horde chatten, Fragen stellen und Leute kennenlernen"),
+    )),
+    ("⚔️ MITSPIELER FINDEN", (
+        ("dungeons", "Dungeon-Termine planen, mit Tank/Heiler/DD anmelden, "
+         "einen Charakter auswählen und Erinnerungen bekommen"),
+        ("pve-gruppensuche", "Gemeinsam leveln und Questgruppen erstellen"),
+        ("pvp-gruppensuche", "Mitspieler für PvP finden"),
+        ("raids-und-termine", "Raid- und Community-Termine im Blick behalten"),
+    )),
+    ("📰 INFORMATION & GUIDES", (
+        ("ankündigungen", "Wichtige Meldungen von der Serverleitung"),
+        ("forever-news", "WoW-Forever-News direkt auf Deutsch lesen"),
+        ("addons", "Addon-Empfehlungen und neue Forever-Versionen finden"),
+        ("pve-guides", "Tipps und Hilfen für PvE entdecken"),
+    )),
+    ("🎮 MEHR AUS DER COMMUNITY", (
+        ("charaktere-und-berufe", "Über Charaktere und Berufe sprechen"),
+        ("handel-und-crafting", "Handel, Herstellung und Materialien"),
+        ("screenshots", "Eure WoW-Momente teilen"),
+    )),
+)
+
+
+def welcome_embed(guild=None, extra_tip=""):
+    """Maintain one comprehensive #willkommen guide across all Bot versions."""
+    def channel_link(name):
+        if guild is None:
+            return "#" + name
+        target = next(
+            (c for c in getattr(guild, "text_channels", ())
+             if c.name == name), None)
+        return target.mention if target is not None else "#" + name
+
     embed = discord.Embed(
-        title="🍻 CORPSEGRINDER · FÜR DIE HORDE!",
+        title="🌋 CORPSEGRINDER · WILLKOMMEN BEI DER HORDE!",
         description=(
-            "**ALTE SÄCKE. KALTES BIER. SEIT 2004.** 🔥\n\n"
-            "Es war einmal im Classic-Release-Jahr 2004: mittelmäßiges DSL, "
-            "ordentlich Bier und erschreckend wenig Ahnung. "
-            "Ein paar Orks, Tauren und Trolle zogen los – und sind irgendwie "
-            "immer noch gemeinsam unterwegs.\n\n"
-            "Willkommen am Lagerfeuer! Hier spielen alte Gildenfreunde und neue "
-            "Horde-Mitstreiter zusammen. Eine Gildenmitgliedschaft brauchst du nicht."
+            "**Alte Säcke. Kaltes Bier. Seit 2004.** 🍻\n\n"
+            "Schön, dass du dabei bist! Hier treffen sich alte Weggefährten "
+            "und neue WoW-Forever-Spieler. Du brauchst keine "
+            "Gildenmitgliedschaft und keine Ingame-Verifizierung.\n\n"
+            "**Dein Einstieg in 3 Schritten:**\n"
+            f"**1.** In {channel_link('rollenwahl')} deine Rollen auswählen.\n"
+            "**2.** Dort **Charakter registrieren** anklicken und "
+            "**Ingame-Namen + Klasse** eintragen (Hauptcharakter und Twinks möglich).\n"
+            f"**3.** In {channel_link('allgemein')} Hallo sagen oder "
+            f"in {channel_link('dungeons')} direkt Mitspieler suchen.\n\n"
+            "📌 **Diese Übersicht bleibt aktuell**, wenn wir neue Bot-Funktionen "
+            "hinzufügen. Du musst nicht nach neuen Anleitungen suchen."
         ),
-        colour=discord.Colour.from_rgb(153, 46, 29))
+        colour=discord.Colour.from_rgb(153,46,29))
     embed.set_image(
         url="https://raw.githubusercontent.com/drunkenmo/corpsegrinder-wow-bot/main/assets/welcome.png")
+    for heading, entries in WELCOME_FEATURES:
+        lines = [
+            f"• {channel_link(name)} – {description}"
+            for name, description in entries
+        ]
+        embed.add_field(name=heading, value="\n".join(lines), inline=False)
     embed.add_field(
-        name="🎭 DEINE ROLLEN",
-        value="PvE/PvP, Tank, Heiler, DD, Klassen und Benachrichtigungen wählen.",
-        inline=False)
-    embed.add_field(
-        name="🎭 DEIN INGAME-CHARAKTER",
-        value="Direkt in **#rollenwahl** kannst du deinen Charakter "
-              "registrieren. **Ingame-Name und Klasse** genügen; "
-              "keine Level-Eingabe und keine Freischaltung nötig. "
-              "Hauptcharakter und Twinks kannst du dort ebenfalls verwalten.",
-        inline=False)
-    embed.add_field(
-        name="⚔️ DEIN NÄCHSTES ABENTEUER",
-        value="In **#dungeons** Instanzgruppe planen oder in "
-              "**#pve-gruppensuche** Mitspieler zum Leveln treffen.",
-        inline=False)
-    embed.add_field(
-        name="📖 UNSERE STORY",
-        value="Die echte Geschichte der alten Säcke steht hier im Willkommen-Kanal. "
-              "Lest sie ruhig – sie ist fast so alt wie unser Internetanschluss.",
-        inline=False)
+        name="🔊 SPRACHCHAT & SPIELERNAMEN",
+        value=(
+            "Unter **⚔️ WOW FOREVER | PVE** und **🏹 WOW FOREVER | PVP** "
+            "findest du feste Sprachkanäle und Möglichkeiten, "
+            "temporäre Gruppenräume zu öffnen.\n"
+            "Der Bot kann deinen **Hauptcharakter als Discord-Servernickname** "
+            "anzeigen. Das aktivierst du freiwillig in "
+            f"{channel_link('rollenwahl')} unter **Meine Charaktere**. "
+            "Dann steht der Ingame-Name auch im Sprachchat."
+        ), inline=False)
+    if extra_tip:
+        embed.add_field(
+            name="📣 AKTUELLER HINWEIS DER SERVERLEITUNG",
+            value=discord.utils.escape_markdown(extra_tip[:650]),
+            inline=False)
     embed.set_footer(
-        text="Corpsegrinder • Willkommen • corpsegrinder:welcome")
+        text="Corpsegrinder • Version " + VERSION +
+             " • corpsegrinder:welcome")
     return embed
 
 
