@@ -73,9 +73,9 @@ EMOJI = {
 }
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
-        ("willkommen", "text"), ("ankündigungen", "text"),
-        ("forever-news", "text"), ("addons", "text"),
-        ("rollenwahl", "text"), ("allgemein", "text")],
+        ("willkommen", "text"), ("rollenwahl", "text"),
+        ("allgemein", "text"), ("ankündigungen", "text"),
+        ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
         ("pve-gruppensuche", "text"), ("dungeons", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
@@ -89,6 +89,100 @@ STRUCTURE = {
         ("charaktere-und-berufe", "text"), ("handel-und-crafting", "text"),
         ("screenshots", "text")],
 }
+
+
+START_CATEGORY_NAME = "🌋 WOW FOREVER | START"
+START_CHANNEL_ORDER = tuple(name for name,_kind in STRUCTURE[START_CATEGORY_NAME])
+SERVER_SECTION_ORDER = tuple(STRUCTURE)
+_start_order_lock = asyncio.Lock()
+
+
+async def organize_start_channels(guild):
+    """Sort only the known starting channels, retaining all other content.
+
+    Never delete categories, move unrelated channels, recreate channels or
+    sync/overwrite custom permission sets. Reapply only when order differs.
+    """
+    async with _start_order_lock:
+        start = discord.utils.get(guild.categories, name=START_CATEGORY_NAME)
+        if start is None:
+            return "Start-Kategorie fehlt; nichts verschoben."
+        updated = []
+        # Keep existing categories and permissions; move the entire start
+        # category above PvE/PvP/etc. when required.
+        if guild.categories and guild.categories[0].id != start.id:
+            await start.move(
+                beginning=True, reason="Corpsegrinder: Einstieg ganz oben")
+            updated.append("Start-Kategorie an erste Stelle")
+        # Some old setups may have placed a known start channel in an
+        # unexpected category; only move names belonging to our start area.
+        for name in START_CHANNEL_ORDER:
+            item = channel(guild,name)
+            if isinstance(item,discord.TextChannel) and item.category_id!=start.id:
+                await item.edit(
+                    category=start, sync_permissions=False,
+                    reason="Corpsegrinder: Einstiegskanal einsortieren")
+                updated.append("#"+name+" in Start-Kategorie")
+        current = [
+            item.name for item in start.text_channels
+            if item.name in START_CHANNEL_ORDER
+        ]
+        expected = [
+            name for name in START_CHANNEL_ORDER
+            if isinstance(channel(guild,name),discord.TextChannel)
+            and channel(guild,name).category_id==start.id
+        ]
+        if current != expected:
+            # Moving each known channel to the beginning in reverse order
+            # results in welcome, roles, general, announcements, news, addons.
+            # Unrelated custom channels remain intact below these entries.
+            for name in reversed(expected):
+                item = channel(guild,name)
+                await item.move(
+                    beginning=True, category=start,
+                    reason="Corpsegrinder: logische Kanalreihenfolge")
+            updated.append("Start-Kanäle neu geordnet")
+        # Keep the other bot-managed areas in logical order, without touching
+        # unknown user-created categories/channels or custom permissions.
+        known_categories = [
+            name for name in SERVER_SECTION_ORDER
+            if discord.utils.get(guild.categories,name=name) is not None
+        ]
+        actual_categories=[
+            item.name for item in guild.categories
+            if item.name in known_categories
+        ]
+        if actual_categories != known_categories:
+            for name in reversed(known_categories):
+                item=discord.utils.get(guild.categories,name=name)
+                await item.move(
+                    beginning=True,reason="Corpsegrinder: Kategorien ordnen")
+            updated.append("Server-Kategorien geordnet")
+        for section, entries in list(STRUCTURE.items())[1:]:
+            category=discord.utils.get(guild.categories,name=section)
+            if category is None:
+                continue
+            for kind in ("text","voice"):
+                names=[name for name,entry_kind in entries
+                       if entry_kind==kind]
+                type_check=discord.TextChannel if kind=="text" else discord.VoiceChannel
+                expected=[
+                    name for name in names
+                    if isinstance(channel(guild,name),type_check)
+                    and channel(guild,name).category_id==category.id
+                ]
+                items=(category.text_channels if kind=="text"
+                       else category.voice_channels)
+                current=[item.name for item in items if item.name in names]
+                if current!=expected:
+                    for name in reversed(expected):
+                        await channel(guild,name).move(
+                            beginning=True,category=category,
+                            reason="Corpsegrinder: Kanalreihenfolge")
+                    updated.append(section+" ("+kind+")")
+        return "; ".join(updated) if updated else "Reihenfolge ist bereits korrekt."
+
+
 
 def role(guild, name):
     return (discord.utils.get(guild.roles, name=visual_name(name))
@@ -360,18 +454,26 @@ async def on_member_join(member):
             await member.add_roles(community)
         except discord.Forbidden:
             logging.warning("Community-Rolle konnte nicht vergeben werden")
-    greeting = channel(member.guild, "willkommen")
-    if isinstance(greeting, discord.TextChannel):
-        roles_channel = channel(member.guild, "rollenwahl")
-        destination = roles_channel.mention if roles_channel else "#rollenwahl"
-        await greeting.send(
-            "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
-            "! Für die Horde! 🍻\n"
-            "Starte in " + destination +
-            ": **Rollen auswählen → Charakter registrieren**. "
-            "Du brauchst nur **Ingame-Name und Klasse**, keine Freigabe.",
-            allowed_mentions=discord.AllowedMentions(
-                users=True,roles=False,everyone=False))
+    # Welcome itself stays a clean, pinned manual rather than a stream of
+    # join messages that pushes the instructions off the newest-chat view.
+    greeting = channel(member.guild,"allgemein") or channel(member.guild,"willkommen")
+    if isinstance(greeting,discord.TextChannel):
+        welcome = channel(member.guild,"willkommen")
+        roles = channel(member.guild,"rollenwahl")
+        welcome_link = welcome.mention if welcome else "#willkommen"
+        role_link = roles.mention if roles else "#rollenwahl"
+        try:
+            await greeting.send(
+                "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
+                "! Für die Horde! 🍻\n"
+                "Starte mit unserer Orientierung in " + welcome_link +
+                ". Danach in " + role_link +
+                " Rollen wählen und **Ingame-Name + Klasse** registrieren. "
+                "Keine Freigabe erforderlich.",
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,roles=False,everyone=False))
+        except discord.HTTPException:
+            logging.warning("Begrüßung für neues Mitglied nicht möglich")
 
 # Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
 # Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
@@ -1565,9 +1667,11 @@ class WelcomeView(discord.ui.View):
     def __init__(self, guild):
         super().__init__(timeout=None)
         links = (
-            ("🎭 Rollenwahl", "rollenwahl", discord.ButtonStyle.link),
+            ("🎭 Rollen & Charakter", "rollenwahl", discord.ButtonStyle.link),
+            ("💬 Allgemein", "allgemein", discord.ButtonStyle.link),
             ("⚔️ Dungeons", "dungeons", discord.ButtonStyle.link),
             ("🌿 Levelgruppen", "pve-gruppensuche", discord.ButtonStyle.link),
+            ("📰 Forever-News", "forever-news", discord.ButtonStyle.link),
         )
         for label, name, style in links:
             target = channel(guild, name)
@@ -1582,6 +1686,10 @@ async def refresh_community_panels_on_start():
     if guild is None:
         return
     try:
+        await organize_start_channels(guild)
+    except discord.HTTPException:
+        logging.exception("Einstiegskanäle konnten nicht angeordnet werden")
+    try:
         await publish_panel(guild)
     except (discord.HTTPException, RuntimeError):
         logging.exception("Rollenwahl-Panel konnte nicht aktualisiert werden")
@@ -1594,7 +1702,7 @@ async def refresh_community_panels_on_start():
         try:
             await publish_info(
                 target, "welcome_post", "corpsegrinder:welcome",
-                welcome_embed())
+                welcome_embed(guild, setting("welcome_admin_tip") or ""))
         except discord.HTTPException:
             logging.exception("Willkommenskarte konnte nicht aktualisiert werden")
 
@@ -1744,7 +1852,8 @@ async def start_channels(i: discord.Interaction):
     await i.response.defer(ephemeral=True, thinking=True)
     findings = []
     for channel_name, key, marker, embed in (
-        ("willkommen", "welcome_post", "corpsegrinder:welcome", welcome_embed()),
+        ("willkommen", "welcome_post", "corpsegrinder:welcome",
+         welcome_embed(i.guild, setting("welcome_admin_tip") or "")),
         ("ankündigungen", "announcement_intro_post", "corpsegrinder:news-intro",
          announcement_intro_embed()),
     ):
@@ -1758,7 +1867,63 @@ async def start_channels(i: discord.Interaction):
         except discord.HTTPException:
             logging.exception("Startkanal einrichten: %s", channel_name)
             findings.append("#" + channel_name + ": Berechtigungsfehler")
+    try:
+        findings.append(await organize_start_channels(i.guild))
+    except discord.HTTPException:
+        findings.append("Kanalreihenfolge konnte nicht aktualisiert werden.")
     await i.followup.send("\n".join(findings), ephemeral=True)
+
+
+@bot.tree.command(name="willkommen_aktualisieren",
+                  description="Willkommens-Anleitung und Kanalreihenfolge auffrischen (Admin)",
+                  guild=SERVER)
+async def update_welcome_guide(i: discord.Interaction):
+    if not admin(i):
+        return await answer(i,"Nur Administratoren.")
+    await i.response.defer(ephemeral=True,thinking=True)
+    target=channel(i.guild,"willkommen")
+    if not isinstance(target,discord.TextChannel):
+        return await i.followup.send(
+            "#willkommen fehlt. Bitte zuerst /einrichtung_start verwenden.",
+            ephemeral=True)
+    findings=[]
+    try:
+        findings.append(await organize_start_channels(i.guild))
+    except discord.HTTPException:
+        findings.append("Kanalreihenfolge: Bot benötigt Kanäle verwalten.")
+    try:
+        message,_note=await publish_info(
+            target,"welcome_post","corpsegrinder:welcome",
+            welcome_embed(i.guild,setting("welcome_admin_tip") or ""))
+        findings.append("Willkommens-Anleitung aktualisiert: "+message.jump_url)
+    except discord.HTTPException:
+        findings.append("Willkommenskarte nicht bearbeitbar: Bot-Berechtigungen prüfen.")
+    await i.followup.send("\n".join(findings),ephemeral=True)
+
+
+@bot.tree.command(name="willkommenshinweis",
+                  description="Optionalen Zusatzhinweis auf Willkommensseite setzen (Admin)",
+                  guild=SERVER)
+@app_commands.describe(text="Aktuelle Serverinfo (max. 500 Zeichen); 'aus' zum Entfernen")
+async def set_welcome_note(i: discord.Interaction,text: app_commands.Range[str,1,500]):
+    if not admin(i):
+        return await answer(i,"Nur Administratoren.")
+    note="" if text.strip().casefold() in ("aus","löschen","loeschen","-") else text.strip()
+    save_setting("welcome_admin_tip",note)
+    target=channel(i.guild,"willkommen")
+    if not isinstance(target,discord.TextChannel):
+        return await answer(i,"Hinweis gespeichert; #willkommen fehlt noch.")
+    try:
+        message,_note=await publish_info(
+            target,"welcome_post","corpsegrinder:welcome",
+            welcome_embed(i.guild,note))
+        await answer(
+            i,"✅ Hinweis "+("entfernt" if not note else "aktualisiert")+
+            ". Bestehende Willkommensseite bearbeitet: "+message.jump_url)
+    except discord.HTTPException:
+        await answer(i,"Hinweis gespeichert, aber die Willkommenskarte "
+                      "konnte nicht aktualisiert werden. "
+                      "Bitte Bot-Berechtigungen prüfen.")
 
 
 @bot.tree.command(name="ankuendigung", description="Schöne Nachricht in #ankündigungen veröffentlichen (Admin)", guild=SERVER)
@@ -4426,7 +4591,7 @@ def gather_official_forever_articles(already_posted=None):
 
 
 async def ensure_forever_news_channel(guild):
-    """Place #forever-news directly below #ankündigungen, above #rollenwahl."""
+    """Keep #forever-news under #ankündigungen in the start section."""
     announcements = channel(guild, "ankündigungen")
     role_channel = channel(guild, "rollenwahl")
     category = (announcements.category if announcements else
@@ -4435,7 +4600,8 @@ async def ensure_forever_news_channel(guild):
         logging.warning("Forever-News: Start-Kategorie fehlt, kein Kanal erstellt.")
         return None
     target = channel(guild, "forever-news")
-    if target is None:
+    created = target is None
+    if created:
         bot_member = guild.me or guild.get_member(bot.user.id)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(send_messages=False),
@@ -4450,13 +4616,12 @@ async def ensure_forever_news_channel(guild):
             topic="📰 Offizielle Blizzard-News zu World of Warcraft: Forever "
                   "– automatische Meldungen alle 30 Minuten.",
             reason="Corpsegrinder: eigener Blizzard-Forever-News-Kanal")
-    if target.category_id == category.id and announcements and (
-            target.position != announcements.position + 1):
+    # Do not reorder on every 30-minute news check. Channel order is kept
+    # by the shared start-layout function; apply it only for new channels.
+    if created:
         try:
-            await target.edit(
-                position=announcements.position + 1,
-                reason="Forever-News direkt unter #ankündigungen einsortieren")
-        except discord.Forbidden:
+            await organize_start_channels(guild)
+        except discord.HTTPException:
             logging.warning("Forever-News: Kanalposition nicht änderbar.")
     embed = discord.Embed(
         title="📰 CORPSEGRINDER · FOREVER NEWS",
@@ -5298,7 +5463,8 @@ async def ensure_addons_channel(guild):
         logging.warning("Addon-Kanal: Start-Kategorie fehlt")
         return None
     target = channel(guild,"addons")
-    if target is None:
+    created = target is None
+    if created:
         member = guild.me or guild.get_member(bot.user.id)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(send_messages=False)
@@ -5312,12 +5478,11 @@ async def ensure_addons_channel(guild):
             topic="🧩 WoW Forever Addons – Empfehlungen & neue "
                   "Forever-Dateien direkt von CurseForge.",
             reason="Corpsegrinder: eigener Forever-Addon-Kanal")
-    if news and target.category_id == category.id and (
-            target.position != news.position+1):
+    # Avoid undoing #willkommen -> #rollenwahl on each 6-hour addon scan.
+    if created:
         try:
-            await target.edit(position=news.position+1,
-                              reason="Addons direkt unter Forever-News")
-        except discord.Forbidden:
+            await organize_start_channels(guild)
+        except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
     key="addons_intro_post_v114"
     existing = None

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.19 – Willkommensseite, Server-Einstieg und klare Kanalreihenfolge
+
+- Die Start-Kategorie **🌋 WOW FOREVER | START** steht jetzt ganz oben. Darin ordnet der Bot seine bestehenden Kanäle als **#willkommen → #rollenwahl → #allgemein → #ankündigungen → #forever-news → #addons** an.
+- Die Kategorien **PvE**, **PvP** und **Charaktere** folgen in dieser Reihenfolge; vorhandene zugehörige Text- und Sprachkanäle werden ebenfalls geordnet. Unbekannte/fremde Kanäle bleiben bestehen. Es wird nichts gelöscht und keine vorhandene Kanalberechtigung absichtlich synchronisiert oder überschrieben.
+- Die automatisch erstellten News- und Addon-Kanäle räumen nur bei ihrer **Erstellung** die Startreihenfolge auf; die 30-Minuten-News- und 6-Stunden-Addon-Prüfungen verschieben die Kanäle nicht mehr.
+- Die bestehende, angeheftete **#willkommen**-Karte ist nun ein umfassender Einstieg mit klaren Schritten (Rollen → Ingame-Name/Klasse → Community/Gruppen), einem **Kanal-Kompass** mit anklickbaren Verweisen zu Gruppenfindern, News, Addons, Guides, Handel und Charakteren sowie einer kurzen Erklärung zum Voice-Chat. Die Grafik und bisherigen Nachrichten bleiben erhalten.
+- Willkommens-Informationen sind **versioniert und aus einer zentralen Funktionsliste** in `community_features.py` aufgebaut. Nach künftigen Feature-Updates wird bei jedem Botstart die **bestehende** Willkommensnachricht bearbeitet, ohne Duplikate zu posten. Das Marker-/ID-Verfahren wird beibehalten.
+- `/willkommen_aktualisieren` (Admin) aktualisiert Anleitung und Kanalreihenfolge. `/willkommenshinweis text:...` (Admin) fügt einen individuellen, dauerhaft gespeicherten Hinweis hinzu; `text:aus` entfernt ihn.
+- Im **#willkommen**-Kanal wird das Handbuch nicht mehr durch Begrüßungen neuer Mitglieder nach unten gedrückt: Neue Mitglieder werden in `#allgemein` begrüßt und direkt auf `#willkommen` und `#rollenwahl` verwiesen.
+- Die Schnellzugriffe unter der Willkommensseite verlinken Rollenwahl, Allgemein, Dungeons, Levelgruppen und Forever-News.
+- **Discord-Einschränkung:** Ein Bot kann nicht garantiert steuern, welche Seite die Discord-App beim ersten Betreten öffnet. Dafür sollte der Serverinhaber unter **Servereinstellungen → Onboarding** die Standardkanäle `#willkommen`, `#rollenwahl`, `#allgemein` auswählen und den **Server-Leitfaden** konfigurieren. Diese Discord-native Einstellung erfordert den Desktop und wird vom Bot nicht ohne Wissen des Administrators geändert.
+- Offline-Tests für Kanalstruktur, Willkommen-Funktionsliste, automatische Aktualisierung und Admin-Hinweise.
+
 ## 1.0.18 – Charakterprofil bearbeiten/löschen und Hauptcharakter im Sprachchat
 
 - Über **#rollenwahl → Meine Charaktere** stehen zusätzliche Buttons **Bearbeiten**, **Löschen** und **Im Sprachchat anzeigen** bereit. Die vorhandene Hauptcharakter-Auswahl bleibt.
