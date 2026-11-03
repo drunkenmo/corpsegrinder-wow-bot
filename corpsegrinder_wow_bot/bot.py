@@ -1773,7 +1773,8 @@ async def reschedule_planned_group(
 
 
 
-async def create_plan_record_and_post(guild, user_id, instance, when, display, role, note=""):
+async def create_plan_record_and_post(guild, user_id, instance, when, display,
+                                      role, note="", character_name=None):
     """Gemeinsamer Veröffentlichungsweg für Slash-Befehl und Dropdown-Assistent."""
     target = channel(guild, "dungeons")
     if not isinstance(target, discord.TextChannel):
@@ -1793,7 +1794,11 @@ async def create_plan_record_and_post(guild, user_id, instance, when, display, r
     # Der Ersteller meldet sich direkt mit seinem Hauptcharakter an.
     # Falls noch kein Profil existiert, bleibt die Gruppe nutzbar und
     # zeigt bis zur Registrierung einen klaren Hinweis statt eines Fantasienamens.
-    creator_main = main_character(user_id)
+    creator_main = (owned_character(user_id,character_name)
+                    if character_name else main_character(user_id))
+    if character_name and not creator_main:
+        db.rollback()
+        raise ValueError("Gewählter Charakter ist nicht mehr vorhanden.")
     if creator_main:
         remember_group_character("dungeon",group_id,user_id,creator_main[0])
     db.commit()
@@ -1878,6 +1883,7 @@ def wizard_state(user_id):
         "owner": user_id,
         "instance": None,
         "role": None,
+        "character": main_character(user_id)[0] if main_character(user_id) else None,
         "day": None,
         "hour": "20",
         "minute": "00",
@@ -1900,6 +1906,12 @@ def wizard_embed(state, step=1, notice=None):
         colour=discord.Colour.gold()
     )
     embed.add_field(name="🏰 Instanz", value=state["instance"] or "Noch nicht gewählt", inline=False)
+    embed.add_field(
+        name="🎭 Dein Ingame-Charakter",
+        value=(discord.utils.escape_markdown(state.get("character") or "")
+               if state.get("character") else
+               "Keiner hinterlegt – mit /charakter anlegen"),
+        inline=True)
     embed.add_field(
         name="🎭 Deine Rolle",
         value={"Tank": "🛡️ Tank", "Heiler": "💚 Heiler", "DD": "💥 DD"}
@@ -2047,16 +2059,25 @@ class WizardStepTwo(PrivateWizard):
                 default=(state["minute"] == f"{n:02d}"))
                 for n in (0, 15, 30, 45)],
             row=2))
+        roster=user_characters(state["owner"])[:MAX_USER_CHARACTERS]
+        if roster:
+            self.add_item(WizardSelect(
+                state,"character","🎭 Mit welchem Charakter spielst du?",
+                [discord.SelectOption(
+                    label=name,value=name,
+                    description=f"{klass} · Stufe {level}",
+                    default=(state.get("character")==name))
+                    for name,klass,level in roster],row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
-                       style=discord.ButtonStyle.secondary, row=3)
+                       style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
         await interaction.response.edit_message(
             embed=wizard_embed(self.state, 1),
             view=WizardStepOne(self.state))
 
     @discord.ui.button(label="Termin veröffentlichen", emoji="✅",
-                       style=discord.ButtonStyle.success, row=3)
+                       style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction, button):
         state = self.state
         if state["published"]:
@@ -2081,7 +2102,8 @@ class WizardStepTwo(PrivateWizard):
             try:
                 message, group_id = await create_plan_record_and_post(
                     interaction.guild, interaction.user.id, state["instance"],
-                    when, display, state["role"], state["note"])
+                    when, display, state["role"], state["note"],
+                    character_name=state.get("character"))
             except (discord.HTTPException, ValueError) as exc:
                 logging.exception("Konnte Dungeon-Termin über Assistent nicht erstellen")
                 return await interaction.followup.send(
@@ -2499,7 +2521,8 @@ async def join_level_group(interaction, group_id, joining, character_name=None):
 
 
 
-async def publish_level_group(guild, user_id, area, low, high, when, display, note=""):
+async def publish_level_group(guild, user_id, area, low, high, when, display,
+                              note="", character_name=None):
     dest = channel(guild, "pve-gruppensuche")
     if not isinstance(dest, discord.TextChannel):
         raise ValueError("Kanal #pve-gruppensuche fehlt.")
@@ -2514,7 +2537,11 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
     group_id = cursor.lastrowid
     db.execute("INSERT INTO level_signups(group_id,user) VALUES (?,?)",
                (group_id, user_id))
-    creator_main = main_character(user_id)
+    creator_main = (owned_character(user_id,character_name)
+                    if character_name else main_character(user_id))
+    if character_name and not creator_main:
+        db.rollback()
+        raise ValueError("Gewählter Charakter ist nicht mehr vorhanden.")
     if creator_main:
         remember_group_character("level",group_id,user_id,creator_main[0])
     db.commit()
@@ -2546,6 +2573,7 @@ async def publish_level_group(guild, user_id, area, low, high, when, display, no
 def level_wizard_state(user_id):
     return {
         "owner": user_id, "area": None, "range": None,
+        "character": main_character(user_id)[0] if main_character(user_id) else None,
         "day": None, "hour": "20", "minute": "00", "note": "",
         "published": False, "message_url": None,
     }
@@ -2570,6 +2598,12 @@ def level_wizard_embed(state, step=1, notice=None):
         name="🌍 Levelgebiet",
         value=state["area"] or "*Bitte auswählen*",
         inline=False)
+    embed.add_field(
+        name="🎭 Dein Ingame-Charakter",
+        value=(discord.utils.escape_markdown(state.get("character") or "")
+               if state.get("character") else
+               "Keiner hinterlegt – mit /charakter anlegen"),
+        inline=True)
     current_range = state["range"]
     embed.add_field(
         name="🎚️ Levelbereich",
@@ -2713,16 +2747,26 @@ class LevelWizardTwo(LevelPrivateWizard):
                 default=(state["minute"] == f"{m:02d}"))
                 for m in (0, 15, 30, 45)],
             "⏱️ Minuten", row=2))
+        roster=user_characters(state["owner"])[:MAX_USER_CHARACTERS]
+        if roster:
+            self.add_item(LevelWizardSelect(
+                state,"character",
+                [discord.SelectOption(
+                    label=name,value=name,
+                    description=f"{klass} · Stufe {level}",
+                    default=(state.get("character")==name))
+                    for name,klass,level in roster],
+                "🎭 Dein Ingame-Charakter",row=3))
 
     @discord.ui.button(label="Zurück", emoji="⬅️",
-                       style=discord.ButtonStyle.secondary, row=3)
+                       style=discord.ButtonStyle.secondary, row=4)
     async def back(self, interaction, button):
         await interaction.response.edit_message(
             embed=level_wizard_embed(self.state, 1),
             view=LevelWizardOne(self.state))
 
     @discord.ui.button(label="Levelgruppe veröffentlichen", emoji="✅",
-                       style=discord.ButtonStyle.success, row=3)
+                       style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction, button):
         state = self.state
         if state["published"]:
@@ -2747,7 +2791,8 @@ class LevelWizardTwo(LevelPrivateWizard):
             try:
                 message, group_id = await publish_level_group(
                     interaction.guild, interaction.user.id,
-                    state["area"], low, high, when, display, state["note"])
+                    state["area"], low, high, when, display, state["note"],
+                    character_name=state.get("character"))
             except (discord.HTTPException, ValueError):
                 logging.exception("Levelgruppe konnte nicht gepostet werden")
                 return await interaction.followup.send(
