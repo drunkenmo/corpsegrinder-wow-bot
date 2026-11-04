@@ -157,7 +157,7 @@ class VisibleUiTests(unittest.TestCase):
         self.assertIn("🎭 ERSTE SCHRITTE",FEATURES)
         self.assertIn("ohne Level oder Freigabe",FEATURES)
         self.assertRegex(FEATURES, r'VERSION = "[0-9]+\.[0-9]+\.[0-9]+"')
-        self.assertIn("Rollen wählen und **Ingame-Name + Klasse** registrieren",BOT)
+        self.assertIn("den **Ingame-Namen + Klasse** registrieren",FEATURES)
 
 
 if __name__=="__main__":
