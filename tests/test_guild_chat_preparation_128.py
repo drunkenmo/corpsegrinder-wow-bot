@@ -40,7 +40,10 @@ class GuildChatChannelTests(unittest.TestCase):
     def test_startup_prepares_both_and_version_is_correct(self):
         self.assertIn('for area in ("pve", "pvp"):', SOURCE)
         self.assertIn("background(ensure_guild_chat_channel_on_start())", SOURCE)
-        self.assertIn('VERSION = "1.0.28"', FEATURES)
+        # Versions must not be frozen to the release that introduced this feature.
+        version = next(line.split('"')[1] for line in FEATURES.splitlines()
+                       if line.startswith("VERSION = ")).split(".")
+        self.assertGreaterEqual(tuple(map(int, version)), (1, 0, 28))
         self.assertIn("#pve-gildenchat", FEATURES)
         self.assertIn("#pvp-gildenchat", FEATURES)
 
