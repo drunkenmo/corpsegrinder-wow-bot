@@ -109,7 +109,7 @@ class ChannelMigrationTests(unittest.TestCase):
             "🌋 WOW FOREVER | START"])
         self.assertIn(("dungeon-planer", "text"), structure[
             "⚔️ WOW FOREVER | PVE"])
-        self.assertIn('channel(member.guild,"lagerfeuer")', BOT)
+        self.assertIn('channel(member.guild, "lagerfeuer")', BOT)
         self.assertIn('channel(guild, "dungeon-planer")', BOT)
         self.assertIn('("lagerfeuer", "Am Lagerfeuer', FEATURES)
         self.assertIn('("dungeon-planer",', FEATURES)
