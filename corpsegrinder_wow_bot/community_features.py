@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.36"
+VERSION = "1.0.37"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -97,10 +97,13 @@ def welcome_embed(guild=None, extra_tip=""):
             "Unter **⚔️ WOW FOREVER | PVE** und **🏹 WOW FOREVER | PVP** "
             "findest du feste Sprachkanäle und Möglichkeiten, "
             "temporäre Gruppenräume zu öffnen.\n"
-            "Der Bot kann deinen **Hauptcharakter als Discord-Servernickname** "
-            "anzeigen. Das aktivierst du freiwillig in "
-            f"{channel_link('rollenwahl')} unter **Meine Charaktere**. "
-            "Dann steht der Ingame-Name auch im Sprachchat."
+            "Du kannst deinen **Discord-Namen und Hauptcharakter zusammen** "
+            "anzeigen lassen (z. B. Drunken Mo | Grumok). "
+            "Das aktivierst du freiwillig in "
+            f"{channel_link('rollenwahl')} über **Discord + Ingame-Name** "
+            "oder unter **Meine Charaktere**. "
+            "Der Name gilt im Text- und Sprachchat. "
+            "Serverinhaber ändern ihren eigenen Servernickname manuell."
         ), inline=False)
     if extra_tip:
         embed.add_field(
