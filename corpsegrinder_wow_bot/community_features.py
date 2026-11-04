@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.28"
+VERSION = "1.0.29"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -69,7 +69,7 @@ def welcome_embed(guild=None, extra_tip=""):
     embed = discord.Embed(
         title="🌋 CORPSEGRINDER · WILLKOMMEN BEI DER HORDE!",
         description=(
-            "**Alte Säcke. Kaltes Bier. Seit 2004.** 🍻\n\n"
+            "**Gemeinsam in Azeroth – für die Horde!**\n\n"
             "Schön, dass du dabei bist! Hier treffen sich alte Weggefährten "
             "und neue WoW-Forever-Spieler. Du brauchst keine "
             "Gildenmitgliedschaft und keine Ingame-Verifizierung.\n\n"
@@ -83,8 +83,8 @@ def welcome_embed(guild=None, extra_tip=""):
             "hinzufügen. Du musst nicht nach neuen Anleitungen suchen."
         ),
         colour=discord.Colour.from_rgb(153,46,29))
-    embed.set_image(
-        url="https://raw.githubusercontent.com/drunkenmo/corpsegrinder-wow-bot/main/assets/welcome.png")
+    # The new no-slogan Corpsegrinder artwork is attached directly to the
+    # existing welcome post with /willkommensbanner_setzen.
     for heading, entries in WELCOME_FEATURES:
         lines = [
             f"• {channel_link(name)} – {description}"
@@ -139,19 +139,20 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="💬 Corpsegrinder Bot – PvE- und PvP-Gildenchat 1.0.28",
+        title="🏰 Corpsegrinder Bot – Banner & Klassen-Emojis 1.0.29",
         description=(
-            "**Zwei Gildenchats, zwei Bereiche – für die Horde!**\n\n"
-            "⚔️ **#pve-gildenchat** im PvE-Bereich.\n"
-            "🏹 **#pvp-gildenchat** im PvP-Bereich.\n"
-            "✅ Vorhandene Kanäle und Berechtigungen bleiben erhalten.\n"
-            "✅ Beide Kanäle sind zunächst normale Discord-Textchats.\n"
-            "✅ Später jede Ingame-Gilde separat über **J → Gilde → "
-            "Gildeneinstellungen → Discord-Einstellungen** mit dem "
-            "jeweiligen Discord-Kanal verknüpfen.\n"
-            "✅ Keine Bot-Bridge und keine Doppelposts.\n\n"
-            "Die Verbindung richtet ein Gildenleiter oder berechtigter "
-            "Offizier im WoW-Client ein, sobald die Funktion verfügbar ist."
+            "**Die eigenen Corpsegrinder-Emojis sind eingebunden!**\n\n"
+            "✅ Neun Klassen nutzen in Rollenwahl und Charakterregistrierung "
+            "ihre hochgeladenen Server-Emojis.\n"
+            "✅ Horde und PvE werden ebenfalls dort genutzt, wo es passt.\n"
+            "✅ Wenn ein Emoji fehlt, zeigt Discord das bisherige Zeichen.\n"
+            "✅ Neues Willkommensbanner über "
+            "**/willkommensbanner_setzen** als Bild hochladen.\n"
+            "✅ Die bestehende angeheftete Willkommensnachricht wird "
+            "aktualisiert; ein Bild bleibt nach Bot-Neustarts erhalten.\n\n"
+            "Der bisherige Spruch und das alte Banner sind aus der "
+            "Willkommenskarte entfernt. Keine neuen Nachrichten oder "
+            "Rollen erforderlich."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
