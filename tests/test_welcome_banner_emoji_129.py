@@ -66,9 +66,10 @@ class EmojiTests(unittest.TestCase):
         command = BOT[start:end]
         self.assertIn("discord.Attachment", command)
         self.assertIn('target, "welcome_post", "corpsegrinder:welcome"', command)
-        self.assertIn('filename="corpsegrinder_banner.png"', command)
+        self.assertIn('filename = "corpsegrinder_banner" + extension', command)
         self.assertIn("await existing.edit(", command)
-        self.assertIn("attachments=[discord.File(", command)
+        self.assertIn("uploaded = await existing.edit(", command)
+        self.assertIn("await uploaded.edit(", command)
         self.assertNotIn("target.send(", command)
 
     def test_banner_survives_existing_welcome_refresh(self):
