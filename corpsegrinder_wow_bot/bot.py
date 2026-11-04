@@ -7079,10 +7079,8 @@ async def check_forever_addons():
         for slug, icon_url in icons.items():
             if trusted_addon_icon_url(icon_url):
                 save_setting("addon_project_icon_" + slug, icon_url)
-        # This second edit adds newly verified icons to the existing three
-        # cards without creating additional messages or deleting the pins.
-        if icons:
-            await ensure_addons_channel(guild)
+        # Refresh the pinned catalogue after saving all detected versions;
+        # editing it now would show the previously cached versions instead.
         now=int(datetime.now(timezone.utc).timestamp())
         posted=0
         # Avoid a flood during the initial import; base guide covers the basics.
@@ -7134,6 +7132,9 @@ async def check_forever_addons():
         save_setting("addons_last_checked",now)
         save_setting("addons_last_result",
                      f"{posted} neue Meldungen; {len(errors)} Quellen-/Prüffehler")
+        # Update the original three pinned posts in place with the newest
+        # confirmed icons AND versions, not just the old cached state.
+        await ensure_addons_channel(guild)
         if errors:
             logging.warning("Addon-Quellen: %s"," | ".join(errors)[:700])
         return posted,"OK" if not errors else f"Teilweise erreichbar ({len(errors)} Fehler)"
