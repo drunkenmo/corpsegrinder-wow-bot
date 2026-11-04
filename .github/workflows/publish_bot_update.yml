@@ -31,6 +31,8 @@ jobs:
         run: |
           git fetch origin main
           git checkout -B main origin/main
+      - name: Discord-Bibliothek für echte Layout-Tests installieren
+        run: python -m pip install discord.py==2.6.4
       - name: Python-Syntax prüfen
         run: python -m compileall -q corpsegrinder_wow_bot
       - name: Tests ausführen
