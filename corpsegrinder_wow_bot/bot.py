@@ -7070,6 +7070,67 @@ def addon_simplified_embeds(part=0, icon_urls=None, versions=None):
     return addon_catalogue_sections(icon_urls, versions)[part]
 
 
+# Ruhige Discord-Components-V2-Ansicht: eine einzige, gleichmäßig breite
+# Katalogfläche je Rubrik, statt bis zu neun unterschiedlich breiter Embeds.
+# discord.py 2.6.4 ist bereits in der Home-Assistant-App installiert.
+def addon_catalogue_layout(part, icon_urls=None, versions=None):
+    """Feste Katalogrubrik mit echten Projektlogos rechts, ohne visuelles Chaos.
+
+    Jeder Addon-Eintrag ist eine Section; alle Sections teilen sich denselben
+    Container. Maximal 10 direkte Container-Kinder (Titel + 8 Addons + Fußzeile)
+    und insgesamt maximal 40 Komponenten gemäß Discord-Komponenten-V2.
+    """
+    icon_urls = icon_urls or {}
+    versions = versions or {}
+    by_slug = {row[0]: row for row in ADDON_SOURCES}
+    _heading, subtitle, slugs = ADDON_CATALOG_SECTIONS[part]
+    section_titles = (
+        "⚒️ BLACKTHORNES COLLECTION",
+        "🌋 DEINE FAVORITEN",
+        "🧩 WEITERE EMPFEHLUNGEN",
+    )
+    container = discord.ui.Container(accent_colour=0xA56D43)
+    container.add_item(discord.ui.TextDisplay(
+        "## " + section_titles[part] + "\n" + subtitle))
+
+    for slug in slugs:
+        _slug, name, _category, summary = by_slug[slug]
+        url = addon_project_url(slug)
+        # Der Link steckt direkt im Titel; keine doppelte Link-Zeile.
+        details = ["**[" + name + "](" + url + ")**"]
+        if slug == "factoruide-guide":
+            details.append("Persönliche Levelroute im Spiel.")
+            details.append("Benötigt: [Factoruide Profile]("
+                           + addon_project_url("factoruide-profile") + ")")
+        elif slug == "spoken-german":
+            details.append("Deutsche Stimmen für Spoken. "
+                           "Installation über die CurseForge-App.")
+        else:
+            details.append(summary)
+        checked = versions.get(slug)
+        # Keine achtzehnmal wiederholte, unbestätigte 'Version prüfen'-Zeile.
+        if checked:
+            details.append("-# Forever-Datei: "
+                           + discord.utils.escape_markdown(str(checked)[:76]))
+        icon = (trusted_addon_icon_url(icon_urls.get(slug))
+                or trusted_addon_icon_url(ADDON_VERIFIED_ICONS.get(slug)))
+        accessory = (
+            discord.ui.Thumbnail(icon, description="Original-Icon: " + name)
+            if icon else discord.ui.Button(
+                style=discord.ButtonStyle.link, label="CurseForge", url=url)
+        )
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay("\n".join(details)),
+            accessory=accessory))
+
+    container.add_item(discord.ui.TextDisplay(
+        "-# " + str(part + 1) + "/3 · Namen anklicken für CurseForge · "
+        "Kompatibilität vor Installation prüfen"))
+    view = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
+
+
 async def ensure_addons_channel(guild):
     news = channel(guild,"forever-news")
     announcements = channel(guild,"ankündigungen")
@@ -7107,9 +7168,9 @@ async def ensure_addons_channel(guild):
     }
     versions = dict(db.execute(
         "SELECT slug,latest_version FROM forever_addon_files").fetchall())
-    # 19 true thumbnail cards require three messages (Discord: max 10 embeds).
-    # Keep the historical pinned message and update the two other catalogue
-    # pages in place. Never post a new set each six-hour check.
+    # Die drei bisherigen angepinnten Nachrichten werden in-place auf
+    # einheitliche Components-V2-Kataloge umgestellt; keine zusätzlichen Pins.
+    # Die Einstellungen/Message-IDs bleiben für die Wiederverwendung erhalten.
     for part in range(len(ADDON_CATALOG_SECTIONS)):
         key = ("addons_intro_post_v114" if part == 0
                else "addons_catalog_part_" + str(part + 1) + "_v133")
@@ -7125,22 +7186,34 @@ async def ensure_addons_channel(guild):
             except (discord.NotFound, discord.HTTPException, ValueError):
                 pass
         if existing is None:
+            # Auch nach einem Datenbankverlust einen früheren V2-Pin
+            # wiederfinden, nicht zusätzliche Kataloge veröffentlichen.
+            title_marker = ADDON_CATALOG_SECTIONS[part][0].split("·", 1)[-1].strip()
             try:
                 async for msg in target.history(limit=90):
-                    if msg.author.id == bot.user.id and any(
-                            marker in (e.footer.text or "")
-                            for e in msg.embeds):
+                    if msg.author.id != bot.user.id:
+                        continue
+                    old_embed = any(
+                        marker in (e.footer.text or "") for e in msg.embeds)
+                    new_layout = any(
+                        title_marker in (getattr(child, "content", "") or "")
+                        for parent in msg.components
+                        for child in getattr(parent, "children", ()))
+                    if old_embed or new_layout:
                         existing = msg
                         break
             except discord.HTTPException:
                 pass
-        cards = addon_simplified_embeds(part, icon_urls, versions)
+        layout = addon_catalogue_layout(part, icon_urls, versions)
         if existing is None:
             existing = await target.send(
-                embeds=cards,
-                allowed_mentions=discord.AllowedMentions.none())
+                view=layout, allowed_mentions=discord.AllowedMentions.none())
         else:
-            await existing.edit(embeds=cards, view=None)
+            # V2 kann nicht mit alten Embeds/Content zusammen existieren.
+            # Discord.py 2.6 erlaubt die Migration derselben Message-ID.
+            await existing.edit(
+                content=None, embeds=[], attachments=[], view=layout,
+                allowed_mentions=discord.AllowedMentions.none())
         save_setting(key, existing.id)
         if not existing.pinned:
             try:
