@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.30 – Dungeon-Leichen prüfen & gemeinsames Corpsegrinder-Banner
+
+- Beim Bot-Start wird die Existenz der gespeicherten, noch offenen Dungeon-Gruppennachrichten geprüft. **Nur eindeutig gelöschte Discord-Nachrichten** werden als archiviert markiert und verschwinden aus der aktiven Dashboard-Liste. Bei fehlenden Rechten, API-Fehlern oder unvollständigen IDs bleiben die Daten erhalten.
+- Neuer Admin-Befehl `/dungeon_pruefen` für eine private Übersicht; `bereinigen: Ja` archiviert nur nachweislich gelöschte Karten. Auch ein direktes Löschen einer Gruppenkarte in Discord räumt den zugehörigen aktiven Eintrag künftig sofort auf.
+- `/willkommensbanner_setzen` bindet das hochgeladene Corpsegrinder-Banner **sowohl in #willkommen als auch in #dungeon-planer** an die bestehenden Bot-Nachrichten. Beide Bildanhänge werden bei Neustarts und normalen Aktualisierungen bewahrt.
+- Das bisherige Dungeon-Bild mit altem Spruch wird nicht mehr als Standardbild eingebunden.
+- Keine Löschung von vergangenen Gruppenhistorien, Kanälen oder Rollen.
+
+
 ## 1.0.29 – Corpsegrinder-Emojis & eigenes Willkommensbanner
 
 - Die **neun Klassen** in der Rollenwahl und beim Registrieren von Charakteren nutzen, wenn vorhanden, die auf dem Discord-Server hochgeladenen Emoji-Namen `krieger`, `jaeger`, `schami`, `druide`, `schurke`, `magier`, `priester`, `hexer`, `pala`. Die Emoji-ID wird direkt aus dem Discord-Server gelesen; kein manuelles Eintragen nötig. Bei fehlenden/nicht nutzbaren Emojis bleiben die bisherigen Unicode-Emojis erhalten.
