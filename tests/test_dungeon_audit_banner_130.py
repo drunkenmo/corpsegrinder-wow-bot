@@ -180,22 +180,22 @@ class BannerTests(unittest.TestCase):
         self.assertIn("await ensure_planner_dashboard(interaction.guild)",
                       section)
         self.assertIn("await planner_post.edit(", section)
-        self.assertEqual(
-            section.count('filename="corpsegrinder_banner.png"'), 2)
+        self.assertIn("await dungeon_upload.edit(", section)
+        self.assertEqual(section.count("discord.File(io.BytesIO(data), filename=filename)"), 2)
 
     def test_dungeon_persists_banner_on_restart(self):
         block = SOURCE[SOURCE.index("async def ensure_planner_dashboard(guild):"):
                        SOURCE.index("async def ensure_planner_dashboard_on_start():")]
-        self.assertIn('attachment.filename == "corpsegrinder_banner.png"',
+        self.assertIn('attachment.filename.startswith("corpsegrinder_banner.")',
                       block)
-        self.assertIn('attachments=existing.attachments', block)
-        self.assertIn('url="attachment://corpsegrinder_banner.png"', block)
+        self.assertIn("await existing.edit(embed=refreshed, view=PlannerDashboardView())", block)
+        self.assertIn('url="attachment://" + artwork.filename', block)
 
     def test_startup_and_admin_lookups(self):
         self.assertIn("await audit_dungeon_cards(guild, repair=True)", SOURCE)
         self.assertIn('name="dungeon_pruefen"', SOURCE)
         self.assertIn("bereinigen: bool = False", SOURCE)
-        self.assertIn('VERSION = "1.0.30"', FEATURES)
+        self.assertIn('VERSION = "1.0.31"', FEATURES)
 
 
 if __name__ == "__main__":
