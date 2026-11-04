@@ -44,8 +44,10 @@ class GuildChatChannelTests(unittest.TestCase):
         version = next(line.split('"')[1] for line in FEATURES.splitlines()
                        if line.startswith("VERSION = ")).split(".")
         self.assertGreaterEqual(tuple(map(int, version)), (1, 0, 28))
-        self.assertIn("#pve-gildenchat", FEATURES)
-        self.assertIn("#pvp-gildenchat", FEATURES)
+        # Existing channels are asserted from the actual structure above;
+        # release notes of newer versions need not repeat their names.
+        self.assertIn('"pve-gildenchat", "text"', SOURCE)
+        self.assertIn('"pvp-gildenchat", "text"', SOURCE)
 
 
 if __name__ == "__main__":
