@@ -34,3 +34,22 @@ jobs:
           PY
       - name: Offline-Updater-Tests
         run: python -m unittest discover -s tests -v
+
+      - name: Temporärer Live-Probelauf für offizielle Addon-Icons
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json
+          from urllib.request import Request, urlopen
+          for slug in ("blackthornes-farmer", "questie"):
+              url = "https://api.cfwidget.com/wow/addons/" + slug
+              try:
+                  req = Request(url, headers={"User-Agent": "CorpsegrinderAddons/1.0", "Accept": "application/json"})
+                  with urlopen(req, timeout=12) as resp:
+                      payload = json.loads(resp.read(350001))
+                  print(slug, "id=", payload.get("id"), "game=", payload.get("game"),
+                        "thumbnail=", str(payload.get("thumbnail"))[:200],
+                        "files=", len(payload.get("files") or []))
+              except Exception as exc:
+                  print(slug, type(exc).__name__, str(exc)[:150])
+          PY
