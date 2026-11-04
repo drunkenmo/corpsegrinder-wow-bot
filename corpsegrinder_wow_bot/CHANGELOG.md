@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.26 – Zweispaltige Addon-Felder am PC
+
+- Die zwei Katalog-Embeds verwenden nun **Inline-Felder** für ihre acht Addons, mit einem vollbreiten Zeilenumbruch nach jeweils zwei Einträgen. Discord kann so je nach Fensterbreite zwei Addons nebeneinander anzeigen.
+- Die Hauptkarten bleiben als Discord-Embeds untereinander angeordnet; auf schmalen Bildschirmen kann Discord die Felder automatisch untereinander anordnen.
+- Direkte CurseForge-Links, angeheftete Nachricht, Discord-Kanalstruktur, Addon-Updates und die bisherige Datenbank bleiben unverändert.
+
+
 ## 1.0.25 – Addon-Schmiede ohne Klick-Labyrinth
 
 - Die **angeheftete Addon-Nachricht** wurde von verschachtelten Menüs auf eine einfache, mobil lesbare Übersicht umgestellt: ein Fantasy-Kopfbereich und zwei große Katalogkarten in **derselben Discord-Nachricht**.

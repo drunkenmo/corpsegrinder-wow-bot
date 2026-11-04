@@ -6341,12 +6341,16 @@ def addon_intro_embed():
 
 
 def addon_catalogue_embeds():
-    """Two generously spaced catalogue cards, links directly visible."""
+    """Readable two-column layout on desktop, responsive on phones.
+
+    Discord lays out inline fields itself. A full-width separator after
+    each pair prevents a third addon from appearing on the same row.
+    """
     sections = (
-        ("📜 QUESTS · KARTEN · KOMFORT",
-         ("questie", "questforever", "leatrix-plus", "leatrix-maps", "tomtom")),
-        ("⚔️ KAMPF · HANDEL · INVENTAR",
-         ("deadly-boss-mods", "auctionator", "baganator")),
+        ("📜 QUESTS · KARTEN · NAVIGATION",
+         ("questie", "questforever", "leatrix-maps", "tomtom")),
+        ("⚔️ KOMFORT · KAMPF · HANDEL · INVENTAR",
+         ("leatrix-plus", "deadly-boss-mods", "auctionator", "baganator")),
     )
     by_slug = {row[0]: row for row in ADDON_SOURCES}
     cards = []
@@ -6355,16 +6359,19 @@ def addon_catalogue_embeds():
             title=title,
             description="━━━━━━━━━━━━━━━━━━━━━━━━━━",
             colour=discord.Colour.from_rgb(143, 89, 32))
-        for slug in slugs:
-            if slug not in by_slug:
-                continue
+        available = [slug for slug in slugs if slug in by_slug]
+        for index, slug in enumerate(available):
             _slug, name, area, summary = by_slug[slug]
             embed.add_field(
                 name="✦ " + name,
                 value=(summary + "\n"
                        + "[🔗 Auf CurseForge ansehen]("
                        + addon_project_url(slug) + ")"),
-                inline=False)
+                inline=True)
+            # Discord supports up to three inline fields in a row. A
+            # full-width spacer keeps pairs of add-ons grouped together.
+            if index % 2 == 1 and index != len(available) - 1:
+                embed.add_field(name="\u200b", value="\u200b", inline=False)
         cards.append(embed)
     cards[-1].add_field(
         name="⚠️ VOR DER INSTALLATION",
@@ -6373,7 +6380,7 @@ def addon_catalogue_embeds():
               "Der Bot installiert keine Dateien.",
         inline=False)
     cards[-1].set_footer(
-        text="Updates zu Forever-Dateien erscheinen weiterhin im Kanal.")
+        text="Auf schmalen Bildschirmen ordnet Discord die Addons automatisch um.")
     return cards
 
 

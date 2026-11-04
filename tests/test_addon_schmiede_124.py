@@ -1,4 +1,4 @@
-"""1.0.25: Addon-Schmiede shows all addon links without nested menus."""
+"""1.0.26: Addon-Schmiede shows direct links in inline desktop pairs."""
 import ast
 import unittest
 from pathlib import Path
@@ -63,7 +63,7 @@ class SimpleAddonForgeTests(unittest.TestCase):
         self.assertIn("corpsegrinder:forever-addon-panel", cards[0].footer)
         self.assertTrue(cards[0].image_url.endswith("/welcome.png"))
         all_items = [field for card in cards[1:] for field in card.fields]
-        self.assertEqual(len(all_items), 9)  # 8 addons + one safety note
+        self.assertEqual(len(all_items), 11)  # 8 addons + 2 row spacers + safety
         for slug, name, _area, _summary in constant("ADDON_SOURCES"):
             matches = [value for title, value, _ in all_items if name in title]
             self.assertEqual(len(matches), 1, name)
@@ -72,6 +72,19 @@ class SimpleAddonForgeTests(unittest.TestCase):
                 matches[0])
         self.assertIn("WoW-Forever-Datei", str(all_items))
         self.assertIn("1.60.1", str(all_items))
+
+    def test_inline_pairs_with_full_width_row_breaks(self):
+        cards = load()["addon_catalogue_embeds"]()
+        for card in cards:
+            addon_fields = [field for field in card.fields
+                            if field[0].startswith("✦ ")]
+            separators = [field for field in card.fields
+                          if field[0] == "\\u200b" or field[0] == "\u200b"]
+            self.assertEqual(len(addon_fields), 4)
+            self.assertTrue(all(inline for _, _, inline in addon_fields))
+            self.assertEqual(len(separators), 1)
+            self.assertFalse(separators[0][2])
+        self.assertFalse(cards[-1].fields[-1][2])
 
     def test_old_pin_is_reused_and_nested_menu_is_removed(self):
         self.assertIn('key="addons_intro_post_v114"', SOURCE)
@@ -87,7 +100,7 @@ class SimpleAddonForgeTests(unittest.TestCase):
         cards = load()["addon_simplified_embeds"]()
         for card in cards:
             self.assertLess(len(card.description), 900)
-            self.assertLessEqual(len(card.fields), 6)
+            self.assertLessEqual(len(card.fields), 7)
             for name, value, _ in card.fields:
                 self.assertLessEqual(len(value), 1024)
 
