@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.28 – Gildenchat für WoW Forever vorbereiten
+
+- `#wow-gildenchat` wird beim Bot-Start einmalig als normaler Textkanal in **🌋 WOW FOREVER | START** angelegt und direkt hinter `#lagerfeuer` einsortiert. Existiert er bereits, wird er weder ersetzt noch umkonfiguriert.
+- Der Kanal dient später als Ziel für die **offizielle WoW-/Discord-Gildenchat-Verknüpfung**. Der Gildenleiter oder berechtigte Offizier muss die Verbindung im WoW-Client selbst herstellen. Ob die Funktion auf Forever-Live-Servern bereits aktiviert ist, wird nicht vorausgesetzt.
+- Keine zusätzliche Bot-Chat-Bridge, Webhooks oder automatische Chatspiegelung; kein Anlegen oder Ändern von Discord-Berechtigungen über die Kategorie-Standards hinaus.
+- Alle vorhandenen Serverfunktionen, Kanäle und Chats bleiben erhalten.
+
+
 ## 1.0.27 – Schlanke Addon-Schmiede
 
 - Den großen Einleitungs-Embed mit Bild und Sprüchen entfernt; die Überschrift **⚒️ CORPSEGRINDER · ADDON-SCHMIEDE** steht direkt auf der ersten Katalogkarte.
