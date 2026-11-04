@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.22"
+VERSION = "1.0.23"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -13,6 +13,7 @@ ROLE_STYLE = {
     "DD": ("💥 DD", 0xD85742, "💥"),
     "Krieger": ("⚔️ Krieger", 0xC79C6E, "⚔️"),
     "Schamane": ("🌩️ Schamane", 0x0070DE, "🌩️"),
+    "Paladin": ("🛡️ Paladin", 0xF58CBA, "🛡️"),
     "Druide": ("🌿 Druide", 0xFF7D0A, "🌿"),
     "Jäger": ("🏹 Jäger", 0xABD473, "🏹"),
     "Schurke": ("🗡️ Schurke", 0xFFF569, "🗡️"),
@@ -140,21 +141,16 @@ def update_embed():
     embed = discord.Embed(
         title="🌋 Corpsegrinder Bot – Update " + VERSION,
         description=(
-            "**Neuer Stammtisch und Handelsplatz für die Horde!** 🍻\n\n"
-            "🔥 Der bisherige Kanal **#allgemein** heißt jetzt "
-            "**#lagerfeuer**.\n"
-            "🏰 **#dungeons** wird zu **#dungeon-planer**.\n"
-            "Die vorhandenen Kanäle werden umbenannt, nicht neu erstellt. "
-            "Alle alten Beiträge, Gruppentermine und Berechtigungen bleiben "
-            "erhalten.\n\n"
-            "⚒️ In **#handel-und-crafting** gibt es jetzt eine neue "
-            "**Horde-Handelsbörse** mit Buttons für **Suche**, **Biete** "
-            "und **Handwerksauftrag**. "
-            "Mitglieder können den Ersteller kontaktieren, eigene "
-            "Einträge anzeigen und mit **Erledigt** abschließen.\n\n"
-            "📌 Die angeheftete Handelsübersicht zeigt aktuelle Einträge. "
-            "Alles funktioniert über den bestehenden Bot – "
-            "ohne weitere Plugins oder zusätzliche Kanäle."
+            "🛡️ **Die Paladine der Verlassenen sind angekommen!**\n\n"
+            "In **WoW Forever** können auf Hordeseite auch "
+            "**Untote Paladine** gespielt werden.\n\n"
+            "✅ **Paladin** steht jetzt bei der Charakterregistrierung, "
+            "der Bearbeitung bestehender Charaktere und im "
+            "Klassen-Rollenauswahlmenü zur Verfügung.\n"
+            "🎭 Die passende **Paladin-Rolle** wird beim Botstart "
+            "ergänzt, falls sie noch fehlt.\n\n"
+            "Alle bestehenden Rollen, Charakterprofile und "
+            "Gruppenanmeldungen bleiben erhalten."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
