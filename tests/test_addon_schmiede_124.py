@@ -1,4 +1,4 @@
-"""1.0.26: Addon-Schmiede shows direct links in inline desktop pairs."""
+"""1.0.27: Compact Addon-Schmiede without banner and installation notice."""
 import ast
 import unittest
 from pathlib import Path
@@ -38,7 +38,7 @@ class FakeEmbed:
 def load():
     nodes = [node for node in TREE.body
              if isinstance(node, ast.FunctionDef)
-             and node.name in ("addon_intro_embed", "addon_catalogue_embeds",
+             and node.name in ("addon_catalogue_embeds",
                                "addon_simplified_embeds", "addon_project_url")]
     scope = {
         "discord": SimpleNamespace(
@@ -55,23 +55,23 @@ def load():
 
 
 class SimpleAddonForgeTests(unittest.TestCase):
-    def test_three_large_embeds_show_all_eight_addons(self):
+    def test_two_compact_embeds_show_all_eight_addons(self):
         scope = load()
         cards = scope["addon_simplified_embeds"]()
-        self.assertEqual(len(cards), 3)
+        self.assertEqual(len(cards), 2)
         self.assertIn("ADDON-SCHMIEDE", cards[0].title)
-        self.assertIn("corpsegrinder:forever-addon-panel", cards[0].footer)
-        self.assertTrue(cards[0].image_url.endswith("/welcome.png"))
-        all_items = [field for card in cards[1:] for field in card.fields]
-        self.assertEqual(len(all_items), 11)  # 8 addons + 2 row spacers + safety
+        self.assertEqual(cards[0].footer, "Corpsegrinder · Addon-Schmiede")
+        all_items = [field for card in cards for field in card.fields]
+        self.assertEqual(len(all_items), 10)  # 8 addons + 2 row spacers
         for slug, name, _area, _summary in constant("ADDON_SOURCES"):
             matches = [value for title, value, _ in all_items if name in title]
             self.assertEqual(len(matches), 1, name)
             self.assertIn(
                 "https://www.curseforge.com/wow/addons/" + slug,
                 matches[0])
-        self.assertIn("WoW-Forever-Datei", str(all_items))
-        self.assertIn("1.60.1", str(all_items))
+        self.assertNotIn("VOR DER INSTALLATION", str(all_items))
+        self.assertNotIn("WoW-Forever-Datei (1.60.1)", str(all_items))
+        self.assertNotIn("Die Werkzeuge für deine Abenteuer", str(all_items))
 
     def test_inline_pairs_with_full_width_row_breaks(self):
         cards = load()["addon_catalogue_embeds"]()
@@ -84,11 +84,12 @@ class SimpleAddonForgeTests(unittest.TestCase):
             self.assertTrue(all(inline for _, _, inline in addon_fields))
             self.assertEqual(len(separators), 1)
             self.assertFalse(separators[0][2])
-        self.assertFalse(cards[-1].fields[-1][2])
+        self.assertTrue(cards[-1].fields[-1][2])
 
     def test_old_pin_is_reused_and_nested_menu_is_removed(self):
         self.assertIn('key="addons_intro_post_v114"', SOURCE)
         self.assertIn('ADDON_MARKER = "corpsegrinder:forever-addon-panel"', SOURCE)
+        self.assertIn('"Corpsegrinder · Addon-Schmiede"', SOURCE)
         self.assertIn("await existing.edit(embeds=addon_simplified_embeds(), view=None)", SOURCE)
         self.assertIn("embeds=addon_simplified_embeds()", SOURCE)
         self.assertNotIn("bot.add_view(AddonForgeView())", SOURCE)
