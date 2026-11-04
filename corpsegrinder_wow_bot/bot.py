@@ -6723,6 +6723,56 @@ def trusted_addon_icon_url(raw):
     return url.geturl()
 
 
+# CFWidget stellt projektgebundene CurseForge-Metadaten ohne API-Key bereit.
+# Fallback, falls CurseForge direkte Bot-Anfragen blockiert oder kein Logo in
+# den Social-Metatags angibt. Bilder bleiben echte CurseForge-CDN-Projektlogos.
+def read_cfwidget_project(slug):
+    addon_project_url(slug)  # Eingabe prüfen, bevor eine URL gebaut wird
+    request = Request("https://api.cfwidget.com/wow/addons/" + slug,
+                      headers={
+                          "User-Agent": "CorpsegrinderAddons/1.0",
+                          "Accept": "application/json",
+                      })
+    with urlopen(request, timeout=12) as response:
+        actual = urlparse(response.geturl())
+        if actual.scheme != "https" or actual.hostname != "api.cfwidget.com":
+            raise ValueError("Unerwartete CFWidget-Weiterleitung")
+        data = response.read(350_001)
+        if len(data) > 350_000:
+            raise ValueError("CFWidget-Antwort zu groß")
+    project = json.loads(data.decode("utf-8"))
+    if (not isinstance(project, dict)
+            or type(project.get("id")) is not int or project["id"] < 1):
+        raise ValueError("CFWidget hat keine gültigen Projektmetadaten geliefert")
+    game = str(project.get("game", "wow")).lower()
+    if game not in ("wow", "world-of-warcraft", "world of warcraft"):
+        raise ValueError("CFWidget-Projekt gehört nicht zu WoW")
+    if project.get("slug") and project["slug"] != slug:
+        raise ValueError("CFWidget-Projektname passt nicht zur angefragten URL")
+    return project
+
+
+def extract_cfwidget_project_icon(project):
+    """Nur das Logo-Feld eines gültigen Projekts, nie Screenshots/Galerie."""
+    return trusted_addon_icon_url(project.get("thumbnail"))
+
+
+def extract_cfwidget_forever_version(project):
+    """Nur klar als Forever bezeichnete Dateinamen, keine Retail-Dateien."""
+    files = project.get("files")
+    entries = ([project.get("download")] if isinstance(project.get("download"), dict)
+               else []) + (files if isinstance(files, list) else [])
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = next((v for key in ("display", "displayName", "name", "filename", "fileName")
+                     if isinstance((v := entry.get(key)), str) and v.strip()), "")
+        if name and re.search(r"(?:^|[^a-z])forever(?:[^a-z]|$)", name,
+                              re.IGNORECASE):
+            return clean_official_text(name, 85)
+    return None
+
+
 class CurseForgeProjectIcon(HTMLParser):
     """Only the page's declared social project image; never a screenshot."""
     def __init__(self):
@@ -6842,23 +6892,36 @@ def scan_forever_addons(already_seen=None, include_icons=False):
         errors.append("CurseForge-Suche: " + str(exc)[:160])
 
     def fetch_one(slug):
+        page, alternative, failures = None, None, []
         try:
-            return read_curseforge_page(addon_project_url(slug)), None
+            page = read_curseforge_page(addon_project_url(slug))
         except (OSError, ValueError) as exc:
-            return None, f"{slug}: {str(exc)[:100]}"
+            failures.append("CurseForge: " + str(exc)[:80])
+        if slug in curated and (page is None or
+                                not extract_curseforge_project_icon(page)):
+            try:
+                alternative = read_cfwidget_project(slug)
+            except (OSError, ValueError, UnicodeError) as exc:
+                failures.append("CFWidget: " + str(exc)[:80])
+        return page, alternative, failures
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        for slug, (page, error) in zip(
+    # CFWidget bittet um nur wenige gleichzeitige Abrufe. Kein API-Key nötig.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for slug, (page, alternative, failures) in zip(
                 candidates, pool.map(fetch_one, candidates)):
-            if error:
-                errors.append(error)
+            if page is None and alternative is None:
+                errors.append(slug + ": " + "; ".join(failures)[:160])
                 continue
-            icon = extract_curseforge_project_icon(page)
+            icon = (extract_curseforge_project_icon(page) if page else None)
+            if not icon and alternative:
+                icon = extract_cfwidget_project_icon(alternative)
             if icon and slug in curated:
                 icons[slug] = icon
-            latest = extract_curseforge_forever_version(page)
+            latest = (extract_curseforge_forever_version(page) if page else None)
+            if not latest and alternative:
+                latest = extract_cfwidget_forever_version(alternative)
             if not latest:
-                continue  # Never declare a Forever release without file evidence.
+                continue  # Kein gemeldetes Release ohne klare Forever-Kennung.
             item = curated.get(slug)
             title = item[1] if item else slug.replace("-", " ").title()
             area = item[2] if item else "Neu entdeckt"
@@ -7131,6 +7194,7 @@ async def check_forever_addons():
                 break
         save_setting("addons_initial_import_complete","1")
         save_setting("addons_last_checked",now)
+        save_setting("addons_last_error_preview", " | ".join(errors)[:500])
         save_setting("addons_last_result",
                      f"{posted} neue Meldungen; {len(errors)} Quellen-/Prüffehler")
         # Update the original three pinned posts in place with the newest
