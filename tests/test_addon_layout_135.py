@@ -1,5 +1,6 @@
 """Test the real discord.py 2.6.4 Components V2 catalogue renderer offline."""
 import ast
+import asyncio
 import html
 from html.parser import HTMLParser
 from pathlib import Path
@@ -52,10 +53,16 @@ class CompactCatalogueLayoutTests(unittest.TestCase):
         self.catalogue_by_slug = {slug: name for slug, name, *_ in
                                   constant("ADDON_SOURCES")}
 
+    def render(self, part, **kwargs):
+        # LayoutView creates its Future in the current running event loop.
+        async def build():
+            return self.env["addon_catalogue_layout"](part, **kwargs)
+        return asyncio.run(build())
+
     def test_uses_three_single_containers_with_all_original_icons(self):
         count = 0
         for part, (_, _, slugs) in enumerate(self.catalogue):
-            view = self.env["addon_catalogue_layout"](part)
+            view = self.render(part)
             self.assertIsInstance(view, discord.ui.LayoutView)
             self.assertLessEqual(view.total_children_count, 40)
             self.assertLessEqual(view.content_length(), 4000)
@@ -87,7 +94,7 @@ class CompactCatalogueLayoutTests(unittest.TestCase):
         self.assertEqual(count, 19)
 
     def test_short_dependent_and_german_language_notes(self):
-        view = self.env["addon_catalogue_layout"](1)
+        view = self.render(1)
         rows = view.to_components()[0]["components"][1:-1]
         guide = rows[0]["components"][0]["content"]
         german = rows[-1]["components"][0]["content"]
@@ -97,7 +104,7 @@ class CompactCatalogueLayoutTests(unittest.TestCase):
         self.assertNotIn("⚠️", german)
 
     def test_only_confirmed_versions_are_shown(self):
-        view = self.env["addon_catalogue_layout"](
+        view = self.render(
             1, versions={"azerothcompendium": "v1.0.1-forever"})
         rows = view.to_components()[0]["components"][1:-1]
         versions = [row["components"][0]["content"] for row in rows]
