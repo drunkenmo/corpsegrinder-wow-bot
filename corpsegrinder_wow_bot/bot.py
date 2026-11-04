@@ -6636,6 +6636,54 @@ ADDON_DISCOVERY_URL = (
     "class=addons&page=1&pageSize=20&sortBy=dateCreated&version=1.60.1")
 ADDON_CHECK_INTERVAL = 6 * 3600
 
+# Am 04.11.2026 direkt per CurseForge-Projektseite verifizierte IDs und
+# og:image-Logos. Garantierte Anfangsbilder, auch wenn Live-Scraping blockiert.
+# Keine Screenshots oder generischen Suchbilder. Der Live-Scanner kann sie
+# später mit aktuellen echten Projekticons überschreiben.
+ADDON_PROJECT_IDS = {
+    "blackthornes-farmer": 1710618,
+    "blackthornes-tradeskills": 1710638,
+    "blackthornes-equipment": 1720051,
+    "blackthornes-butler": 1739020,
+    "blackthornes-pets": 1720056,
+    "factoruide-guide": 1754477,
+    "factoruide-profile": 1754451,
+    "azerothcompendium": 1698451,
+    "sktools": 1527228,
+    "spoken": 1700375,
+    "spoken-german": 1746501,
+    "questie": 334372,
+    "questforever": 1710478,
+    "leatrix-plus": 94855,
+    "leatrix-maps": 298842,
+    "auctionator": 6124,
+    "baganator": 914482,
+    "tomtom": 18808,
+    "deadly-boss-mods": 3358,
+}
+ADDON_VERIFIED_ICONS = {
+    "blackthornes-farmer": "https://media.forgecdn.net/avatars/thumbnails/2144/935/256/256/639284459389105451.png",
+    "blackthornes-tradeskills": "https://media.forgecdn.net/avatars/thumbnails/2152/127/256/256/639286635197992420.png",
+    "blackthornes-equipment": "https://media.forgecdn.net/avatars/thumbnails/2144/933/256/256/639284459219886287.png",
+    "blackthornes-butler": "https://media.forgecdn.net/avatars/thumbnails/2144/932/256/256/639284459015605998.png",
+    "blackthornes-pets": "https://media.forgecdn.net/avatars/thumbnails/2144/939/256/256/639284459737875343.png",
+    "factoruide-guide": "https://media.forgecdn.net/avatars/thumbnails/2132/520/256/256/639280247983836450.png",
+    "factoruide-profile": "https://media.forgecdn.net/avatars/thumbnails/2132/479/256/256/639280238996741654.png",
+    "azerothcompendium": "https://media.forgecdn.net/avatars/thumbnails/2089/363/256/256/639266454395040344.jpg",
+    "sktools": "https://media.forgecdn.net/avatars/thumbnails/1779/608/256/256/639129235278294781.png",
+    "spoken": "https://media.forgecdn.net/avatars/thumbnails/2123/272/256/256/639277523184843230.png",
+    "spoken-german": "https://media.forgecdn.net/avatars/thumbnails/2123/343/256/256/639277526503267345.png",
+    "questie": "https://media.forgecdn.net/avatars/thumbnails/351/162/256/256/637505206198965674.png",
+    "questforever": "https://media.forgecdn.net/avatars/thumbnails/2068/345/256/256/639258843131399481.jpg",
+    "leatrix-plus": "https://media.forgecdn.net/avatars/thumbnails/483/32/256/256/637782408501667202.png",
+    "leatrix-maps": "https://media.forgecdn.net/avatars/thumbnails/483/28/256/256/637782408015473073.png",
+    "auctionator": "https://media.forgecdn.net/avatars/thumbnails/1403/232/256/256/638909541952729618.png",
+    "baganator": "https://media.forgecdn.net/avatars/thumbnails/956/327/256/256/638449029664561508.png",
+    "tomtom": "https://media.forgecdn.net/avatars/thumbnails/1495/687/256/256/638971692093458734.png",
+    "deadly-boss-mods": "https://media.forgecdn.net/avatars/thumbnails/199/661/256/256/636908483866103322.png",
+}
+
+
 # Jede Rubrik wird als eigene, angepinnte Nachricht veröffentlicht.
 # Discord erlaubt maximal zehn Embeds pro Nachricht und nur ein Thumbnail
 # je Embed; drei Nachrichten erlauben alle 19 originalen Addon-Icons.
@@ -6728,7 +6776,10 @@ def trusted_addon_icon_url(raw):
 # den Social-Metatags angibt. Bilder bleiben echte CurseForge-CDN-Projektlogos.
 def read_cfwidget_project(slug):
     addon_project_url(slug)  # Eingabe prüfen, bevor eine URL gebaut wird
-    request = Request("https://api.cfwidget.com/wow/addons/" + slug,
+    project_id = ADDON_PROJECT_IDS.get(slug)
+    if project_id is None:
+        raise ValueError("Unbekanntes CurseForge-Projekt")
+    request = Request("https://api.cfwidget.com/" + str(project_id),
                       headers={
                           "User-Agent": "CorpsegrinderAddons/1.0",
                           "Accept": "application/json",
@@ -6737,12 +6788,13 @@ def read_cfwidget_project(slug):
         actual = urlparse(response.geturl())
         if actual.scheme != "https" or actual.hostname != "api.cfwidget.com":
             raise ValueError("Unerwartete CFWidget-Weiterleitung")
-        data = response.read(350_001)
-        if len(data) > 350_000:
+        data = response.read(2_000_001)
+        if len(data) > 2_000_000:
             raise ValueError("CFWidget-Antwort zu groß")
     project = json.loads(data.decode("utf-8"))
     if (not isinstance(project, dict)
-            or type(project.get("id")) is not int or project["id"] < 1):
+            or type(project.get("id")) is not int
+            or project["id"] != project_id):
         raise ValueError("CFWidget hat keine gültigen Projektmetadaten geliefert")
     game = str(project.get("game", "wow")).lower()
     if game not in ("wow", "world-of-warcraft", "world of warcraft"):
@@ -7049,7 +7101,8 @@ async def ensure_addons_channel(guild):
         except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
     icon_urls = {
-        slug: trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+        slug: (trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+               or ADDON_VERIFIED_ICONS.get(slug))
         for slug, *_ in ADDON_SOURCES
     }
     versions = dict(db.execute(
@@ -7122,7 +7175,8 @@ def addon_version_embed(slug,title,area,summary,latest,new):
         text="Corpsegrinder Addon-Schmiede • "
              + ("Neu entdeckt, nicht automatisch empfohlen" if new
                 else "Neue Forever-Datei gefunden, Kompatibilität prüfen"))
-    icon_url = trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+    icon_url = (trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+                or ADDON_VERIFIED_ICONS.get(slug))
     if icon_url:
         embed.set_thumbnail(url=icon_url)
     return embed
@@ -7244,7 +7298,11 @@ async def addon_status_command(interaction: discord.Interaction):
     if not allowed(interaction):
         return await answer(interaction,"Nur auf Corpsegrinder.")
     num=db.execute("SELECT COUNT(*) FROM forever_addon_files").fetchone()[0]
-    icons=sum(bool(trusted_addon_icon_url(
+    verified=sum(bool(trusted_addon_icon_url(
+        setting("addon_project_icon_" + row[0])) or
+        trusted_addon_icon_url(ADDON_VERIFIED_ICONS.get(row[0])))
+        for row in ADDON_SOURCES)
+    live_icons=sum(bool(trusted_addon_icon_url(
         setting("addon_project_icon_" + row[0])))
         for row in ADDON_SOURCES)
     last=setting("addons_last_checked")
