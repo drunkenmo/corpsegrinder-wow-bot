@@ -7226,7 +7226,9 @@ async def check_addons_command(interaction: discord.Interaction):
         number,status=await check_forever_addons()
         await interaction.followup.send(
             f"🧩 **Addon-Prüfung beendet**\n"
-            f"Neue Meldungen: **{number}**\nStatus: {status}\nKanal: #addons",
+            f"Neue Meldungen: **{number}**\nStatus: {status}\n"
+            f"Echte Icons: **{sum(bool(trusted_addon_icon_url(setting('addon_project_icon_' + row[0]))) for row in ADDON_SOURCES)}/{len(ADDON_SOURCES)}**\n"
+            f"Letzte Quellenfehler: {(setting('addons_last_error_preview') or 'keine')[:230]}\nKanal: #addons",
             ephemeral=True)
     except Exception:
         logging.exception("Manuelle Addon-Prüfung fehlgeschlagen")
@@ -7247,12 +7249,15 @@ async def addon_status_command(interaction: discord.Interaction):
         for row in ADDON_SOURCES)
     last=setting("addons_last_checked")
     status=setting("addons_last_result") or "Noch nicht geprüft"
+    error_details=setting("addons_last_error_preview") or ""
     await answer(interaction,
                  f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
                  f"Echte CurseForge-Icons: **{icons}/{len(ADDON_SOURCES)}**\n"
                  f"Abfrage alle **6 Stunden**\n"
                  + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
-                 + f"Status: {status}")
+                 + f"Status: {status}"
+                 + (f"\nQuellenfehler: {error_details[:230]}"
+                    if error_details and admin(interaction) else ""))
 
 
 
