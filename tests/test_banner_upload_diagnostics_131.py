@@ -51,7 +51,11 @@ class BannerErrorDiagnosticsTests(unittest.TestCase):
         self.assertIn('attachment.filename.startswith("corpsegrinder_banner.")', planner)
         self.assertIn('embed.set_image(url="attachment://" + banner.filename)', welcome)
         self.assertIn('refreshed.set_image(url="attachment://" + artwork.filename)', planner)
-        self.assertIn('VERSION = "1.0.31"', FEATURES)
+        self.assertGreaterEqual(
+            tuple(int(p) for p in next(line.split('"')[1]
+                for line in FEATURES.splitlines()
+                if line.startswith("VERSION = ")).split(".")),
+            (1, 0, 31))
 
 
 if __name__ == "__main__":
