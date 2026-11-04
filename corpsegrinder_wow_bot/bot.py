@@ -545,6 +545,8 @@ async def on_ready():
     background(ensure_level_dashboard_on_start())
     background(remove_old_guild_category_once())
     background(refresh_community_panels_on_start())
+    if guild is not None:
+        background(compact_old_lagerfeuer_greetings(guild))
     if not getattr(bot, "event_scheduler_started", False):
         bot.event_scheduler_started = True
         background(event_scheduler_loop())
@@ -556,6 +558,62 @@ async def on_ready():
         bot.forever_addons_worker_started = True
         background(forever_addons_worker())
 
+# Sicherer Abgleich nur mit dem exakten früheren automatischen Bot-Text.
+# Keine normalen Nachrichten und keine manuellen Bot-Posts bearbeiten.
+_OLD_LAGERFEUER_GREETING = re.compile(
+    r"⚔️ Willkommen bei \*\*Corpsegrinder\*\*, "
+    r"(?P<member><@!?\d+>)! Für die Horde! 🍻\n"
+    r"Starte mit unserer Orientierung in (?:<#\d+>|#willkommen)\. "
+    r"Danach in (?:<#\d+>|#rollenwahl) Rollen wählen und "
+    r"\*\*Ingame-Name \+ Klasse\*\* registrieren\. "
+    r"Keine Freigabe erforderlich\."
+)
+
+
+def short_lagerfeuer_greeting(member_mention, welcome_link):
+    return ("👋 Willkommen am Lagerfeuer, " + member_mention +
+            "! 🍻 Neu hier? Schau in " + welcome_link + ".")
+
+
+async def compact_old_lagerfeuer_greetings(guild):
+    """Einmal alle alten eigenen Bot-Begrüßungen an Ort und Stelle kürzen.
+
+    Es werden keine Nachrichten gelöscht oder neu gesendet. Der Speicher-
+    Marker verhindert weitere historische Durchläufe nach dem ersten Erfolg.
+    """
+    if setting("lagerfeuer_greetings_compacted_v136") == "1":
+        return
+    target = channel(guild, "lagerfeuer")
+    if not isinstance(target, discord.TextChannel):
+        return
+    welcome = channel(guild, "willkommen")
+    welcome_link = welcome.mention if welcome else "#willkommen"
+    total, failed = 0, False
+    try:
+        async for message in target.history(limit=None):
+            if message.author.id != bot.user.id:
+                continue
+            matched = _OLD_LAGERFEUER_GREETING.fullmatch(message.content or "")
+            if matched is None:
+                continue
+            try:
+                await message.edit(
+                    content=short_lagerfeuer_greeting(
+                        matched.group("member"), welcome_link),
+                    allowed_mentions=discord.AllowedMentions.none())
+                total += 1
+            except discord.HTTPException:
+                failed = True
+                logging.warning("Alte Lagerfeuer-Begrüßung %s nicht bearbeitbar",
+                                message.id)
+    except discord.HTTPException:
+        logging.exception("Lagerfeuer-Historie nicht vollständig lesbar")
+        return
+    if not failed:
+        save_setting("lagerfeuer_greetings_compacted_v136", "1")
+    logging.info("Lagerfeuer: %s alte Begrüßungen gekürzt", total)
+
+
 @bot.event
 async def on_member_join(member):
     if member.guild.id != GUILD_ID:
@@ -566,26 +624,22 @@ async def on_member_join(member):
             await member.add_roles(community)
         except discord.Forbidden:
             logging.warning("Community-Rolle konnte nicht vergeben werden")
-    # Welcome itself stays a clean, pinned manual rather than a stream of
-    # join messages that pushes the instructions off the newest-chat view.
-    greeting = channel(member.guild,"lagerfeuer") or channel(member.guild,"willkommen")
-    if isinstance(greeting,discord.TextChannel):
-        welcome = channel(member.guild,"willkommen")
-        roles = channel(member.guild,"rollenwahl")
+    # Im #lagerfeuer nur ein kurzer freundlicher Empfang. Der vollständige
+    # Einstiegsleitfaden bleibt angepinnt in #willkommen, statt bei jedem
+    # Beitritt erneut die Unterhaltung zu überlagern.
+    greeting = channel(member.guild, "lagerfeuer")
+    welcome = channel(member.guild, "willkommen")
+    if isinstance(greeting, discord.TextChannel):
         welcome_link = welcome.mention if welcome else "#willkommen"
-        role_link = roles.mention if roles else "#rollenwahl"
         try:
             await greeting.send(
-                "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
-                "! Für die Horde! 🍻\n"
-                "Starte mit unserer Orientierung in " + welcome_link +
-                ". Danach in " + role_link +
-                " Rollen wählen und **Ingame-Name + Klasse** registrieren. "
-                "Keine Freigabe erforderlich.",
+                short_lagerfeuer_greeting(member.mention, welcome_link),
                 allowed_mentions=discord.AllowedMentions(
-                    users=True,roles=False,everyone=False))
+                    users=True, roles=False, everyone=False),
+                delete_after=24 * 3600)
         except discord.HTTPException:
-            logging.warning("Begrüßung für neues Mitglied nicht möglich")
+            logging.warning("Kurze Lagerfeuer-Begrüßung nicht möglich")
+
 
 # Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
 # Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
