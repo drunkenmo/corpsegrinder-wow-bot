@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.27 – Schlanke Addon-Schmiede
+
+- Den großen Einleitungs-Embed mit Bild und Sprüchen entfernt; die Überschrift **⚒️ CORPSEGRINDER · ADDON-SCHMIEDE** steht direkt auf der ersten Katalogkarte.
+- Den Hinweis **VOR DER INSTALLATION** am Ende entfernt und den sichtbaren technischen Marker durch eine kurze Kennzeichnung ersetzt.
+- Acht Addons, direkte Links und zweispaltige Inline-Felder bleiben erhalten. Die angeheftete Originalnachricht und automatischen Update-Meldungen bleiben bestehen.
+
+
 ## 1.0.26 – Zweispaltige Addon-Felder am PC
 
 - Die zwei Katalog-Embeds verwenden nun **Inline-Felder** für ihre acht Addons, mit einem vollbreiten Zeilenumbruch nach jeweils zwei Einträgen. Discord kann so je nach Fensterbreite zwei Addons nebeneinander anzeigen.
