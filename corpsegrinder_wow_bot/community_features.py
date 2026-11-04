@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.32"
+VERSION = "1.0.33"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,25 +139,26 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="📰 Corpsegrinder Bot – Forever-News im neuen Design 1.0.32",
+        title="⚒️ Corpsegrinder Bot 1.0.33 · Addon-Schmiede",
         description=(
-            "**Nur echte und datierte WoW-Forever-News.**\n\n"
-            "✅ Neue Quellen: Wowhead-RSS, deutsche WoW-Forever-Community "
-            "und WoW Source (4Fansites) – nur relevante Forever-Meldungen.\n"
-            "✅ Blizzard, Blizzard-Forum und WoW Forever GG bleiben erhalten.\n"
-            "✅ Große Vorschaubilder aus Originalartikeln, sofern vorhanden; "
-            "echte Videolinks werden angezeigt, wenn die Quelle sie anbietet.\n"
-            "✅ Titel und kurze Quellenvorschau werden übernommen; keine "
-            "erfundenen Aussagen oder künstlichen Nachrichten.\n"
-            "✅ Offizielle Blizzard-Beiträge sind klar als offiziell gekennzeichnet.\n"
-            "✅ 14 Tage Rückblick, weiterhin automatisch alle 30 Minuten.\n"
-            "✅ Der Statusbefehl **/forever_news_status** zeigt auch "
-            "Fehler der einzelnen Community-Feeds.\n"
-            "✅ Ältere Community-News werden, soweit abrufbar, "
-            "in ihren bestehenden Karten aktualisiert.\n\n"
-            "**Admin:** Mit **/forever_news_pruefen** jetzt einmal "
-            "einen Abruf auslösen."
+            "**Die Addon-Schmiede wurde neu aufgebaut.**\n\n"
+            "⚒️ **Blackthornes Collection:** Farmer, Tradeskills, Equipment, "
+            "Butler und Pets – alle fünf einzeln verlinkt.\n"
+            "🎯 **Deine Favoriten:** Factoruide Guide + Profile, "
+            "Azeroth Compendium, SKTools, Spoken und Spoken: German.\n"
+            "🧩 **Unsere bisherigen acht Addons** bleiben dabei.\n"
+            "🖼️ Jedes Addon erhält seine eigene kleine Karte mit dem echten "
+            "CurseForge-Projekt-Icon, sofern die Seite ein eindeutig "
+            "zuordenbares Original-Icon liefert. Keine geratenen Bilder.\n"
+            "📌 Drei angepinnte Katalog-Nachrichten statt eines überladenen "
+            "Panels. Bereits vorhandene Nachrichten werden weiterverwendet.\n"
+            "🔗 Downloadlinks führen direkt zu den Originalprojekten. "
+            "Nur ausdrücklich erkannte Forever-Dateien werden als solche markiert.\n"
+            "🎙️ Spoken: German muss über die CurseForge-App installiert werden.\n\n"
+            "**Admin:** Mit **/addons_pruefen** die Forever-Versionen "
+            "und Original-Icons sofort abfragen. Mit **/addons_status** "
+            "die Anzahl erkannter Icons kontrollieren."
         ),
-        colour=discord.Colour.blue())
+        colour=discord.Colour.from_rgb(143, 89, 32))
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
     return embed
