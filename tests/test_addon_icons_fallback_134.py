@@ -40,7 +40,9 @@ def load():
         "urlparse": urlparse, "Request": Request, "HTMLParser": HTMLParser,
         "ADDON_PROJECT_BASE": constant("ADDON_PROJECT_BASE"),
         "ADDON_DISCOVERY_URL": "https://www.curseforge.com/wow/search",
-        "ADDON_ICON_HOSTS": frozenset((\n            "media.forgecdn.net", "mediafilez.forgecdn.net",\n            "edge.forgecdn.net")),
+        "ADDON_ICON_HOSTS": frozenset((
+            "media.forgecdn.net", "mediafilez.forgecdn.net",
+            "edge.forgecdn.net")),
         "ADDON_SOURCES": constant("ADDON_SOURCES"),
         "clean_official_text": lambda s, limit: s[:limit],
     }
