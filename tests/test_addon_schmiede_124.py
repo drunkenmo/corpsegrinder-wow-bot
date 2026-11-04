@@ -175,6 +175,8 @@ class ThreePinnedAddonCatalogTests(unittest.TestCase):
         self.assertIn("save_setting(key, existing.id)", SOURCE)
         self.assertIn("background(forever_addons_worker())", SOURCE)
         self.assertNotIn("bot.add_view(AddonForgeView())", SOURCE)
+        self.assertIn("initial_curated = not is_new and previous is None", SOURCE)
+        self.assertIn("await ensure_addons_channel(guild)\n        if errors:", SOURCE)
 
 
 if __name__ == "__main__":
