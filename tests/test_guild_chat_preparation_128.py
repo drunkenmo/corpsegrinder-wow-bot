@@ -1,4 +1,4 @@
-"""Safe channel preparation for WoW Forever's official guild chat sync."""
+"""Safe PvE and PvP guild-chat preparation for WoW Forever."""
 import ast
 from pathlib import Path
 import unittest
@@ -10,33 +10,39 @@ TREE = ast.parse(SOURCE)
 
 
 class GuildChatChannelTests(unittest.TestCase):
-    def test_channel_exists_in_start_structure_once(self):
+    def test_separate_guild_chats_are_in_correct_sections(self):
         structure = next(node for node in TREE.body
                          if isinstance(node, ast.Assign)
                          and any(isinstance(target, ast.Name)
                                  and target.id == "STRUCTURE"
                                  for target in node.targets))
         data = ast.literal_eval(structure.value)
-        start = data["🌋 WOW FOREVER | START"]
-        self.assertEqual(start.count(("wow-gildenchat", "text")), 1)
-        self.assertLess(start.index(("lagerfeuer", "text")),
-                        start.index(("wow-gildenchat", "text")))
+        self.assertIn(("pve-gildenchat", "text"), data["⚔️ WOW FOREVER | PVE"])
+        self.assertIn(("pvp-gildenchat", "text"), data["🏹 WOW FOREVER | PVP"])
+        self.assertNotIn(("wow-gildenchat", "text"), data["🌋 WOW FOREVER | START"])
+        self.assertEqual(sum(ch == "pve-gildenchat" for items in data.values()
+                             for ch, typ in items), 1)
+        self.assertEqual(sum(ch == "pvp-gildenchat" for items in data.values()
+                             for ch, typ in items), 1)
 
-    def test_creation_is_idempotent_and_no_bridge(self):
-        fragment = SOURCE[SOURCE.index("async def ensure_wow_guild_chat_channel(guild):"):
-                          SOURCE.index("async def ensure_guild_chat_channel_on_start():")]
-        self.assertIn('existing = channel(guild, "wow-gildenchat")', fragment)
-        self.assertIn("if existing is not None:", fragment)
-        self.assertIn("return existing", fragment)
-        self.assertIn("category.create_text_channel(", fragment)
-        self.assertIn("await organize_start_channels(guild)", fragment)
+    def test_creation_is_independent_idempotent_and_not_a_bridge(self):
+        fragment = SOURCE[
+            SOURCE.index("async def ensure_wow_guild_chat_channel(guild, area):"):
+            SOURCE.index("async def ensure_guild_chat_channel_on_start():")]
+        for text in ('"pve": ("pve-gildenchat", "⚔️ WOW FOREVER | PVE")',
+                     '"pvp": ("pvp-gildenchat", "🏹 WOW FOREVER | PVP")',
+                     "if existing is not None:", "return existing",
+                     "category.create_text_channel(", "await organize_start_channels(guild)"):
+            self.assertIn(text, fragment)
         for forbidden in ("create_webhook", "on_message", "send_messages", "bot.send"):
             self.assertNotIn(forbidden, fragment)
 
-    def test_startup_hook_and_version(self):
+    def test_startup_prepares_both_and_version_is_correct(self):
+        self.assertIn('for area in ("pve", "pvp"):', SOURCE)
         self.assertIn("background(ensure_guild_chat_channel_on_start())", SOURCE)
         self.assertIn('VERSION = "1.0.28"', FEATURES)
-        self.assertIn("Die tatsächliche WoW-Verknüpfung", FEATURES)
+        self.assertIn("#pve-gildenchat", FEATURES)
+        self.assertIn("#pvp-gildenchat", FEATURES)
 
 
 if __name__ == "__main__":
