@@ -478,7 +478,6 @@ async def on_ready():
     bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
     bot.add_view(TradeDashboardView())
-    bot.add_view(AddonForgeView())
     for trade_id, post_id in db.execute(
             "SELECT id,message_id FROM trade_posts WHERE guild=? "
             "AND status='open' AND message_id IS NOT NULL",
@@ -6326,203 +6325,62 @@ def addon_latest_version(slug):
 
 
 def addon_intro_embed():
-    """Reuse the old pinned message as a Warcraft-inspired interactive hub."""
+    """One large, readable fantasy header; no menu or nested selection."""
     embed = discord.Embed(
         title="⚒️ CORPSEGRINDER · DIE ADDON-SCHMIEDE",
         description=(
-            "✦ **FÜR DIE HORDE · FÜR AZEROTH** ✦\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**Hilfreiche Erweiterungen für WoW Forever** 🧩\n\n"
-            "Willkommen in der Addon-Schmiede! Wähle unten eine Kategorie "
-            "und erkunde unsere **Addon-Karten** mit deutschen Beschreibungen, "
-            "erkannten Forever-Dateien und CurseForge-Links.\n\n"
+            "✦ **FÜR DIE HORDE · FÜR AZEROTH** ✦\n\n"
+            "**Die Werkzeuge für deine Abenteuer – ohne Klick-Labyrinth!**\n"
+            "Alle Addons stehen **direkt unten** mit Kurzbeschreibung "
+            "und CurseForge-Link. Einfach das gewünschte Addon öffnen.\n\n"
             "🍻 *Alte Säcke. Kaltes Bier. Gut geschmiedete Addons.*"),
-        colour=discord.Colour.from_rgb(180, 112, 38))
+        colour=discord.Colour.from_rgb(176, 110, 38))
     embed.set_image(url=ADDON_HUB_ART_URL)
-    embed.add_field(
-        name="📜 DER KATALOG",
-        value="\n".join(emoji + " **" + title + "**"
-                        for _key, title, emoji, _slugs in ADDON_CATEGORIES),
-        inline=False)
-    embed.add_field(
-        name="🏆 EMPFEHLUNGEN · 🔄 NEUE DATEIEN",
-        value="Über die Buttons unten erhältst du eine **private** Übersicht. "
-              "Der Kanal bleibt dabei aufgeräumt.",
-        inline=False)
-    embed.add_field(
-        name="⚠️ DIE RICHTIGE VERSION",
-        value="Immer eine explizite **WoW-Forever-Datei (1.60.1)** wählen. "
-              "Ein Eintrag garantiert keine vollständige Kompatibilität. "
-              "Der Bot installiert keine Dateien.",
-        inline=False)
     embed.set_footer(text="Corpsegrinder • Addon-Schmiede • " + ADDON_MARKER)
     return embed
 
 
-def addon_detail_embed(slug):
-    item = next((row for row in ADDON_SOURCES if row[0] == slug), None)
-    if not item:
-        return None
-    _slug, title, area, summary = item
-    category = next((row for row in ADDON_CATEGORIES if slug in row[3]), None)
-    icon = category[2] if category else "🧩"
-    version = addon_latest_version(slug)
-    embed = discord.Embed(
-        title=icon + " " + title + " · ADDON-SCHMIEDE",
-        description="━━━━━━━━━━━━━━━━━━━━━━\n"
-                    + "**" + summary + "**\n\n"
-                    + "🛡️ **Kategorie:** " + area + "\n"
-                    + "🌍 **Spiel:** WoW Forever\n"
-                    + ("📦 **Erkannte Forever-Datei:** "
-                       + discord.utils.escape_markdown(version[:80])
-                       if version else "📦 **Forever-Datei:** Noch nicht bestätigt")
-                    + "\n\n*Bitte vor der Installation die Forever-Version "
-                      "und Kompatibilität prüfen.*",
-        url=addon_project_url(slug),
-        colour=discord.Colour.from_rgb(170, 110, 38))
-    embed.add_field(
-        name="🔗 Offizielle Projektseite",
-        value="[CurseForge öffnen](" + addon_project_url(slug) + ")",
-        inline=False)
-    embed.set_footer(text="Corpsegrinder • Nur Orientierung, kein automatischer Download")
-    return embed
-
-
-def addon_category_embed(key):
-    item = addon_category(key)
-    if not item:
-        return None
-    _key, title, emoji, _slugs = item
-    rows = addon_catalogue_rows(key)
-    embed = discord.Embed(
-        title=emoji + " " + title + " · ADDON-KATALOG",
-        description="Wähle darunter ein Addon, um seine Detailkarte zu öffnen.",
-        colour=discord.Colour.from_rgb(170, 105, 35))
-    for slug, name, area, summary in rows:
-        version = addon_latest_version(slug)
-        embed.add_field(
-            name="✦ " + name,
-            value=summary + "\n"
-                  + ("📦 Forever-Datei: " +
-                     discord.utils.escape_markdown(version[:70])
-                     if version else "📦 Forever-Datei noch nicht bestätigt"),
-            inline=False)
-    embed.set_footer(text="Corpsegrinder • " + str(len(rows)) + " Addons")
-    return embed
-
-
-def addon_recent_embed():
-    rows = db.execute(
-        "SELECT slug,latest_version FROM forever_addon_files "
-        "ORDER BY last_seen_utc DESC LIMIT 8").fetchall()
-    curated = {row[0]: row[1] for row in ADDON_SOURCES}
-    embed = discord.Embed(
-        title="🔄 ZULETZT GEFUNDENE FOREVER-DATEIEN",
-        description="Die letzten überprüften Einträge – nicht zwingend "
-                    "heute veröffentlicht. Quellen und Zeiten auf "
-                    "CurseForge kontrollieren.",
-        colour=discord.Colour.from_rgb(66, 137, 94))
-    for slug, version in rows:
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,80}", slug):
-            continue
-        embed.add_field(
-            name="🧩 " + curated.get(slug, slug.replace("-", " ").title())[:80],
-            value="📦 " + discord.utils.escape_markdown(version[:75]) +
-                  "\n[CurseForge öffnen](" + addon_project_url(slug) + ")",
-            inline=False)
-    if not embed.fields:
-        embed.add_field(name="Noch keine Einträge",
-                        value="Die nächste automatische Prüfung füllt die Liste.",
-                        inline=False)
-    embed.set_footer(text="Automatische Prüfung alle 6 Stunden")
-    return embed
-
-
-class AddonLinkView(discord.ui.View):
-    def __init__(self, slug):
-        super().__init__(timeout=180)
-        self.add_item(discord.ui.Button(
-            label="CurseForge öffnen", emoji="🔗",
-            style=discord.ButtonStyle.link, url=addon_project_url(slug)))
-
-
-class AddonPicker(discord.ui.View):
-    def __init__(self, rows):
-        super().__init__(timeout=180)
-        self.slugs = [row[0] for row in rows]
-        selector = discord.ui.Select(
-            placeholder="🧩 Addon auswählen",
-            options=[discord.SelectOption(
-                label=name[:100], value=slug, description=area[:100])
-                for slug, name, area, _summary in rows],
-            min_values=1, max_values=1)
-        selector.callback = self.on_select
-        self.add_item(selector)
-
-    async def on_select(self, i: discord.Interaction):
-        if not allowed(i):
-            return await answer(i, "Nur auf Corpsegrinder möglich.")
-        slug = self.children[0].values[0]
-        if slug not in self.slugs:
-            return await answer(i, "Addon nicht in dieser Auswahl.")
-        card = addon_detail_embed(slug)
-        await i.response.send_message(
-            embed=card, view=AddonLinkView(slug), ephemeral=True)
-
-
-class AddonForgeView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        categories = discord.ui.Select(
-            custom_id=ADDON_HUB_VIEW_ID,
-            placeholder="⚒️ Wähle eine Addon-Kategorie",
-            options=[discord.SelectOption(
-                label=title, value=key, emoji=emoji)
-                for key, title, emoji, _slugs in ADDON_CATEGORIES],
-            min_values=1, max_values=1, row=0)
-        categories.callback = self.category
-        self.add_item(categories)
-        featured = discord.ui.Button(
-            label="Empfehlungen", emoji="🏆",
-            style=discord.ButtonStyle.primary,
-            custom_id="corpse_addons_recommended_v124", row=1)
-        featured.callback = self.recommendations
-        self.add_item(featured)
-        recent = discord.ui.Button(
-            label="Neu auf CurseForge", emoji="🔄",
-            style=discord.ButtonStyle.secondary,
-            custom_id="corpse_addons_recent_v124", row=1)
-        recent.callback = self.latest
-        self.add_item(recent)
-
-    async def category(self, i: discord.Interaction):
-        if not allowed(i):
-            return await answer(i, "Nur auf Corpsegrinder möglich.")
-        row = addon_category(self.children[0].values[0])
-        if not row:
-            return await answer(i, "Unbekannte Kategorie.")
-        await i.response.send_message(
-            embed=addon_category_embed(row[0]),
-            view=AddonPicker(addon_catalogue_rows(row[0])), ephemeral=True)
-
-    async def recommendations(self, i: discord.Interaction):
-        if not allowed(i):
-            return await answer(i, "Nur auf Corpsegrinder möglich.")
+def addon_catalogue_embeds():
+    """Two generously spaced catalogue cards, links directly visible."""
+    sections = (
+        ("📜 QUESTS · KARTEN · KOMFORT",
+         ("questie", "questforever", "leatrix-plus", "leatrix-maps", "tomtom")),
+        ("⚔️ KAMPF · HANDEL · INVENTAR",
+         ("deadly-boss-mods", "auctionator", "baganator")),
+    )
+    by_slug = {row[0]: row for row in ADDON_SOURCES}
+    cards = []
+    for title, slugs in sections:
         embed = discord.Embed(
-            title="🏆 EMPFEHLUNGEN DER HORDE",
-            description="Eine kuratierte Orientierung für die Horde. "
-                        "Die passende WoW-Forever-Datei immer gesondert prüfen.\n\n"
-                        + "\n".join("✦ **" + name + "** · " + area
-                                    for _slug, name, area, _summary in ADDON_SOURCES),
-            colour=discord.Colour.gold())
-        await i.response.send_message(
-            embed=embed, view=AddonPicker(ADDON_SOURCES), ephemeral=True)
+            title=title,
+            description="━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            colour=discord.Colour.from_rgb(143, 89, 32))
+        for slug in slugs:
+            if slug not in by_slug:
+                continue
+            _slug, name, area, summary = by_slug[slug]
+            embed.add_field(
+                name="✦ " + name,
+                value=(summary + "\n"
+                       + "[🔗 Auf CurseForge ansehen]("
+                       + addon_project_url(slug) + ")"),
+                inline=False)
+        cards.append(embed)
+    cards[-1].add_field(
+        name="⚠️ VOR DER INSTALLATION",
+        value="Immer die **WoW-Forever-Datei (1.60.1)** auswählen. "
+              "Nicht jedes Addon ist garantiert vollständig kompatibel. "
+              "Der Bot installiert keine Dateien.",
+        inline=False)
+    cards[-1].set_footer(
+        text="Updates zu Forever-Dateien erscheinen weiterhin im Kanal.")
+    return cards
 
-    async def latest(self, i: discord.Interaction):
-        if not allowed(i):
-            return await answer(i, "Nur auf Corpsegrinder möglich.")
-        await i.response.send_message(
-            embed=addon_recent_embed(), ephemeral=True)
+
+def addon_simplified_embeds():
+    """The original pinned message contains all three cards at once."""
+    return [addon_intro_embed(), *addon_catalogue_embeds()]
+
 
 
 
@@ -6578,10 +6436,11 @@ async def ensure_addons_channel(guild):
             pass
     if existing is None:
         existing=await target.send(
-            embed=addon_intro_embed(),view=AddonForgeView(),
+            embeds=addon_simplified_embeds(),
             allowed_mentions=discord.AllowedMentions.none())
     else:
-        await existing.edit(embed=addon_intro_embed(),view=AddonForgeView())
+        # The same message ID and pin are reused. Remove 1.0.24 dropdowns.
+        await existing.edit(embeds=addon_simplified_embeds(), view=None)
     save_setting(key,existing.id)
     if not existing.pinned:
         try:
