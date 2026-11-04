@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.25 – Addon-Schmiede ohne Klick-Labyrinth
+
+- Die **angeheftete Addon-Nachricht** wurde von verschachtelten Menüs auf eine einfache, mobil lesbare Übersicht umgestellt: ein Fantasy-Kopfbereich und zwei große Katalogkarten in **derselben Discord-Nachricht**.
+- Alle acht kuratierten Addons zeigen jetzt direkt Namen, deutsche Kurzbeschreibung und **anklickbaren CurseForge-Link**. Kein Dropdown und keine private Detailansicht notwendig.
+- Vorhandene Nachricht, Pin, gespeicherter Marker und Kanalverlauf bleiben erhalten. Beim Update werden die alten 1.0.24-Buttons aus der angehefteten Karte entfernt; keine doppelten Hauptbeiträge.
+- Regelmäßige Forever-Addon-Meldungen und der 6-Stunden-Scanner bleiben aktiv.
+- Keine Änderungen an Kanalreihenfolge, Serverkategorien, Rollen oder anderen Bereichen.
+
+
 ## 1.0.24 – Warcraft-Fantasy Addon-Schmiede
 
 - Der bestehende, angeheftete **#addons**-Einführungsbeitrag wird als **Addon-Schmiede** mit bronzegoldener Fantasy-Farbgebung, Horde-Grafik, kurzer Einleitung und sechs Kategorien überarbeitet. Die alte Nachrichten-ID und der gespeicherte Marker bleiben erhalten, damit keine doppelte Hauptkarte entsteht.
