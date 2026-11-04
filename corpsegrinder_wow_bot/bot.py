@@ -1326,10 +1326,22 @@ async def refresh_user_character_cards(user_id):
                     "aktualisiert werden",kind,group_id)
 
 
-def ingame_server_nickname(main, member):
-    """Discord shows the server nickname in text AND voice channels."""
-    # The in-game name, not the Discord username, is the primary identifier.
-    return main[0][:32]
+def ingame_server_nickname(main, member, original_nick=None):
+    """Kompakter, gemeinsamer Name in Discord-Text- und Sprachkanälen.
+
+    Den alten Servernickname nutzen, falls vorhanden. Sonst den Discord-
+    Anzeigenamen. Kein eigenständiges Voice-Namensfeld existiert bei Discord.
+    """
+    discord_name = str(
+        original_nick or getattr(member, "global_name", None)
+        or getattr(member, "name", None) or "Spieler").strip()
+    character = str(main[0]).strip()
+    if discord_name.casefold() == character.casefold():
+        return character[:32]
+    # Discord: höchstens 32 Zeichen; beide Namen bleiben erkennbar.
+    character = character[:24]
+    available = 32 - len(character) - len(" | ")
+    return discord_name[:available].rstrip() + " | " + character
 
 
 async def sync_optional_character_nickname(member):
@@ -1342,7 +1354,7 @@ async def sync_optional_character_nickname(member):
     main = main_character(member.id)
     if not main:
         return
-    new_nick = ingame_server_nickname(main,member)
+    new_nick = ingame_server_nickname(main, member, preference[0])
     if member.nick == new_nick:
         return
     # Never undo a manual nickname change. Only manage what this bot set.
@@ -1781,7 +1793,7 @@ class CharacterProfileActionsView(discord.ui.View):
             ephemeral=True)
 
     @discord.ui.button(
-        label="Im Sprachchat anzeigen", emoji="🔊",
+        label="Beide Namen im Sprachchat", emoji="🔊",
         style=discord.ButtonStyle.success, row=1)
     async def show_in_voice(self, interaction, button):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1809,7 +1821,7 @@ async def toggle_character_server_nick(member):
     if not main:
         return "⚔️ Registriere zuerst deinen Ingame-Charakter in #rollenwahl."
     old_nick=member.nick
-    new_nick=ingame_server_nickname(main,member)
+    new_nick=ingame_server_nickname(main, member, old_nick)
     try:
         await member.edit(
             nick=new_nick,
@@ -1819,7 +1831,7 @@ async def toggle_character_server_nick(member):
                 "Das geht **nicht beim Serverinhaber** und auch nicht bei "
                 "Mitgliedern mit gleich hoher oder höherer Rolle. "
                 "Du kannst deinen eigenen Servernickname über "
-                "**Serverprofil bearbeiten** manuell auf deinen Ingame-Namen setzen. "
+                "**Serverprofil bearbeiten** manuell auf 'Discord-Name | Hauptcharakter' setzen. "
                 "Sonst braucht der Bot **Nicknames verwalten** und "
                 "eine ausreichend hohe Rollenposition.")
     except discord.HTTPException:
@@ -1832,7 +1844,8 @@ async def toggle_character_server_nick(member):
     return (
         "✅ Dein Servername lautet jetzt **"+
         discord.utils.escape_markdown(new_nick)+
-        "**. Mit derselben Schaltfläche kannst du es rückgängig machen.")
+        "**. Dieser Name erscheint im Text- und Sprachchat. "
+        "Mit derselben Schaltfläche kannst du es rückgängig machen.")
 
 
 class CharacterPanelView(discord.ui.View):
@@ -1868,7 +1881,7 @@ class CharacterPanelView(discord.ui.View):
             ephemeral=True)
 
     @discord.ui.button(
-        label="Sprachchat-Name an/aus", emoji="🔊",
+        label="Discord + Ingame-Name", emoji="🔊",
         style=discord.ButtonStyle.secondary,
         custom_id="corpse_character_nick_v117")
     async def nickname(self, interaction, button):
@@ -1892,8 +1905,8 @@ def character_panel_embed():
             "Für weitere Charaktere einfach erneut verwenden.\n"
             "👑 **Meine Charaktere:** Hauptcharakter und Twinks ansehen, "
             "Name/Klasse bearbeiten oder mit Bestätigung löschen.\n"
-            "🔊 **Sprachchat-Name an/aus:** freiwillig deinen Servernamen "
-            "auf deinen Hauptcharakter setzen oder wiederherstellen.\n\n"
+            "🔊 **Discord + Ingame-Name:** freiwillig beide Namen "
+            "kombinieren (z. B. Discordname | Hauptcharakter) oder wiederherstellen.\n\n"
             "In Dungeon- und Levelgruppen steht dein **Ingame-Name zuerst**, "
             "danach dein anklickbarer Discord-Account. "
             "**Keine Stufe nötig.**"),
@@ -2050,7 +2063,7 @@ async def restore_character_nickname(member):
 
 
 @bot.tree.command(name="ingame_nickname",
-                  description="Servernamen freiwillig auf Hauptcharakter umstellen",guild=SERVER)
+                  description="Discord-Name und Hauptcharakter gemeinsam anzeigen",guild=SERVER)
 @app_commands.describe(aktiv="Aktivieren oder wieder zum vorherigen Namen zurückkehren")
 async def set_character_nickname(i: discord.Interaction, aktiv: bool):
     if not allowed(i):
@@ -2070,7 +2083,8 @@ async def set_character_nickname(i: discord.Interaction, aktiv: bool):
     old = db.execute(
         "SELECT original_nick FROM character_nickname_preferences "
         "WHERE guild=? AND user=?",(GUILD_ID,i.user.id)).fetchone()
-    proposed = ingame_server_nickname(main,i.user)
+    original_nick = old[0] if old else i.user.nick
+    proposed = ingame_server_nickname(main, i.user, original_nick)
     try:
         await i.user.edit(nick=proposed,
                           reason="Corpsegrinder: freiwilliger Ingame-Servername")
