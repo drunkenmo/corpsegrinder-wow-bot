@@ -135,6 +135,9 @@ class ThreePinnedAddonCatalogTests(unittest.TestCase):
         check = self.env["trusted_addon_icon_url"]
         good = "https://media.forgecdn.net/avatars/1499/101/farmer.png"
         self.assertEqual(check(good), good)
+        real_thumbnail = ("https://media.forgecdn.net/avatars/thumbnails/"
+                          "2152/127/256/256/639286635197992420.png")
+        self.assertEqual(check(real_thumbnail), real_thumbnail)
         for raw in (
             "https://media.forgecdn.net/gallery/2045/12/screenshot.png",
             "https://media.forgecdn.net/avatars/1/2/icon.svg",
