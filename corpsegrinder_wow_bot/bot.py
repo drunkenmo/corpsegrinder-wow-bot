@@ -2222,9 +2222,26 @@ async def set_welcome_banner_command(
             view=WelcomeView(interaction.guild),
             attachments=[discord.File(
                 io.BytesIO(data), filename="corpsegrinder_banner.png")])
+        # Reuse the same user-approved graphic in the existing dungeon dashboard.
+        dungeon_note = ""
+        try:
+            planner_post, _pinned = await ensure_planner_dashboard(interaction.guild)
+            if planner_post is not None:
+                planner_embed = planner_dashboard_embed()
+                planner_embed.set_image(url="attachment://corpsegrinder_banner.png")
+                await planner_post.edit(
+                    embed=planner_embed, view=PlannerDashboardView(),
+                    attachments=[discord.File(
+                        io.BytesIO(data), filename="corpsegrinder_banner.png")])
+                dungeon_note = "\n✅ Auch in der Dungeon-Halle eingebunden."
+            else:
+                dungeon_note = "\n⚠️ Dungeon-Halle nicht gefunden."
+        except discord.HTTPException:
+            logging.exception("Dungeon-Hallenbanner konnte nicht gespeichert werden")
+            dungeon_note = "\n⚠️ Die Dungeon-Halle konnte nicht aktualisiert werden."
         await interaction.followup.send(
             "✅ Corpsegrinder-Banner ist in der bestehenden "
-            "Willkommenskarte eingebunden: " + existing.jump_url,
+            "Willkommenskarte eingebunden: " + existing.jump_url + dungeon_note,
             ephemeral=True)
     except (discord.HTTPException, OSError):
         logging.exception("Corpsegrinder-Willkommensbanner konnte nicht gespeichert werden")
@@ -3124,7 +3141,7 @@ def planner_dashboard_embed():
             "Der Assistent bleibt privat, bis du die Gruppe veröffentlichst.\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
         colour=discord.Colour.from_rgb(144, 38, 25))
-    embed.set_image(url=DUNGEON_ART_URL)
+    # Banner is loaded from the existing Discord attachment, if configured.
     embed.add_field(
         name="🛡️ Deine Schlachtgruppe",
         value="**1 Tank · 1 Heiler · 3 DD** · per Button anmelden, wechseln oder abmelden.",
@@ -3510,8 +3527,17 @@ async def ensure_planner_dashboard(guild):
             view=PlannerDashboardView(),
             allowed_mentions=discord.AllowedMentions.none())
     else:
-        await existing.edit(embed=planner_dashboard_embed(),
-                            view=PlannerDashboardView())
+        refreshed = planner_dashboard_embed()
+        artwork = next(
+            (attachment for attachment in existing.attachments
+             if attachment.filename == "corpsegrinder_banner.png"), None)
+        if artwork is not None:
+            refreshed.set_image(url="attachment://corpsegrinder_banner.png")
+            await existing.edit(
+                embed=refreshed, view=PlannerDashboardView(),
+                attachments=existing.attachments)
+        else:
+            await existing.edit(embed=refreshed, view=PlannerDashboardView())
     save_setting(PLANNER_STORAGE_KEY, existing.id)
     # Nur den alten, eigenen Dungeon-Panelpost aus #pve-gruppensuche entfernen.
     # Bereits erstellte Gruppentermine und fremde Nachrichten bleiben bestehen.
@@ -3550,11 +3576,122 @@ async def ensure_planner_dashboard(guild):
 
 
 
+async def audit_dungeon_cards(guild, repair=False):
+    """Find open DB entries whose real Discord message no longer exists.
+
+    Only a definite discord.NotFound proves a deleted channel/message.
+    Network errors, Forbidden and missing permissions must never delete data.
+    """
+    cutoff = int(datetime.now(timezone.utc).timestamp()) - 3600
+    rows = db.execute(
+        "SELECT id,instance,channel,message FROM planned_groups "
+        "WHERE guild=? AND status='open' AND start_utc>? "
+        "ORDER BY start_utc LIMIT 100", (GUILD_ID, cutoff)).fetchall()
+    report = {"checked": len(rows), "valid": 0, "missing": [],
+              "unverifiable": [], "unlinked": [], "repaired": []}
+    for group_id, instance, channel_id, message_id in rows:
+        if not channel_id or not message_id:
+            # Could be a publishing operation still in progress; report only.
+            report["unlinked"].append(group_id)
+            continue
+        definite_missing = False
+        try:
+            target = guild.get_channel(channel_id)
+            if target is None:
+                target = await bot.fetch_channel(channel_id)
+            if not isinstance(target, discord.TextChannel):
+                report["unverifiable"].append(group_id)
+                continue
+            post = await target.fetch_message(message_id)
+            if post.author.id != bot.user.id:
+                report["unverifiable"].append(group_id)
+                continue
+        except discord.NotFound:
+            definite_missing = True
+        except (discord.Forbidden, discord.HTTPException, discord.ClientException):
+            report["unverifiable"].append(group_id)
+            continue
+        if definite_missing:
+            report["missing"].append(group_id)
+            if repair:
+                db.execute(
+                    "UPDATE planned_groups SET status='archived' "
+                    "WHERE guild=? AND id=? AND status='open'",
+                    (GUILD_ID, group_id))
+                db.execute(
+                    "UPDATE event_meta SET archived_at=? "
+                    "WHERE kind='dungeon' AND group_id=?",
+                    (int(datetime.now(timezone.utc).timestamp()), group_id))
+                report["repaired"].append(group_id)
+        else:
+            report["valid"] += 1
+    if report["repaired"]:
+        db.commit()
+        logging.info(
+            "Corpsegrinder Dungeonprüfung: %s gelöschte Karten archiviert: %s",
+            len(report["repaired"]), report["repaired"])
+    return report
+
+
+@bot.tree.command(
+    name="dungeon_pruefen",
+    description="Dungeon-Termine mit Discord-Karten abgleichen (Admin)",
+    guild=SERVER)
+@app_commands.describe(
+    bereinigen="Gelöschte Dungeon-Karten aus der aktiven Übersicht entfernen")
+async def dungeon_check_command(i: discord.Interaction, bereinigen: bool = False):
+    if not admin(i):
+        return await answer(i, "Nur für Administratoren.")
+    await i.response.defer(ephemeral=True, thinking=True)
+    audit = await audit_dungeon_cards(i.guild, repair=bereinigen)
+    if bereinigen and audit["repaired"]:
+        await ensure_planner_dashboard(i.guild)
+    detail = ("\nGelöschte Karten: " + ", ".join(map(str, audit["missing"]))
+              if audit["missing"] else "")
+    unlinked = ("\nOhne gespeicherte Nachrichten-ID: " +
+                ", ".join(map(str, audit["unlinked"]))
+                if audit["unlinked"] else "")
+    unknown = ("\nNicht überprüfbar (z. B. fehlende Rechte): " +
+               ", ".join(map(str, audit["unverifiable"]))
+               if audit["unverifiable"] else "")
+    await i.followup.send(
+        "🏰 **Dungeon-Prüfung**\n"
+        + f"Geprüft: **{audit['checked']}** · Vorhanden: **{audit['valid']}** "
+        + f"· Gelöschte Karten: **{len(audit['missing'])}**"
+        + f" · Archiviert: **{len(audit['repaired'])}**"
+        + detail + unlinked + unknown
+        + ("\nErneut mit `bereinigen: Ja` ausführen, um die "
+           "bestätigt gelöschten Karten auszublenden."
+           if audit["missing"] and not bereinigen else ""),
+        ephemeral=True)
+
+
+@bot.event
+async def on_raw_message_delete(payload):
+    """Stop advertising an event when its Discord group card is removed."""
+    if payload.guild_id != GUILD_ID:
+        return
+    row = db.execute(
+        "SELECT id FROM planned_groups WHERE guild=? AND channel=? "
+        "AND message=? AND status='open'",
+        (GUILD_ID, payload.channel_id, payload.message_id)).fetchone()
+    if row is None:
+        return
+    group_id = row[0]
+    db.execute(
+        "UPDATE planned_groups SET status='archived' "
+        "WHERE guild=? AND id=? AND status='open'", (GUILD_ID, group_id))
+    db.commit()
+    logging.info("Dungeonkarte #%s wurde gelöscht und archiviert", group_id)
+    await refresh_event_dashboard("dungeon")
+
+
 async def ensure_planner_dashboard_on_start():
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
     try:
+        await audit_dungeon_cards(guild, repair=True)
         await ensure_planner_dashboard(guild)
     except discord.HTTPException:
         logging.exception("Konnte Dungeon-Steuerzentrale beim Start nicht einrichten")
