@@ -1,12 +1,11 @@
 # Changelog
 
-## 1.0.28 – Gildenchat für WoW Forever vorbereiten
+## 1.0.28 – Separate Gildenchats für PvE und PvP
 
-- `#wow-gildenchat` wird beim Bot-Start einmalig als normaler Textkanal in **🌋 WOW FOREVER | START** angelegt und direkt hinter `#lagerfeuer` einsortiert. Existiert er bereits, wird er weder ersetzt noch umkonfiguriert.
-- Der Kanal dient später als Ziel für die **offizielle WoW-/Discord-Gildenchat-Verknüpfung**. Der Gildenleiter oder berechtigte Offizier muss die Verbindung im WoW-Client selbst herstellen. Ob die Funktion auf Forever-Live-Servern bereits aktiviert ist, wird nicht vorausgesetzt.
-- Keine zusätzliche Bot-Chat-Bridge, Webhooks oder automatische Chatspiegelung; kein Anlegen oder Ändern von Discord-Berechtigungen über die Kategorie-Standards hinaus.
-- Alle vorhandenen Serverfunktionen, Kanäle und Chats bleiben erhalten.
-
+- `#pve-gildenchat` wird einmalig im Bereich **⚔️ WOW FOREVER | PVE** erstellt; `#pvp-gildenchat` einmalig im Bereich **🏹 WOW FOREVER | PVP**. Kein gemeinsamer Gildenchat im Startbereich.
+- Bestehende Kanäle und deren Berechtigungen werden nicht verändert. Neue Kanäle übernehmen die üblichen Rechte ihrer jeweiligen Kategorie.
+- Beide Kanäle werden später getrennt mit den jeweiligen Ingame-Gilden verbunden, sofern die offizielle WoW-Forever-Discord-Synchronisierung aktiviert ist und die berechtigten Gildenmitglieder sie in WoW einrichten.
+- Keine Bot-Chat-Bridge oder Webhooks. Keine automatische Weiterleitung oder Annahme, dass bereits zwei Ingame-Gilden existieren.
 
 ## 1.0.27 – Schlanke Addon-Schmiede
 
