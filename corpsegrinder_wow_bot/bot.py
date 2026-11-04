@@ -78,15 +78,18 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("rollenwahl", "text"),
-        ("lagerfeuer", "text"), ("ankündigungen", "text"),
+        ("lagerfeuer", "text"),
+        ("ankündigungen", "text"),
         ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
-        ("pve-gruppensuche", "text"), ("dungeon-planer", "text"),
+        ("pve-gruppensuche", "text"), ("pve-gildenchat", "text"),
+        ("dungeon-planer", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
         ("PvE – Leveln", "voice"), ("PvE – Dungeon", "voice"),
         ("PvE – Raid", "voice"), ("➕ PvE-Gruppe erstellen", "voice")],
     "🏹 WOW FOREVER | PVP": [
-        ("pvp-gruppensuche", "text"), ("schlachtfelder", "text"),
+        ("pvp-gruppensuche", "text"), ("pvp-gildenchat", "text"),
+        ("schlachtfelder", "text"),
         ("welt-pvp", "text"), ("pvp-guides", "text"),
         ("PvP – Gruppe", "voice"), ("➕ PvP-Gruppe erstellen", "voice")],
     "🔨 WOW FOREVER | CHARAKTERE": [
@@ -503,6 +506,7 @@ async def on_ready():
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
     background(ensure_trade_dashboard_on_start())
+    background(ensure_guild_chat_channel_on_start())
     background(ensure_level_dashboard_on_start())
     background(remove_old_guild_category_once())
     background(refresh_community_panels_on_start())
@@ -2074,6 +2078,54 @@ class WelcomeView(discord.ui.View):
                 self.add_item(discord.ui.Button(
                     label=label, style=style,
                     url=f"https://discord.com/channels/{guild.id}/{target.id}"))
+
+
+async def ensure_wow_guild_chat_channel(guild, area):
+    """Create one regular, independent Discord channel per guild/ruleset.
+
+    No in-game linkage, webhooks, mirroring or changes to existing channel
+    permissions. Blizzard's official integration is configured later in WoW.
+    """
+    config = {
+        "pve": ("pve-gildenchat", "⚔️ WOW FOREVER | PVE"),
+        "pvp": ("pvp-gildenchat", "🏹 WOW FOREVER | PVP"),
+    }
+    if area not in config:
+        raise ValueError("Unbekannter Gildenchat-Bereich")
+    name, category_name = config[area]
+    existing = channel(guild, name)
+    if existing is not None:
+        if not isinstance(existing, discord.TextChannel):
+            logging.warning("#%s ist kein Textkanal", name)
+        return existing
+    category = discord.utils.get(guild.categories, name=category_name)
+    if category is None:
+        logging.warning("Gildenchat %s: Kategorie fehlt", area)
+        return None
+    try:
+        created = await category.create_text_channel(
+            name,
+            topic=("💬 WoW Forever: " + area.upper() +
+                   "-Gildenchat ↔ Discord. Später mit der jeweiligen "
+                   "Ingame-Gilde über J → Gilde → Gildeneinstellungen → "
+                   "Discord-Einstellungen verknüpfen. "
+                   "Bis dahin ein normaler Textkanal."),
+            reason="Corpsegrinder: " + area.upper() +
+                   "-Gildenchat für offizielle WoW-Anbindung vorbereiten")
+        # Keep inherited category permissions; do not create a bot bridge.
+        await organize_start_channels(guild)
+        return created
+    except discord.HTTPException:
+        logging.exception("Gildenchat %s konnte nicht angelegt werden", area)
+        return None
+
+
+async def ensure_guild_chat_channel_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+    for area in ("pve", "pvp"):
+        await ensure_wow_guild_chat_channel(guild, area)
 
 
 async def refresh_community_panels_on_start():

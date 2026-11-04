@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.27"
+VERSION = "1.0.28"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,17 +139,19 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="⚒️ Corpsegrinder Bot – Addon-Schmiede 1.0.27",
+        title="💬 Corpsegrinder Bot – PvE- und PvP-Gildenchat 1.0.28",
         description=(
-            "**Weniger Ballast, mehr Addons!**\n\n"
-            "✅ Der große Einleitungsblock samt Bild und Infotext entfällt.\n"
-            "✅ Stattdessen steht direkt über der Liste nur noch die "
-            "**Corpsegrinder Addon-Schmiede** als Überschrift.\n"
-            "✅ Der bisherige Installationshinweis am Ende ist entfernt.\n"
-            "✅ Alle acht Addons und CurseForge-Links sind weiterhin "
-            "direkt sichtbar, am PC mit Inline-Spalten.\n\n"
-            "Die bestehende angeheftete Nachricht wird aktualisiert; "
-            "andere Nachrichten, Kanäle und automatische Updates bleiben erhalten."
+            "**Zwei Gildenchats, zwei Bereiche – für die Horde!**\n\n"
+            "⚔️ **#pve-gildenchat** im PvE-Bereich.\n"
+            "🏹 **#pvp-gildenchat** im PvP-Bereich.\n"
+            "✅ Vorhandene Kanäle und Berechtigungen bleiben erhalten.\n"
+            "✅ Beide Kanäle sind zunächst normale Discord-Textchats.\n"
+            "✅ Später jede Ingame-Gilde separat über **J → Gilde → "
+            "Gildeneinstellungen → Discord-Einstellungen** mit dem "
+            "jeweiligen Discord-Kanal verknüpfen.\n"
+            "✅ Keine Bot-Bridge und keine Doppelposts.\n\n"
+            "Die Verbindung richtet ein Gildenleiter oder berechtigter "
+            "Offizier im WoW-Client ein, sobald die Funktion verfügbar ist."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
