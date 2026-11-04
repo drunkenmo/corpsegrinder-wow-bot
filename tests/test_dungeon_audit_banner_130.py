@@ -20,6 +20,12 @@ TREE = ast.parse(SOURCE)
 def get_async(name, env):
     node = next(x for x in TREE.body
                 if isinstance(x, ast.AsyncFunctionDef) and x.name == name)
+    # Slash/event decorators require a running Discord bot; test the
+    # underlying coroutine independently instead.
+    node = ast.AsyncFunctionDef(
+        name=node.name, args=node.args, body=node.body,
+        decorator_list=[], returns=node.returns,
+        type_comment=node.type_comment)
     obj = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
     exec(compile(obj, "bot.py", "exec"), env)
     return env[name]
