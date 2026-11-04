@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.29 – Corpsegrinder-Emojis & eigenes Willkommensbanner
+
+- Die **neun Klassen** in der Rollenwahl und beim Registrieren von Charakteren nutzen, wenn vorhanden, die auf dem Discord-Server hochgeladenen Emoji-Namen `krieger`, `jaeger`, `schami`, `druide`, `schurke`, `magier`, `priester`, `hexer`, `pala`. Die Emoji-ID wird direkt aus dem Discord-Server gelesen; kein manuelles Eintragen nötig. Bei fehlenden/nicht nutzbaren Emojis bleiben die bisherigen Unicode-Emojis erhalten.
+- Auch `horde` und `pve` werden in der Rollenwahl verwendet; PvP behält sein bisheriges Emoji.
+- Über **/willkommensbanner_setzen bild:<Datei>** lädt ein Administrator das Corpsegrinder-Banner einmal hoch und bindet es als Anhang an die **bestehende angeheftete** Karte in `#willkommen` an. Der Anhang bleibt bei regulären Aktualisierungen und Bot-Neustarts erhalten.
+- Das alte Banner mit ungewolltem Spruch sowie die entsprechenden Sprüche im Begrüßungs- und Rollenbereich wurden entfernt. Wird noch kein neues Banner hochgeladen, erscheint vorerst nur der Begrüßungstext.
+- Keine Server-Rollen, Kanäle, Nachrichten oder bisherigen Daten werden gelöscht.
+
+
 ## 1.0.28 – Separate Gildenchats für PvE und PvP
 
 - `#pve-gildenchat` wird einmalig im Bereich **⚔️ WOW FOREVER | PVE** erstellt; `#pvp-gildenchat` einmalig im Bereich **🏹 WOW FOREVER | PVP**. Kein gemeinsamer Gildenchat im Startbereich.

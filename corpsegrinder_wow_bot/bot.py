@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+import io
 import json
 import logging
 import re
@@ -68,6 +69,23 @@ INTERESTS = ("PvE", "PvP")
 TASKS = ("Tank", "Heiler", "DD")
 NEWS = ("Dungeon-News", "Raid-News", "PvP-News")
 ROLES = ("Community",) + INTERESTS + TASKS + NEWS + CLASSES
+# Names from the Corpsegrinder server's uploaded custom emoji pack.
+# IDs are intentionally resolved from the current guild on startup,
+# so replacing an emoji does not require a new bot release.
+CORPSEGRINDER_EMOJI_NAMES = {
+    "Horde": "horde",
+    "PvE": "pve",
+    "Krieger": "krieger",
+    "Jäger": "jaeger",
+    "Schamane": "schami",
+    "Druide": "druide",
+    "Schurke": "schurke",
+    "Magier": "magier",
+    "Priester": "priester",
+    "Hexenmeister": "hexer",
+    "Paladin": "pala",
+}
+
 EMOJI = {
     "PvE": "⚔️", "PvP": "🏹", "Tank": "🛡️", "Heiler": "💚", "DD": "💥",
     "Dungeon-News": "🏰", "Raid-News": "🐉", "PvP-News": "📣",
@@ -264,11 +282,28 @@ DUNGEON_ART_URL = ART_BASE + "dungeons.png"
 LEVEL_ART_URL = ART_BASE + "levelgruppen.png"
 
 
+def corp_emoji(name, guild=None):
+    """Find the actual server emoji by name; safely fall back to Unicode.
+
+    Discord components need an Emoji object (including its ID), not the
+    literal string ':krieger:'; the screenshot supplies sufficient names.
+    """
+    emoji_name = CORPSEGRINDER_EMOJI_NAMES.get(name)
+    if emoji_name:
+        server = guild if guild is not None else bot.get_guild(GUILD_ID)
+        if server is not None:
+            found = discord.utils.get(getattr(server, "emojis", ()),
+                                     name=emoji_name)
+            if found is not None and found.is_usable():
+                return found
+    return EMOJI.get(name, "🌋")
+
+
 def role_panel():
     embed = discord.Embed(
-        title="⚔️ CORPSEGRINDER · DIE HORDE RUFT!",
+        title=f"{corp_emoji('Horde')} CORPSEGRINDER · DIE HORDE RUFT!",
         description=(
-            "**Alte Säcke. Kaltes Bier. Für die Horde!** 🍻\n\n"
+            "**Wähle deinen Platz in der Horde!**\n\n"
             "Wähle deine Rollen für die Community. Alles ist freiwillig und "
             "du kannst deine Auswahl jederzeit ändern.\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━"),
@@ -338,7 +373,7 @@ def own_roles(member):
     blocks = []
     for title, values in (("Spielbereiche", INTERESTS), ("Gruppenaufgaben", TASKS),
                           ("Klassen", CLASSES), ("News", NEWS)):
-        chosen = [EMOJI[x] + " " + x for x in values if x in names]
+        chosen = [str(corp_emoji(x)) + " " + x for x in values if x in names]
         blocks.append("**" + title + ":** " + (", ".join(chosen) if chosen else "–"))
     return "\n".join(blocks)
 
@@ -347,7 +382,7 @@ class ToggleSelect(discord.ui.Select):
         super().__init__(
             placeholder=description,
             custom_id=custom_id,
-            options=[discord.SelectOption(label=name, emoji=EMOJI[name]) for name in values],
+            options=[discord.SelectOption(label=name, emoji=corp_emoji(name)) for name in values],
             min_values=1, max_values=len(values), row=row)
     async def callback(self, interaction):
         await toggle(interaction, self.values)
@@ -361,7 +396,7 @@ class RoleView(discord.ui.View):
                                   ("Heiler", 1, discord.ButtonStyle.secondary),
                                   ("DD", 1, discord.ButtonStyle.secondary)):
             button = discord.ui.Button(
-                label=label, emoji=EMOJI[label], row=row, style=style,
+                label=label, emoji=corp_emoji(label), row=row, style=style,
                 custom_id="corpse_toggle_v104_" + label)
             async def handle(i, name=label):
                 await toggle(i, [name])
@@ -1432,7 +1467,7 @@ class CharacterClassView(discord.ui.View):
             min_values=1,max_values=1,
             options=[discord.SelectOption(
                 label=klasse, value=klasse,
-                emoji=EMOJI.get(klasse)) for klasse in CLASSES])
+                emoji=corp_emoji(klasse)) for klasse in CLASSES])
         select.callback = self.choose_class
         self.add_item(select)
 
@@ -2154,6 +2189,50 @@ async def refresh_community_panels_on_start():
             logging.exception("Willkommenskarte konnte nicht aktualisiert werden")
 
 
+@bot.tree.command(
+    name="willkommensbanner_setzen",
+    description="Corpsegrinder-Banner in die angeheftete Willkommenskarte laden (Admin)",
+    guild=SERVER)
+async def set_welcome_banner_command(
+        interaction: discord.Interaction, bild: discord.Attachment):
+    """Attach the original artwork to the existing pinned welcome message."""
+    if not admin(interaction):
+        return await answer(interaction, "Nur für Administratoren.")
+    if bild.size > 8 * 1024 * 1024:
+        return await answer(interaction, "Bitte ein Bild mit höchstens 8 MB hochladen.")
+    if bild.content_type not in ("image/png", "image/jpeg", "image/webp"):
+        return await answer(interaction, "Bitte PNG, JPG oder WebP verwenden.")
+    target = channel(interaction.guild, "willkommen")
+    if not isinstance(target, discord.TextChannel):
+        return await answer(interaction, "Der Kanal #willkommen fehlt.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        existing, _note = await publish_info(
+            target, "welcome_post", "corpsegrinder:welcome",
+            welcome_embed(interaction.guild,
+                          setting("welcome_admin_tip") or ""))
+        data = await bild.read()
+        if len(data) > 8 * 1024 * 1024:
+            return await interaction.followup.send("Bilddatei zu groß.", ephemeral=True)
+        embed = welcome_embed(
+            interaction.guild, setting("welcome_admin_tip") or "")
+        embed.set_image(url="attachment://corpsegrinder_banner.png")
+        await existing.edit(
+            embed=embed,
+            view=WelcomeView(interaction.guild),
+            attachments=[discord.File(
+                io.BytesIO(data), filename="corpsegrinder_banner.png")])
+        await interaction.followup.send(
+            "✅ Corpsegrinder-Banner ist in der bestehenden "
+            "Willkommenskarte eingebunden: " + existing.jump_url,
+            ephemeral=True)
+    except (discord.HTTPException, OSError):
+        logging.exception("Corpsegrinder-Willkommensbanner konnte nicht gespeichert werden")
+        await interaction.followup.send(
+            "Das Banner konnte nicht eingebunden werden. "
+            "Bitte Bot-Rechte und Dateiformat prüfen.", ephemeral=True)
+
+
 async def publish_info(channel_obj, storage_key, marker, embed):
     """Intro anlegen oder wiederverwenden; mehrfacher Befehl erzeugt keine Textflut."""
     existing = None
@@ -2178,7 +2257,19 @@ async def publish_info(channel_obj, storage_key, marker, embed):
             embed=embed, view=view,
             allowed_mentions=discord.AllowedMentions.none())
     else:
-        await existing.edit(embed=embed, view=view)
+        # Preserve the user-uploaded banner on every restart and refresh.
+        if marker == "corpsegrinder:welcome":
+            banner = next(
+                (a for a in existing.attachments
+                 if a.filename == "corpsegrinder_banner.png"), None)
+            if banner is not None:
+                embed.set_image(url="attachment://corpsegrinder_banner.png")
+                await existing.edit(embed=embed, view=view,
+                                    attachments=existing.attachments)
+            else:
+                await existing.edit(embed=embed, view=view)
+        else:
+            await existing.edit(embed=embed, view=view)
     save_setting(storage_key, existing.id)
     pin_note = ""
     if not existing.pinned:
