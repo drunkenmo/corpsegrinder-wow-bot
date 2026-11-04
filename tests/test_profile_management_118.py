@@ -16,7 +16,7 @@ FUNCTIONS={
     "ingame_server_nickname", "character_member_line"
 }
 CLASSES=("Krieger","Schamane","Druide","Jäger","Schurke","Magier",
-         "Priester","Hexenmeister")
+         "Priester","Hexenmeister","Paladin")
 
 
 def profile_env():
@@ -104,9 +104,20 @@ class CharacterModificationTests(unittest.TestCase):
 
     def test_invalid_class_and_ownership_rejected(self):
         with self.assertRaisesRegex(ValueError,"Klasse"):
-            self.f["edit_character_profile"](42,"Grumok","Grumok","Paladin")
+            self.f["edit_character_profile"](42,"Grumok","Grumok","Todesritter")
         with self.assertRaisesRegex(ValueError,"nicht gefunden"):
             self.f["edit_character_profile"](44,"Grumok","Grumok","Krieger")
+
+    def test_paladin_can_be_selected_without_losing_character_history(self):
+        name, klass = self.f["edit_character_profile"](
+            42, "Grumok", "Grumok", "Paladin")
+        self.assertEqual((name, klass), ("Grumok", "Paladin"))
+        self.assertEqual(self.db.execute(
+            "SELECT level,beruf1,beruf2 FROM characters "
+            "WHERE guild=17 AND user=42 AND name='Grumok'"
+        ).fetchone(), (35,"Bergbau","Schmiedekunst"))
+        self.assertEqual(self.f["chosen_character"](
+            "dungeon",7,42)[0], "Grumok")
 
     def test_deleting_main_keeps_signups_and_selects_twinks(self):
         deleted=self.f["delete_character_profile"](42,"Grumok")
