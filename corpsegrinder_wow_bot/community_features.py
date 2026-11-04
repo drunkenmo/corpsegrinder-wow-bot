@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.24"
+VERSION = "1.0.25"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,23 +139,20 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="⚒️ Corpsegrinder Bot – Die Addon-Schmiede 1.0.24",
+        title="⚒️ Corpsegrinder Bot – Addon-Schmiede 1.0.25",
         description=(
-            "**Die Addon-Schmiede öffnet ihre Tore!** 🔥\n\n"
-            "🧩 In **#addons** wartet eine neue, dauerhaft angeheftete "
-            "**Fantasy-Übersicht** mit goldener Warcraft-Optik.\n"
-            "📜 **Sechs Kategorien** für Quests, Interface, Karten, "
-            "Handel, Dungeons und Inventar.\n"
-            "🏆 Mit **Empfehlungen** und dem Kategorienmenü öffnen sich "
-            "private Addon-Karten mit Beschreibungen, Forever-Dateistatus "
-            "und CurseForge-Links.\n"
-            "🔄 Mit **Neu auf CurseForge** sieht man die zuletzt "
-            "gefundenen Forever-Dateien. Die sechs-stündige Prüfung "
-            "und vorhandene News bleiben aktiv.\n\n"
-            "Die bestehenden Kanäle, Kategorien, Nachrichten, "
-            "Gruppentermine und Rollen bleiben unverändert. "
-            "Nur die bisherige angeheftete Addon-Übersicht wird "
-            "an Ort und Stelle verbessert."
+            "**Die Addon-Schmiede wird einfacher!** 🍻\n\n"
+            "📜 Statt verschachtelter Kategorien und privater Menüs "
+            "siehst du jetzt **alle acht Addons direkt** im Kanal.\n"
+            "🔗 Die **CurseForge-Links** sind ohne Zwischenschritte "
+            "direkt anklickbar.\n"
+            "🔥 Drei große, gut lesbare Fantasy-Karten in **einer "
+            "einzigen angehefteten Nachricht**.\n"
+            "🔄 Die bisherigen automatischen Forever-Addon-Updates "
+            "erscheinen weiterhin wie gewohnt.\n\n"
+            "Der Bot ersetzt nur die Darstellung des bestehenden "
+            "Addon-Überblicks. Kanäle, Rollen, alte Nachrichten und "
+            "andere Funktionen bleiben erhalten."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
