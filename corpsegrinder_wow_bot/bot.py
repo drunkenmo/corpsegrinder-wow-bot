@@ -63,7 +63,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 SERVER = discord.Object(id=GUILD_ID)
 
-CLASSES = ("Krieger", "Schamane", "Druide", "Jäger", "Schurke", "Magier", "Priester", "Hexenmeister")
+CLASSES = ("Krieger", "Schamane", "Druide", "Jäger", "Schurke", "Magier", "Priester", "Hexenmeister", "Paladin")
 INTERESTS = ("PvE", "PvP")
 TASKS = ("Tank", "Heiler", "DD")
 NEWS = ("Dungeon-News", "Raid-News", "PvP-News")
@@ -73,6 +73,7 @@ EMOJI = {
     "Dungeon-News": "🏰", "Raid-News": "🐉", "PvP-News": "📣",
     "Krieger": "⚔️", "Schamane": "🌩️", "Druide": "🌿", "Jäger": "🏹",
     "Schurke": "🗡️", "Magier": "✨", "Priester": "🌟", "Hexenmeister": "🔥",
+    "Paladin": "🛡️",
 }
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
@@ -426,6 +427,25 @@ class GroupView(discord.ui.View):
             button.callback = signup
             self.add_item(button)
 
+async def ensure_paladin_role(guild):
+    """Create the missing ninth Horde class role; never replace existing roles."""
+    existing = role(guild, "Paladin")
+    if existing is not None:
+        return existing
+    try:
+        created = await guild.create_role(
+            name=visual_name("Paladin"),
+            colour=discord.Colour(0xF58CBA),
+            reason="WoW Forever: Paladin der Verlassenen für die Horde")
+        logging.info("Corpsegrinder: Paladin-Rolle ergänzt: %s", created.id)
+        return created
+    except discord.HTTPException:
+        logging.exception(
+            "Paladin-Rolle konnte nicht erstellt werden. "
+            "Bot benötigt Rollen verwalten.")
+        return None
+
+
 async def publish_panel(guild):
     target = channel(guild, "rollenwahl")
     if not isinstance(target, discord.TextChannel):
@@ -453,6 +473,7 @@ async def on_ready():
     guild = bot.get_guild(GUILD_ID)
     if guild is not None:
         await migrate_channel_names(guild)
+        await ensure_paladin_role(guild)
     bot.add_view(RoleView())
     bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
@@ -1310,7 +1331,7 @@ def edit_character_profile(user_id, original_name, new_name, klass):
         (value for value in CLASSES if value.casefold() == klass.strip().casefold()),
         None)
     if not official_class:
-        raise ValueError("Unbekannte Klasse. Wähle eine der acht Horde-Klassen: "
+        raise ValueError( "Unbekannte Klasse. Wähle eine der neun Horde-Klassen: "
                          + ", ".join(CLASSES) + ".")
     conflict = owned_character(user_id, normalized)
     if conflict and conflict[0].casefold() != current[0].casefold():
@@ -1475,7 +1496,7 @@ class CharacterEditModal(discord.ui.Modal, title="Charakter bearbeiten"):
             label="Ingame-Name", default=row[0],
             min_length=2, max_length=40, required=True)
         self.character_class = discord.ui.TextInput(
-            label="Klasse (z. B. Krieger, Schamane)",
+            label="Klasse (z. B. Krieger, Paladin)",
             default=row[1], min_length=4, max_length=30, required=True)
         self.add_item(self.ingame_name)
         self.add_item(self.character_class)
