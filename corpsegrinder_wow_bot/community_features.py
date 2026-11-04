@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.29"
+VERSION = "1.0.30"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,20 +139,22 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🏰 Corpsegrinder Bot – Banner & Klassen-Emojis 1.0.29",
+        title="⚔️ Corpsegrinder Bot – Dungeon-Prüfung & Banner 1.0.30",
         description=(
-            "**Die eigenen Corpsegrinder-Emojis sind eingebunden!**\n\n"
-            "✅ Neun Klassen nutzen in Rollenwahl und Charakterregistrierung "
-            "ihre hochgeladenen Server-Emojis.\n"
-            "✅ Horde und PvE werden ebenfalls dort genutzt, wo es passt.\n"
-            "✅ Wenn ein Emoji fehlt, zeigt Discord das bisherige Zeichen.\n"
-            "✅ Neues Willkommensbanner über "
-            "**/willkommensbanner_setzen** als Bild hochladen.\n"
-            "✅ Die bestehende angeheftete Willkommensnachricht wird "
-            "aktualisiert; ein Bild bleibt nach Bot-Neustarts erhalten.\n\n"
-            "Der bisherige Spruch und das alte Banner sind aus der "
-            "Willkommenskarte entfernt. Keine neuen Nachrichten oder "
-            "Rollen erforderlich."
+            "**Dungeon-Termine und das Corpsegrinder-Banner sind jetzt besser verbunden!**\n\n"
+            "🏰 Beim Bot-Start werden offene Dungeontermine mit ihren "
+            "Discord-Karten abgeglichen. Nachweislich gelöschte Karten "
+            "werden aus aktiven Übersichten entfernt.\n"
+            "🔎 Admin-Befehl **/dungeon_pruefen** zeigt den Status; "
+            "mit **bereinigen: Ja** lassen sich bestätigte Leichen archivieren.\n"
+            "🗑️ Werden Gruppenkarten in Discord gelöscht, verschwinden sie "
+            "künftig auch aus der aktiven Terminliste.\n"
+            "🖼️ **/willkommensbanner_setzen** bindet dasselbe Banner in "
+            "Willkommen **und die Dungeon-Halle** ein.\n"
+            "🔁 Beim Neustart bleiben beide Banner in ihren angehefteten "
+            "Nachrichten erhalten.\n\n"
+            "Unklare oder vorübergehend nicht erreichbare Discord-Karten "
+            "werden aus Sicherheitsgründen **nicht** entfernt."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
