@@ -66,22 +66,23 @@ class EmojiTests(unittest.TestCase):
         command = BOT[start:end]
         self.assertIn("discord.Attachment", command)
         self.assertIn('target, "welcome_post", "corpsegrinder:welcome"', command)
-        self.assertIn('filename="corpsegrinder_banner.png"', command)
+        self.assertIn('filename = "corpsegrinder_banner" + extension', command)
         self.assertIn("await existing.edit(", command)
-        self.assertIn("attachments=[discord.File(", command)
+        self.assertIn("uploaded = await existing.edit(", command)
+        self.assertIn("await uploaded.edit(", command)
         self.assertNotIn("target.send(", command)
 
     def test_banner_survives_existing_welcome_refresh(self):
         block = BOT[BOT.index("async def publish_info("):
                     BOT.index('@bot.tree.command(', BOT.index("async def publish_info("))]
-        self.assertIn('a.filename == "corpsegrinder_banner.png"', block)
-        self.assertIn('embed.set_image(url="attachment://corpsegrinder_banner.png")', block)
-        self.assertIn("attachments=existing.attachments", block)
+        self.assertIn('a.filename.startswith("corpsegrinder_banner.")', block)
+        self.assertIn('embed.set_image(url="attachment://" + banner.filename)', block)
+        self.assertIn('await existing.edit(embed=embed, view=view)', block)
         self.assertIn('save_setting(storage_key, existing.id)', block)
         self.assertNotIn("corpsegrinder_banner.png", FEATURES)
         self.assertNotIn("assets/welcome.png", FEATURES)
         self.assertNotIn("Alte Säcke. Kaltes Bier.", FEATURES)
-        self.assertIn('VERSION = "1.0.30"', FEATURES)
+        self.assertIn('VERSION = "1.0.31"', FEATURES)
 
 
 if __name__ == "__main__":

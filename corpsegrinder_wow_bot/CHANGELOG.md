@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.31 – Banner-Upload mit Fehlerdiagnose
+
+- Der Admin-Befehl `/willkommensbanner_setzen` aktualisiert nun **zuerst den Bildanhang** und **danach den Embed** der bestehenden Willkommensnachricht. Dadurch werden Dateiupload und Einbettung nicht mehr in demselben Discord-API-Aufruf vermischt.
+- Discord-Dateien behalten ihre tatsächliche Endung (`.png`, `.jpg`, `.webp`); alte Corpsegrinder-Bildanhänge werden beim Ersetzen erkannt.
+- Der Befehl unterscheidet klar zwischen erfolgreichem Upload in `#willkommen` und einem möglichen separaten Fehler in der Dungeon-Halle.
+- Fehler werden nicht mehr nur als „Bot-Rechte oder Dateiformat“ gemeldet, sondern zeigen dem Administrator den **konkreten Verarbeitungsschritt, HTTP-Status und Discord-Fehlercode**. Details stehen zugleich in den Home-Assistant-Logs.
+- Bereits hochgeladene Banner bleiben beim Aktualisieren der beiden vorhandenen Karten erhalten. Keine neuen Nachrichten oder Kanäle erforderlich.
+
+
 ## 1.0.30 – Dungeon-Leichen prüfen & gemeinsames Corpsegrinder-Banner
 
 - Beim Bot-Start wird die Existenz der gespeicherten, noch offenen Dungeon-Gruppennachrichten geprüft. **Nur eindeutig gelöschte Discord-Nachrichten** werden als archiviert markiert und verschwinden aus der aktiven Dashboard-Liste. Bei fehlenden Rechten, API-Fehlern oder unvollständigen IDs bleiben die Daten erhalten.

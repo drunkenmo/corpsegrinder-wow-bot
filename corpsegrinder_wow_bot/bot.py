@@ -2195,7 +2195,11 @@ async def refresh_community_panels_on_start():
     guild=SERVER)
 async def set_welcome_banner_command(
         interaction: discord.Interaction, bild: discord.Attachment):
-    """Attach the original artwork to the existing pinned welcome message."""
+    """Save the selected artwork in both existing pinned panels.
+
+    Separate attachment upload and embed edit: each Discord API request does
+    one job, and reports the precise failing step to the server admin.
+    """
     if not admin(interaction):
         return await answer(interaction, "Nur für Administratoren.")
     if bild.size > 8 * 1024 * 1024:
@@ -2206,48 +2210,87 @@ async def set_welcome_banner_command(
     if not isinstance(target, discord.TextChannel):
         return await answer(interaction, "Der Kanal #willkommen fehlt.")
     await interaction.response.defer(ephemeral=True, thinking=True)
+    stage = "Willkommensnachricht suchen und aktualisieren"
     try:
         existing, _note = await publish_info(
             target, "welcome_post", "corpsegrinder:welcome",
             welcome_embed(interaction.guild,
                           setting("welcome_admin_tip") or ""))
+        stage = "Bilddatei aus Discord lesen"
         data = await bild.read()
         if len(data) > 8 * 1024 * 1024:
-            return await interaction.followup.send("Bilddatei zu groß.", ephemeral=True)
-        embed = welcome_embed(
-            interaction.guild, setting("welcome_admin_tip") or "")
-        embed.set_image(url="attachment://corpsegrinder_banner.png")
-        await existing.edit(
-            embed=embed,
-            view=WelcomeView(interaction.guild),
-            attachments=[discord.File(
-                io.BytesIO(data), filename="corpsegrinder_banner.png")])
-        # Reuse the same user-approved graphic in the existing dungeon dashboard.
-        dungeon_note = ""
-        try:
-            planner_post, _pinned = await ensure_planner_dashboard(interaction.guild)
-            if planner_post is not None:
-                planner_embed = planner_dashboard_embed()
-                planner_embed.set_image(url="attachment://corpsegrinder_banner.png")
-                await planner_post.edit(
-                    embed=planner_embed, view=PlannerDashboardView(),
-                    attachments=[discord.File(
-                        io.BytesIO(data), filename="corpsegrinder_banner.png")])
-                dungeon_note = "\n✅ Auch in der Dungeon-Halle eingebunden."
-            else:
-                dungeon_note = "\n⚠️ Dungeon-Halle nicht gefunden."
-        except discord.HTTPException:
-            logging.exception("Dungeon-Hallenbanner konnte nicht gespeichert werden")
-            dungeon_note = "\n⚠️ Die Dungeon-Halle konnte nicht aktualisiert werden."
-        await interaction.followup.send(
-            "✅ Corpsegrinder-Banner ist in der bestehenden "
-            "Willkommenskarte eingebunden: " + existing.jump_url + dungeon_note,
+            return await interaction.followup.send(
+                "Bilddatei zu groß (maximal 8 MB).", ephemeral=True)
+        # Keep the original extension. Discord validates image bytes/MIME and
+        # may reject a JPEG/WebP falsely labelled as a PNG.
+        extension = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/webp": ".webp",
+        }[bild.content_type]
+        filename = "corpsegrinder_banner" + extension
+        stage = "Bildanhang zur Willkommensnachricht hochladen"
+        uploaded = await existing.edit(
+            attachments=[
+                *[a for a in existing.attachments
+                  if not a.filename.startswith("corpsegrinder_banner.")],
+                discord.File(io.BytesIO(data), filename=filename)])
+        stage = "Bild in der Willkommenskarte anzeigen"
+        embed = welcome_embed(interaction.guild,
+                              setting("welcome_admin_tip") or "")
+        embed.set_image(url="attachment://" + filename)
+        await uploaded.edit(embed=embed, view=WelcomeView(interaction.guild))
+    except (discord.HTTPException, OSError, TypeError, ValueError) as exc:
+        logging.exception("Corpsegrinder-Banner: Fehler bei '%s'", stage)
+        status = ("HTTP " + str(exc.status) + ", Discord-Code "
+                  + str(getattr(exc, "code", "?"))
+                  if isinstance(exc, discord.HTTPException) else
+                  type(exc).__name__)
+        detail = str(exc).replace("`", "'")[:450]
+        return await interaction.followup.send(
+            "❌ **Banner konnte nicht eingebunden werden.**\n"
+            + "**Schritt:** " + stage + "\n"
+            + "**Fehler:** " + status + "\n"
+            + "`" + detail + "`\n"
+            "Bitte diesen Text oder einen Screenshot davon schicken; "
+            "damit lässt sich die konkrete Ursache erkennen.",
             ephemeral=True)
-    except (discord.HTTPException, OSError):
-        logging.exception("Corpsegrinder-Willkommensbanner konnte nicht gespeichert werden")
-        await interaction.followup.send(
-            "Das Banner konnte nicht eingebunden werden. "
-            "Bitte Bot-Rechte und Dateiformat prüfen.", ephemeral=True)
+
+    # Welcome was updated successfully; an independent Dungeon failure
+    # must not conceal that result or accidentally imply both failed.
+    dungeon_note = ""
+    stage = "Dungeon-Halle vorbereiten"
+    try:
+        planner_post, _pinned = await ensure_planner_dashboard(interaction.guild)
+        if planner_post is None:
+            dungeon_note = "\n⚠️ Die Dungeon-Halle wurde nicht gefunden."
+        else:
+            stage = "Bildanhang zur Dungeon-Halle hochladen"
+            dungeon_upload = await planner_post.edit(
+                attachments=[
+                    *[a for a in planner_post.attachments
+                      if not a.filename.startswith("corpsegrinder_banner.")],
+                    discord.File(io.BytesIO(data), filename=filename)])
+            stage = "Bild in der Dungeon-Halle anzeigen"
+            planner_embed = planner_dashboard_embed()
+            planner_embed.set_image(url="attachment://" + filename)
+            await dungeon_upload.edit(
+                embed=planner_embed, view=PlannerDashboardView())
+            dungeon_note = "\n✅ Auch in der Dungeon-Halle eingebunden."
+    except (discord.HTTPException, OSError, TypeError, ValueError) as exc:
+        logging.exception("Corpsegrinder-Banner Dungeon-Halle: '%s'", stage)
+        status = ("HTTP " + str(exc.status) + ", Discord-Code "
+                  + str(getattr(exc, "code", "?"))
+                  if isinstance(exc, discord.HTTPException) else
+                  type(exc).__name__)
+        dungeon_note = (
+            "\n⚠️ Dungeon-Halle konnte noch nicht aktualisiert werden. "
+            "Schritt: " + stage + " · " + status +
+            " · " + str(exc)[:220])
+    await interaction.followup.send(
+        "✅ Banner in **#willkommen** eingebunden: "
+        + existing.jump_url + dungeon_note,
+        ephemeral=True)
 
 
 async def publish_info(channel_obj, storage_key, marker, embed):
@@ -2278,11 +2321,10 @@ async def publish_info(channel_obj, storage_key, marker, embed):
         if marker == "corpsegrinder:welcome":
             banner = next(
                 (a for a in existing.attachments
-                 if a.filename == "corpsegrinder_banner.png"), None)
+                 if a.filename.startswith("corpsegrinder_banner.")), None)
             if banner is not None:
-                embed.set_image(url="attachment://corpsegrinder_banner.png")
-                await existing.edit(embed=embed, view=view,
-                                    attachments=existing.attachments)
+                embed.set_image(url="attachment://" + banner.filename)
+                await existing.edit(embed=embed, view=view)
             else:
                 await existing.edit(embed=embed, view=view)
         else:
@@ -3530,12 +3572,10 @@ async def ensure_planner_dashboard(guild):
         refreshed = planner_dashboard_embed()
         artwork = next(
             (attachment for attachment in existing.attachments
-             if attachment.filename == "corpsegrinder_banner.png"), None)
+             if attachment.filename.startswith("corpsegrinder_banner.")), None)
         if artwork is not None:
-            refreshed.set_image(url="attachment://corpsegrinder_banner.png")
-            await existing.edit(
-                embed=refreshed, view=PlannerDashboardView(),
-                attachments=existing.attachments)
+            refreshed.set_image(url="attachment://" + artwork.filename)
+            await existing.edit(embed=refreshed, view=PlannerDashboardView())
         else:
             await existing.edit(embed=refreshed, view=PlannerDashboardView())
     save_setting(PLANNER_STORAGE_KEY, existing.id)
