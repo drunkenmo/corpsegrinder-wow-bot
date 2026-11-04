@@ -6890,47 +6890,68 @@ def addon_latest_version(slug):
     return row[0] if row else None
 
 
-def addon_catalogue_embeds():
-    """Compact catalogue: no banner, intro card, extra disclaimer or menus.
+def addon_catalogue_sections(icon_urls=None, versions=None):
+    """Three small pinned messages; one authentic project icon per addon card.
 
-    Discord chooses the number of columns. Inline fields are grouped
-    in pairs by a full-width spacer so desktop has room for two.
+    Discord allows at most 10 embeds per message. We deliberately use one
+    embed per addon so every individual item can have its own thumbnail.
     """
-    sections = (
-        ("⚒️ CORPSEGRINDER · ADDON-SCHMIEDE",
-         "📜 **QUESTS · KARTEN · NAVIGATION**",
-         ("questie", "questforever", "leatrix-maps", "tomtom")),
-        ("⚔️ KOMFORT · KAMPF · HANDEL · INVENTAR",
-         "",
-         ("leatrix-plus", "deadly-boss-mods", "auctionator", "baganator")),
-    )
+    icon_urls = icon_urls or {}
+    versions = versions or {}
     by_slug = {row[0]: row for row in ADDON_SOURCES}
-    cards = []
-    for title, subtitle, slugs in sections:
-        embed = discord.Embed(
-            title=title, description=subtitle,
+    pages = []
+    for index, (heading, subtitle, slugs) in enumerate(ADDON_CATALOG_SECTIONS):
+        intro = discord.Embed(
+            title=heading,
+            description=subtitle + "\n"
+                        + "🔗 Jeder Name öffnet die originale CurseForge-Seite.",
             colour=discord.Colour.from_rgb(143, 89, 32))
-        available = [slug for slug in slugs if slug in by_slug]
-        for index, slug in enumerate(available):
-            _slug, name, _area, summary = by_slug[slug]
-            embed.add_field(
-                name="✦ " + name,
-                value=(summary + "\n"
-                       + "[🔗 Auf CurseForge ansehen]("
-                       + addon_project_url(slug) + ")"),
-                inline=True)
-            if index % 2 == 1 and index != len(available) - 1:
-                embed.add_field(name="\u200b", value="\u200b", inline=False)
-        cards.append(embed)
-    # Recover the existing pinned message even after a lost setting,
-    # without displaying the old internal marker in its footer.
-    cards[0].set_footer(text="Corpsegrinder · Addon-Schmiede")
-    return cards
+        intro.set_footer(text=(
+            "Corpsegrinder · Addon-Schmiede" if index == 0
+            else "corpsegrinder:addons-part:" + str(index + 1)))
+        embeds = [intro]
+        for slug in slugs:
+            _slug, name, area, summary = by_slug[slug]
+            checked = versions.get(slug)
+            card = discord.Embed(
+                title="✦ " + name,
+                url=addon_project_url(slug),
+                description=(summary + "\n"
+                             + ("📦 **Forever-Datei erkannt:** " +
+                                discord.utils.escape_markdown(str(checked)[:76])
+                                if checked else
+                                "🔎 **Forever-Version:** Auf CurseForge prüfen")
+                             + "\n[🔗 Zum Addon auf CurseForge](" +
+                             addon_project_url(slug) + ")"),
+                colour=discord.Colour.from_rgb(
+                    176, 112, 47 if index == 0 else 90))
+            if slug == "spoken-german":
+                card.add_field(
+                    name="⚠️ Installation",
+                    value="Nur über die CurseForge-App: installiert auch die "
+                          "erforderlichen deutschen Sprachpakete.",
+                    inline=False)
+            if slug == "factoruide-guide":
+                card.add_field(
+                    name="🔗 Benötigtes Zusatz-Addon",
+                    value="[Factoruide Profile](https://www.curseforge.com/"
+                          "wow/addons/factoruide-profile)",
+                    inline=False)
+            icon = trusted_addon_icon_url(icon_urls.get(slug))
+            if icon:
+                card.set_thumbnail(url=icon)
+            embeds.append(card)
+        pages.append(embeds)
+    return pages
 
 
-def addon_simplified_embeds():
-    """Keep updating the existing pinned message; only two compact embeds."""
-    return addon_catalogue_embeds()
+def addon_catalogue_embeds(icon_urls=None, versions=None):
+    """Legacy helper: the primary pinned message with Blackthornes first."""
+    return addon_catalogue_sections(icon_urls, versions)[0]
+
+
+def addon_simplified_embeds(part=0, icon_urls=None, versions=None):
+    return addon_catalogue_sections(icon_urls, versions)[part]
 
 
 async def ensure_addons_channel(guild):
@@ -6963,40 +6984,54 @@ async def ensure_addons_channel(guild):
             await organize_start_channels(guild)
         except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
-    key="addons_intro_post_v114"
-    existing = None
-    saved = setting(key)
-    if saved:
-        try:
-            saved_message=await target.fetch_message(int(saved))
-            if saved_message.author.id==bot.user.id:
-                existing=saved_message
-        except (discord.NotFound,discord.HTTPException,ValueError):
-            pass
-    if existing is None:
-        try:
-            async for msg in target.history(limit=45):
-                if msg.author.id==bot.user.id and any(
-                        (ADDON_MARKER in (e.footer.text or "") or
-                         (e.footer.text or "") == "Corpsegrinder · Addon-Schmiede")
-                        for e in msg.embeds):
-                    existing=msg
-                    break
-        except discord.HTTPException:
-            pass
-    if existing is None:
-        existing=await target.send(
-            embeds=addon_simplified_embeds(),
-            allowed_mentions=discord.AllowedMentions.none())
-    else:
-        # The same message ID and pin are reused. Remove 1.0.24 dropdowns.
-        await existing.edit(embeds=addon_simplified_embeds(), view=None)
-    save_setting(key,existing.id)
-    if not existing.pinned:
-        try:
-            await existing.pin(reason="Corpsegrinder: Addon-Empfehlungen")
-        except discord.HTTPException:
-            logging.warning("Addon-Übersicht konnte nicht angepinnt werden")
+    icon_urls = {
+        slug: trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+        for slug, *_ in ADDON_SOURCES
+    }
+    versions = dict(db.execute(
+        "SELECT slug,latest_version FROM forever_addon_files").fetchall())
+    # 19 true thumbnail cards require three messages (Discord: max 10 embeds).
+    # Keep the historical pinned message and update the two other catalogue
+    # pages in place. Never post a new set each six-hour check.
+    for part in range(len(ADDON_CATALOG_SECTIONS)):
+        key = ("addons_intro_post_v114" if part == 0
+               else "addons_catalog_part_" + str(part + 1) + "_v133")
+        marker = ("Corpsegrinder · Addon-Schmiede" if part == 0
+                  else "corpsegrinder:addons-part:" + str(part + 1))
+        existing = None
+        saved = setting(key)
+        if saved:
+            try:
+                old = await target.fetch_message(int(saved))
+                if old.author.id == bot.user.id:
+                    existing = old
+            except (discord.NotFound, discord.HTTPException, ValueError):
+                pass
+        if existing is None:
+            try:
+                async for msg in target.history(limit=90):
+                    if msg.author.id == bot.user.id and any(
+                            marker in (e.footer.text or "")
+                            for e in msg.embeds):
+                        existing = msg
+                        break
+            except discord.HTTPException:
+                pass
+        cards = addon_simplified_embeds(part, icon_urls, versions)
+        if existing is None:
+            existing = await target.send(
+                embeds=cards,
+                allowed_mentions=discord.AllowedMentions.none())
+        else:
+            await existing.edit(embeds=cards, view=None)
+        save_setting(key, existing.id)
+        if not existing.pinned:
+            try:
+                await existing.pin(reason="Corpsegrinder: Addon-Katalog " +
+                                   str(part + 1))
+            except discord.HTTPException:
+                logging.warning("Addon-Katalog Teil %s konnte nicht angepinnt werden",
+                                part + 1)
     return target
 
 
@@ -7023,6 +7058,9 @@ def addon_version_embed(slug,title,area,summary,latest,new):
         text="Corpsegrinder Addon-Schmiede • "
              + ("Neu entdeckt, nicht automatisch empfohlen" if new
                 else "Neue Forever-Datei gefunden, Kompatibilität prüfen"))
+    icon_url = trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+    if icon_url:
+        embed.set_thumbnail(url=icon_url)
     return embed
 
 
@@ -7036,7 +7074,15 @@ async def check_forever_addons():
             return 0,"Start-Kategorie fehlt"
         known={row[0]:row[1] for row in db.execute(
             "SELECT slug,latest_version FROM forever_addon_files").fetchall()}
-        candidates,errors=await asyncio.to_thread(scan_forever_addons,known)
+        candidates,errors,icons=await asyncio.to_thread(
+            scan_forever_addons,known,True)
+        for slug, icon_url in icons.items():
+            if trusted_addon_icon_url(icon_url):
+                save_setting("addon_project_icon_" + slug, icon_url)
+        # This second edit adds newly verified icons to the existing three
+        # cards without creating additional messages or deleting the pins.
+        if icons:
+            await ensure_addons_channel(guild)
         now=int(datetime.now(timezone.utc).timestamp())
         posted=0
         # Avoid a flood during the initial import; base guide covers the basics.
@@ -7125,10 +7171,14 @@ async def addon_status_command(interaction: discord.Interaction):
     if not allowed(interaction):
         return await answer(interaction,"Nur auf Corpsegrinder.")
     num=db.execute("SELECT COUNT(*) FROM forever_addon_files").fetchone()[0]
+    icons=sum(bool(trusted_addon_icon_url(
+        setting("addon_project_icon_" + row[0])))
+        for row in ADDON_SOURCES)
     last=setting("addons_last_checked")
     status=setting("addons_last_result") or "Noch nicht geprüft"
     await answer(interaction,
                  f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
+                 f"Echte CurseForge-Icons: **{icons}/{len(ADDON_SOURCES)}**\n"
                  f"Abfrage alle **6 Stunden**\n"
                  + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
                  + f"Status: {status}")
