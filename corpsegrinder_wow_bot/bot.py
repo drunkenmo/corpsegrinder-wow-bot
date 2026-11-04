@@ -78,16 +78,18 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("rollenwahl", "text"),
-        ("lagerfeuer", "text"), ("wow-gildenchat", "text"),
+        ("lagerfeuer", "text"),
         ("ankündigungen", "text"),
         ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
-        ("pve-gruppensuche", "text"), ("dungeon-planer", "text"),
+        ("pve-gruppensuche", "text"), ("pve-gildenchat", "text"),
+        ("dungeon-planer", "text"),
         ("raids-und-termine", "text"), ("pve-guides", "text"),
         ("PvE – Leveln", "voice"), ("PvE – Dungeon", "voice"),
         ("PvE – Raid", "voice"), ("➕ PvE-Gruppe erstellen", "voice")],
     "🏹 WOW FOREVER | PVP": [
-        ("pvp-gruppensuche", "text"), ("schlachtfelder", "text"),
+        ("pvp-gruppensuche", "text"), ("pvp-gildenchat", "text"),
+        ("schlachtfelder", "text"),
         ("welt-pvp", "text"), ("pvp-guides", "text"),
         ("PvP – Gruppe", "voice"), ("➕ PvP-Gruppe erstellen", "voice")],
     "🔨 WOW FOREVER | CHARAKTERE": [
@@ -2078,42 +2080,52 @@ class WelcomeView(discord.ui.View):
                     url=f"https://discord.com/channels/{guild.id}/{target.id}"))
 
 
-async def ensure_wow_guild_chat_channel(guild):
-    """Prepare a regular text channel for Blizzard's official guild sync.
+async def ensure_wow_guild_chat_channel(guild, area):
+    """Create one regular, independent Discord channel per guild/ruleset.
 
-    The bot does not connect Battle.net, relay messages or manage the guild.
-    Never change permissions/topic of an existing member-managed channel.
+    No in-game linkage, webhooks, mirroring or changes to existing channel
+    permissions. Blizzard's official integration is configured later in WoW.
     """
-    existing = channel(guild, "wow-gildenchat")
+    config = {
+        "pve": ("pve-gildenchat", "⚔️ WOW FOREVER | PVE"),
+        "pvp": ("pvp-gildenchat", "🏹 WOW FOREVER | PVP"),
+    }
+    if area not in config:
+        raise ValueError("Unbekannter Gildenchat-Bereich")
+    name, category_name = config[area]
+    existing = channel(guild, name)
     if existing is not None:
         if not isinstance(existing, discord.TextChannel):
-            logging.warning("#wow-gildenchat existiert, ist aber kein Textkanal")
+            logging.warning("#%s ist kein Textkanal", name)
         return existing
-    category = discord.utils.get(guild.categories, name=START_CATEGORY_NAME)
+    category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
-        logging.warning("Gildenchat: Start-Kategorie fehlt; Kanal nicht angelegt")
+        logging.warning("Gildenchat %s: Kategorie fehlt", area)
         return None
     try:
         created = await category.create_text_channel(
-            "wow-gildenchat",
-            topic=("💬 WoW Forever ↔ Discord: offizieller Gildenchat. "
-                   "Verbindung später im Spiel unter J → Gilde → "
-                   "Gildeneinstellungen → Discord-Einstellungen herstellen. "
-                   "Dieser Kanal ist zunächst ein normaler Discord-Textkanal."),
-            reason="Corpsegrinder: offizieller WoW-Forever-Gildenchat vorbereiten")
-        # The category determines normal access. Do not introduce a bot relay,
-        # webhooks or extra channel overwrites.
+            name,
+            topic=("💬 WoW Forever: " + area.upper() +
+                   "-Gildenchat ↔ Discord. Später mit der jeweiligen "
+                   "Ingame-Gilde über J → Gilde → Gildeneinstellungen → "
+                   "Discord-Einstellungen verknüpfen. "
+                   "Bis dahin ein normaler Textkanal."),
+            reason="Corpsegrinder: " + area.upper() +
+                   "-Gildenchat für offizielle WoW-Anbindung vorbereiten")
+        # Keep inherited category permissions; do not create a bot bridge.
         await organize_start_channels(guild)
         return created
     except discord.HTTPException:
-        logging.exception("Gildenchat: Kanal konnte nicht angelegt werden")
+        logging.exception("Gildenchat %s konnte nicht angelegt werden", area)
         return None
 
 
 async def ensure_guild_chat_channel_on_start():
     guild = bot.get_guild(GUILD_ID)
-    if guild is not None:
-        await ensure_wow_guild_chat_channel(guild)
+    if guild is None:
+        return
+    for area in ("pve", "pvp"):
+        await ensure_wow_guild_chat_channel(guild, area)
 
 
 async def refresh_community_panels_on_start():
