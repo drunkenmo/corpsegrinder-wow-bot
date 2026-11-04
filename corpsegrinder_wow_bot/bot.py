@@ -6589,22 +6589,46 @@ async def check_forever_news():
 # CurseForge wird nur über Projekt-/Dateiseiten gelesen (keine API-Keys,
 # keine Weiterleitung auf Download-Hosts, keine automatische Installation).
 ADDON_SOURCES = (
+    # Wunschliste: Blackthornes-Collection zuerst, danach weitere Favoriten.
+    ("blackthornes-farmer", "Blackthornes Farmer", "Blackthornes Collection",
+     "Erfasst Beute, Farmrouten, Dropraten und Gold pro Gegner."),
+    ("blackthornes-tradeskills", "Blackthornes Tradeskills", "Blackthornes Collection",
+     "Berufe, Auktionshauspreise, Handwerkskosten und Gewinnplanung."),
+    ("blackthornes-equipment", "Blackthornes Equipment", "Blackthornes Collection",
+     "Findet Ausrüstungsverbesserungen und passende Questbelohnungen."),
+    ("blackthornes-butler", "Blackthornes Butler", "Blackthornes Collection",
+     "Hilft beim Sortieren, Verkaufen, Lagern und Versenden von Gegenständen."),
+    ("blackthornes-pets", "Blackthornes Pets", "Blackthornes Collection",
+     "Jägerbegleiter: Futter, Zufriedenheit und erlernbare Fähigkeiten."),
+    ("factoruide-guide", "Factoruide Guide", "Level-Planung",
+     "Persönliche Levelroute im Spiel. Benötigt Factoruide Profile."),
+    ("factoruide-profile", "Factoruide Profile", "Level-Planung",
+     "Exportiert Charakterfortschritt für die Factoruide-Routenplanung."),
+    ("azerothcompendium", "Azeroth Compendium", "Dungeons & Beute",
+     "Dungeon- und Raidlexikon mit Bossen, Beute, Quests und Karten."),
+    ("sktools", "SKTools", "PvP & Komfort",
+     "Modulare PvP-, Level-, Berufs- und Komfortwerkzeuge."),
+    ("spoken", "Spoken", "Vertonte Spielwelt",
+     "Liest Questtexte, NPC-Gespräche, Gebiete und Bücher vor."),
+    ("spoken-german", "Spoken: German", "Vertonte Spielwelt",
+     "Deutsche Stimmen für Spoken; nur per CurseForge-App installieren."),
+    # Bereits vorhandene Empfehlungen bleiben vollständig enthalten.
     ("questie", "Questie", "Quests und Leveln",
-     "Questziele, Questgeber und Orientierung in Azeroth"),
-    ("leatrix-plus", "Leatrix Plus", "Komfort",
-     "Viele einzeln aktivierbare Verbesserungen der Oberfläche"),
-    ("leatrix-maps", "Leatrix Maps", "Karte",
-     "Kartenverbesserungen, Koordinaten und Points of Interest"),
-    ("auctionator", "Auctionator", "Auktionshaus",
-     "Auktionen leichter durchsuchen und verwalten"),
-    ("baganator", "Baganator", "Inventar",
-     "Ein übersichtlicheres Taschen- und Inventarsystem"),
-    ("tomtom", "TomTom", "Navigation",
-     "Koordinaten und Wegpunkt-Pfeile"),
-    ("deadly-boss-mods", "Deadly Boss Mods", "Dungeon-Helfer",
-     "Bosswarnungen; Forever-Bossabdeckung gesondert prüfen"),
+     "Questziele, Questgeber und Orientierung in Azeroth."),
     ("questforever", "QuestForever", "Quests und Leveln",
-     "Eigenständige Questmarkierungen speziell für Forever"),
+     "Forever-Questhilfe als Alternative zu Questie; nicht parallel aktivieren."),
+    ("leatrix-plus", "Leatrix Plus", "Komfort",
+     "Viele einzeln aktivierbare Verbesserungen der Oberfläche."),
+    ("leatrix-maps", "Leatrix Maps", "Karte",
+     "Kartenverbesserungen und Koordinaten."),
+    ("auctionator", "Auctionator", "Auktionshaus",
+     "Auktionen leichter durchsuchen und verwalten."),
+    ("baganator", "Baganator", "Inventar",
+     "Ein übersichtlicheres Taschen- und Inventarsystem."),
+    ("tomtom", "TomTom", "Navigation",
+     "Koordinaten und Wegpunkt-Pfeile."),
+    ("deadly-boss-mods", "Deadly Boss Mods", "Dungeon-Helfer",
+     "Bosswarnungen; Forever-Bossabdeckung gesondert prüfen."),
 )
 ADDON_PROJECT_BASE = "https://www.curseforge.com/wow/addons/"
 ADDON_DISCOVERY_URL = (
@@ -6612,14 +6636,35 @@ ADDON_DISCOVERY_URL = (
     "class=addons&page=1&pageSize=20&sortBy=dateCreated&version=1.60.1")
 ADDON_CHECK_INTERVAL = 6 * 3600
 
-ADDON_HUB_ART_URL = ART_BASE + "welcome.png"
+# Jede Rubrik wird als eigene, angepinnte Nachricht veröffentlicht.
+# Discord erlaubt maximal zehn Embeds pro Nachricht und nur ein Thumbnail
+# je Embed; drei Nachrichten erlauben alle 19 originalen Addon-Icons.
+ADDON_CATALOG_SECTIONS = (
+    ("⚒️ CORPSEGRINDER · BLACKTHORNES COLLECTION",
+     "Die fünf eigenständigen Blackthornes-Addons für WoW Forever.",
+     ("blackthornes-farmer", "blackthornes-tradeskills",
+      "blackthornes-equipment", "blackthornes-butler", "blackthornes-pets")),
+    ("🌋 CORPSEGRINDER · DEINE FAVORITEN",
+     "Levelrouten, Nachschlagewerk, PvP und vertonte Abenteuer.",
+     ("factoruide-guide", "factoruide-profile", "azerothcompendium",
+      "sktools", "spoken", "spoken-german")),
+    ("🧩 CORPSEGRINDER · WEITERE EMPFEHLUNGEN",
+     "Unsere bewährten Werkzeuge für Quests, Kampf und Komfort.",
+     ("questie", "questforever", "leatrix-plus", "leatrix-maps",
+      "auctionator", "baganator", "tomtom", "deadly-boss-mods")),
+)
 ADDON_CATEGORIES = (
-    ("quests", "Quests & Leveln", "📜", ("questie", "questforever")),
-    ("interface", "Interface & Komfort", "⚙️", ("leatrix-plus",)),
-    ("navigation", "Karte & Navigation", "🗺️", ("leatrix-maps", "tomtom")),
-    ("handel", "Auktionshaus", "💰", ("auctionator",)),
-    ("kampf", "Dungeon-Helfer", "⚔️", ("deadly-boss-mods",)),
-    ("inventar", "Inventar", "🎒", ("baganator",)),
+    ("quests", "Quests & Leveln", "📜", ("questie", "questforever",
+                                        "factoruide-guide", "factoruide-profile")),
+    ("interface", "Interface & Komfort", "⚙️", ("leatrix-plus", "sktools")),
+    ("navigation", "Karte & Navigation", "🗺️", ("leatrix-maps", "tomtom",
+                                               "azerothcompendium")),
+    ("handel", "Auktionshaus", "💰", ("auctionator",
+                                      "blackthornes-tradeskills", "blackthornes-farmer")),
+    ("kampf", "Dungeon-Helfer", "⚔️", ("deadly-boss-mods",
+                                       "blackthornes-equipment", "blackthornes-pets")),
+    ("inventar", "Inventar", "🎒", ("baganator", "blackthornes-butler")),
+    ("story", "Story & Audio", "🎙️", ("spoken", "spoken-german")),
 )
 ADDON_HUB_VIEW_ID = "corpse_addon_hub_categories_v124"
 ADDON_MARKER = "corpsegrinder:forever-addon-panel"
@@ -6651,6 +6696,53 @@ def read_curseforge_page(url):
         if len(data) > 1_500_000:
             raise ValueError("CurseForge-Antwort zu groß")
         return data.decode("utf-8", errors="replace")
+
+
+# Nur projektbezogene CurseForge-Icons verwenden. Screenshots, Banner,
+# Autoren-Avatare und generische Suchbilder werden explizit abgewiesen.
+ADDON_ICON_HOSTS = frozenset((
+    "media.forgecdn.net", "mediafilez.forgecdn.net",
+    "edge.forgecdn.net",
+))
+
+
+def trusted_addon_icon_url(raw):
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        url = urlparse(html.unescape(raw).replace("\\/", "/"))
+        if (url.scheme != "https" or url.hostname not in ADDON_ICON_HOSTS
+                or url.username or url.password or url.port not in (None, 443)
+                or not re.fullmatch(
+                    r"/avatars/\d+/\d+/[A-Za-z0-9_.-]+\.(?:png|jpg|jpeg|webp)",
+                    url.path, re.IGNORECASE)):
+            return None
+    except ValueError:
+        return None
+    return url.geturl()
+
+
+class CurseForgeProjectIcon(HTMLParser):
+    """Only the page's declared social project image; never a screenshot."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.candidates = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "meta":
+            return
+        properties = dict(attrs)
+        key = (properties.get("property") or properties.get("name") or "").lower()
+        if key in ("og:image", "og:image:secure_url", "twitter:image"):
+            self.candidates.append(properties.get("content"))
+
+
+def extract_curseforge_project_icon(page):
+    """A true CurseForge /avatars/ logo, or None rather than the wrong art."""
+    parser = CurseForgeProjectIcon()
+    parser.feed(page)
+    return next((url for raw in parser.candidates
+                 if (url := trusted_addon_icon_url(raw))), None)
 
 
 class CurseForgeText(HTMLParser):
@@ -6727,37 +6819,55 @@ class CurseForgeDiscovery(HTMLParser):
                 self.slugs.append(self.active)
 
 
-def scan_forever_addons(already_seen=None):
-    """Single-thread network task; curate source first, then a few new entries."""
+def scan_forever_addons(already_seen=None, include_icons=False):
+    """Inspect real CurseForge projects; optionally return verified icons too.
+
+    The default two-result shape remains stable for offline tests/callers.
+    Network requests run in bounded worker threads, not Discord's event loop.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     known = set(already_seen or ())
-    results, errors = [], []
+    results, errors, icons = [], [], {}
     curated = {row[0]: row for row in ADDON_SOURCES}
     candidates = list(curated)
     try:
         page = read_curseforge_page(ADDON_DISCOVERY_URL)
         parser = CurseForgeDiscovery()
         parser.feed(page)
-        # Only inspect a few discovered projects per cycle.
         candidates += [slug for slug in parser.slugs
                        if slug not in curated and slug not in known][:4]
     except (ValueError, OSError) as exc:
         errors.append("CurseForge-Suche: " + str(exc)[:160])
-    for slug in candidates:
+
+    def fetch_one(slug):
         try:
-            latest = extract_curseforge_forever_version(
-                read_curseforge_page(addon_project_url(slug)))
+            return read_curseforge_page(addon_project_url(slug)), None
         except (OSError, ValueError) as exc:
-            errors.append(f"{slug}: {str(exc)[:100]}")
-            continue
-        if not latest:
-            continue  # No reliably identified Forever file: do not advertise it.
-        item = curated.get(slug)
-        title = item[1] if item else slug.replace("-", " ").title()
-        area = item[2] if item else "Neu entdeckt"
-        summary = item[3] if item else (
-            "CurseForge führt eine Forever-Datei. "
-            "Funktionen und Vertrauenswürdigkeit noch selbst prüfen.")
-        results.append((slug, title, area, summary, latest))
+            return None, f"{slug}: {str(exc)[:100]}"
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for slug, (page, error) in zip(
+                candidates, pool.map(fetch_one, candidates)):
+            if error:
+                errors.append(error)
+                continue
+            icon = extract_curseforge_project_icon(page)
+            if icon and slug in curated:
+                icons[slug] = icon
+            latest = extract_curseforge_forever_version(page)
+            if not latest:
+                continue  # Never declare a Forever release without file evidence.
+            item = curated.get(slug)
+            title = item[1] if item else slug.replace("-", " ").title()
+            area = item[2] if item else "Neu entdeckt"
+            summary = item[3] if item else (
+                "CurseForge führt eine Forever-Datei. "
+                "Funktionen und Vertrauenswürdigkeit noch selbst prüfen.")
+            results.append((slug, title, area, summary, latest))
+
+    if include_icons:
+        return results, errors, icons
     return results, errors
 
 
