@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.33 – Addon-Schmiede: 19 echte Addons mit projektbezogenen Icons
+
+- Alle **19 realen CurseForge-Projekte** bleiben im Katalog: Blackthornes Farmer, Tradeskills, Equipment, Butler und Pets an erster Stelle; Factoruide Guide + das benötigte Factoruide Profile, AzerothCompendium, SKTools, Spoken und Spoken: German; danach die acht bisherigen Empfehlungen.
+- Die bisherige angepinnte Übersicht wird nicht gelöscht. Stattdessen werden **drei dauerhafte, angepinnte Katalog-Nachrichten** für Blackthornes, Favoriten und bisherige Addons in-place gepflegt. So erhält jedes einzelne Addon einen eigenen Discord-Embed mit kleinem Thumbnail (max. 10 Embeds pro Nachricht).
+- Icons werden **nur aus der Original-CurseForge-Projektseite** gelesen und nur als HTTPS-Avatarbild aus einem streng begrenzten CurseForge-CDN-Verzeichnis akzeptiert. Generische Bilder, Screenshots, Autoren-Avatare und externes Artwork werden nicht verwendet; bei unklarem Icon wird keines angezeigt.
+- Pro Karte: echter Name, deutsche Funktionskurzbeschreibung, Direktlink zur CurseForge-Projektseite und **nur bei sicher erkanntem Release** ein Forever-Dateiname. Fehlende Belege werden nicht durch fiktive Versionsnummern ersetzt.
+- **Spoken: German** hat einen Installationshinweis (nur CurseForge-App, die die notwendigen Sprachpakete lädt). **Factoruide Guide** verlinkt auf seine benötigte Profile-Komponente. Questie und QuestForever werden als alternative Quest-Helfer beschrieben.
+- Der bestehende sechs-stündliche CurseForge-Scanner bleibt erhalten. Ein begrenzter Threadpool untersucht die Seiten im Hintergrund, speichert bestätigte Icon-URLs in den vorhandenen Settings und aktualisiert die drei angepinnten Seiten ohne neue Spam-Nachrichten. Auch echte Forever-Versionsmeldungen können das richtige Original-Icon erhalten.
+- `/addons_status` zeigt die Anzahl bestätigter CurseForge-Icons an; `/addons_pruefen` stößt den Abruf sofort an.
+
+
 ## 1.0.32 – Echte Forever-News mit Quellenbildern und mehr Feeds
 
 - In `#forever-news` veröffentlicht der Bot jetzt deutlich ansprechendere Nachrichtenkarten: **Originaltitel, kurze echte Quellenvorschau, Zeitstempel, Link, Quellenkennung und – sofern vorhanden – das Original-Vorschaubild** (`og:image` / `twitter:image`). Wird ein tatsächlicher Videolink in den Quellen-Metadaten geliefert, erscheint er in der Karte. Ohne Quelle wird weder ein Bild noch ein Video erfunden.
