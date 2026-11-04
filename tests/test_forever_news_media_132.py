@@ -55,8 +55,8 @@ def load():
         "datetime":datetime, "timezone":timezone,
         "urlparse":urlparse, "urljoin":urljoin,
         "parse_blizzard_publication_date":lambda v:
-            int(datetime.strptime(v, "%a, %d %b %Y %H:%M:%S GMT")
-                .replace(tzinfo=timezone.utc).timestamp()),
+            (int(datetime.strptime(v, "%a, %d %b %Y %H:%M:%S GMT")
+                 .replace(tzinfo=timezone.utc).timestamp()) if v else None),
         "discord":SimpleNamespace(
             Embed=FakeEmbed,
             Colour=SimpleNamespace(from_rgb=lambda *args:0)),
