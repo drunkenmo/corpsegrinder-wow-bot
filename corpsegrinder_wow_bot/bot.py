@@ -566,26 +566,23 @@ async def on_member_join(member):
             await member.add_roles(community)
         except discord.Forbidden:
             logging.warning("Community-Rolle konnte nicht vergeben werden")
-    # Welcome itself stays a clean, pinned manual rather than a stream of
-    # join messages that pushes the instructions off the newest-chat view.
-    greeting = channel(member.guild,"lagerfeuer") or channel(member.guild,"willkommen")
-    if isinstance(greeting,discord.TextChannel):
-        welcome = channel(member.guild,"willkommen")
-        roles = channel(member.guild,"rollenwahl")
+    # Im #lagerfeuer nur ein kurzer freundlicher Empfang. Der vollständige
+    # Einstiegsleitfaden bleibt angepinnt in #willkommen, statt bei jedem
+    # Beitritt erneut die Unterhaltung zu überlagern.
+    greeting = channel(member.guild, "lagerfeuer")
+    welcome = channel(member.guild, "willkommen")
+    if isinstance(greeting, discord.TextChannel):
         welcome_link = welcome.mention if welcome else "#willkommen"
-        role_link = roles.mention if roles else "#rollenwahl"
         try:
             await greeting.send(
-                "⚔️ Willkommen bei **Corpsegrinder**, " + member.mention +
-                "! Für die Horde! 🍻\n"
-                "Starte mit unserer Orientierung in " + welcome_link +
-                ". Danach in " + role_link +
-                " Rollen wählen und **Ingame-Name + Klasse** registrieren. "
-                "Keine Freigabe erforderlich.",
+                "👋 Willkommen am Lagerfeuer, " + member.mention +
+                "! 🍻 Neu hier? Schau in " + welcome_link + ".",
                 allowed_mentions=discord.AllowedMentions(
-                    users=True,roles=False,everyone=False))
+                    users=True, roles=False, everyone=False),
+                delete_after=24 * 3600)
         except discord.HTTPException:
-            logging.warning("Begrüßung für neues Mitglied nicht möglich")
+            logging.warning("Kurze Lagerfeuer-Begrüßung nicht möglich")
+
 
 # Nur vom Bot erzeugte Sprachkanäle werden in der Datenbank als temporär markiert.
 # Weder feste WoW-Räume noch Sprachkanäle anderer Spiele werden automatisch gelöscht.
