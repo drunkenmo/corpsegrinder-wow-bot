@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.35 – Aufgeräumte Addon-Schmiede mit einem Panel pro Rubrik
+
+- Drei zusammenhängende Discord-Komponenten-V2-Container statt 19 unterschiedlich breiter Embed-Karten; je Rubrik eine einheitliche Fläche mit Projektname, kurzem deutschen Text und echtem Original-Icon rechts.
+- Jedes Addon ist über seinen Namen direkt auf CurseForge verlinkt; doppelte Download-Links, wiederholte Platzhalter für unbekannte Forever-Versionen und überflüssige Warnfelder entfallen.
+- Echte nachgewiesene Forever-Dateien werden weiterhin dezent als Zusatzinfo angezeigt; Factoruide Profile bleibt beim Guide als anklickbare Abhängigkeit, Spoken: German mit sachlichem Installationshinweis.
+- Vorhandene angepinnte Discord-Nachrichten werden **mit gleicher Message-ID** auf das moderne Layout aktualisiert. Alte sichtbare Technik-Markierungen entfallen; ein Archiv-Scan erkennt auch schon umgestellte V2-Pins.
+- Die bestehenden 19 Original-Icon-Zuordnungen, sechs-Stunden-Prüfung, Updates und sonstigen Server-Bereiche bleiben unverändert.
+
 ## 1.0.34 – Original-Addon-Icons zuverlässig sichtbar
 
 - **Alle 19 Original-Logos** am 4. November 2026 unmittelbar auf den jeweiligen CurseForge-Projektseiten geprüft. Jede Karte erhält einen eindeutig zugeordneten, echten HTTPS-CDN-Icon-Link schon beim ersten Rendern, auch ohne erfolgreichen Live-Scan. Keine Screenshots, Fantasiebilder oder vertauschten Projektlogos.
