@@ -6714,7 +6714,8 @@ def trusted_addon_icon_url(raw):
         if (url.scheme != "https" or url.hostname not in ADDON_ICON_HOSTS
                 or url.username or url.password or url.port not in (None, 443)
                 or not re.fullmatch(
-                    r"/avatars/\d+/\d+/[A-Za-z0-9_.-]+\.(?:png|jpg|jpeg|webp)",
+                    r"/avatars/(?:thumbnails/)?\d+/\d+/(?:\d+/\d+/)?"
+                    r"[A-Za-z0-9_.-]+\.(?:png|jpg|jpeg|webp)",
                     url.path, re.IGNORECASE)):
             return None
     except ValueError:
