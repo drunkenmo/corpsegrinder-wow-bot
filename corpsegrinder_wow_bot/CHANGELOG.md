@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.32 – Echte Forever-News mit Quellenbildern und mehr Feeds
+
+- In `#forever-news` veröffentlicht der Bot jetzt deutlich ansprechendere Nachrichtenkarten: **Originaltitel, kurze echte Quellenvorschau, Zeitstempel, Link, Quellenkennung und – sofern vorhanden – das Original-Vorschaubild** (`og:image` / `twitter:image`). Wird ein tatsächlicher Videolink in den Quellen-Metadaten geliefert, erscheint er in der Karte. Ohne Quelle wird weder ein Bild noch ein Video erfunden.
+- Neue tatsächlich bestehende RSS-Quellen: `https://wowforever-community.de/feed.xml` (deutschsprachige Community), `https://www.wowhead.com/news&rss` (Wowhead), `https://wow.4fansites.de/rss_feed.xml` (WoW Source). Die beiden allgemeinen WoW-Feeds werden **streng auf Forever im Titel** gefiltert; Blizzard, Blizzard-Forum und WoW Forever GG bleiben erhalten.
+- Offizielle Blizzard-Artikel erhalten eine klar getrennte `OFFIZIELL`-Kennzeichnung. Community-Quellen werden nie als Blizzard-Pressemitteilungen ausgegeben; Datamining wird nicht zu offiziellen Ankündigungen umgedeutet.
+- Rückblickfenster von 48 Stunden auf 14 Tage für offizielle News sowie 14 Tage für Community-Feeds erweitert. So lassen sich relevante Meldungen nach Ausfällen und bei neuen Installationen nachholen.
+- Die früheren fixen Wowhead-Lesetipps werden nicht mehr neu gepostet. Vorhandene Community-News werden, soweit aus den Quellen erneut abrufbar, direkt in ihren bisherigen Nachrichten verbessert, ohne erneutes Posten.
+- `/forever_news_status` zeigt die letzten Quellenfehler zusätzlich zu den Beitragszahlen; `/forever_news_pruefen` startet den Abruf direkt. Netzwerk-/Quellenprobleme blockieren andere Anbieter nicht.
+- Bilder/Videolinks werden nur von den tatsächlichen Artikelseiten und erlaubten HTTPS-Quellen übernommen. Keine fremden Bilder gespeichert, kein Kopieren vollständiger Artikel.
+
+
 ## 1.0.31 – Banner-Upload mit Fehlerdiagnose
 
 - Der Admin-Befehl `/willkommensbanner_setzen` aktualisiert nun **zuerst den Bildanhang** und **danach den Embed** der bestehenden Willkommensnachricht. Dadurch werden Dateiupload und Einbettung nicht mehr in demselben Discord-API-Aufruf vermischt.
