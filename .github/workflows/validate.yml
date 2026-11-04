@@ -35,21 +35,38 @@ jobs:
       - name: Offline-Updater-Tests
         run: python -m unittest discover -s tests -v
 
-      - name: Temporärer Live-Probelauf für offizielle Addon-Icons
+
+      - name: Temporärer Live-Probelauf für Addon-Projektmetadaten
         continue-on-error: true
         run: |
           python - <<'PY'
-          import json
+          import json, re
           from urllib.request import Request, urlopen
-          for slug in ("blackthornes-farmer", "questie"):
-              url = "https://api.cfwidget.com/wow/addons/" + slug
+          urls = (
+              "https://api.cfwidget.com/1710618",
+              "https://api.cfwidget.com/wow/addons/blackthornes-farmer",
+              "https://api.cfwidget.com/wow/addons/questie",
+              "https://www.curseforge.com/wow/addons/blackthornes-farmer",
+              "https://www.curseforge.com/wow/addons/questie",
+          )
+          for url in urls:
               try:
-                  req = Request(url, headers={"User-Agent": "CorpsegrinderAddons/1.0", "Accept": "application/json"})
+                  req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CorpsegrinderAddons/1.0)",
+                                               "Accept": "text/html,application/json"})
                   with urlopen(req, timeout=12) as resp:
-                      payload = json.loads(resp.read(350001))
-                  print(slug, "id=", payload.get("id"), "game=", payload.get("game"),
-                        "thumbnail=", str(payload.get("thumbnail"))[:200],
-                        "files=", len(payload.get("files") or []))
+                      data = resp.read(2_500_001)
+                      kind = resp.headers.get("content-type")
+                  print(url, "bytes=", len(data), "type=", kind)
+                  if "cfwidget" in url:
+                      payload = json.loads(data)
+                      print("  id=", payload.get("id"), "game=", payload.get("game"),
+                            "name=", payload.get("name"), "thumbnail=", str(payload.get("thumbnail"))[:180],
+                            "files=", len(payload.get("files") or []),
+                            "download=", str(payload.get("download"))[:180])
+                  else:
+                      page = data.decode("utf-8", errors="replace")
+                      print("  avatar_urls=", re.findall(r'https?[^" ]+/avatars/[^" ]+', page)[:2],
+                            "meta_images=", re.findall(r'<meta[^>]+(?:og:image|twitter:image)[^>]*>', page)[:2])
               except Exception as exc:
-                  print(slug, type(exc).__name__, str(exc)[:150])
+                  print(url, type(exc).__name__, str(exc)[:150])
           PY
