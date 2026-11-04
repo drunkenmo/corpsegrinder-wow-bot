@@ -6,7 +6,8 @@
 - Keine mehrzeiligen wiederholten Anleitungen zu Rollen, Ingame-Namen oder Freigaben im allgemeinen Chat; alle Orientierungshilfen bleiben dauerhaft in `#willkommen`.
 - Neue Lagerfeuer-Begrüßungen werden durch `delete_after` bei laufendem Bot nach 24 Stunden automatisch entfernt, damit Gespräche im Vordergrund bleiben.
 - `#willkommen` wird bei fehlendem `#lagerfeuer` nicht als Spam-Ersatz verwendet. Vergabe der Community-Rolle und alle anderen Join-Funktionen bleiben unverändert.
-- Die Änderung betrifft nur zukünftige Begrüßungen; ältere Chatnachrichten bleiben unangetastet.
+- Beim ersten Bot-Start nach dem Update werden auch **bereits vorhandene alte Bot-Begrüßungen** in `#lagerfeuer` einmalig direkt bearbeitet. Die Message-IDs, Positionen und übrigen Chatnachrichten bleiben erhalten; weder werden zusätzliche Nachrichten gepostet noch historische Begrüßungen gelöscht.
+- Nur eindeutig erkannte eigene Begrüßungen werden geändert, und die Bearbeitung unterdrückt erneute Nutzer-Pings. Ein gespeicherter Marker verhindert wiederholte historische Durchläufe.
 
 ## 1.0.35 – Aufgeräumte Addon-Schmiede mit einem Panel pro Rubrik
 
