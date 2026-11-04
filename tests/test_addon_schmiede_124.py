@@ -172,7 +172,10 @@ class ThreePinnedAddonCatalogTests(unittest.TestCase):
     def test_existing_pin_reused_and_three_messages_not_reposted(self):
         self.assertIn('key = ("addons_intro_post_v114" if part == 0', SOURCE)
         self.assertIn('ADDON_MARKER = "corpsegrinder:forever-addon-panel"', SOURCE)
-        self.assertIn("await existing.edit(embeds=cards, view=None)", SOURCE)
+        self.assertIn("def addon_catalogue_layout(part,", SOURCE)
+        self.assertIn("await existing.edit(", SOURCE)
+        self.assertIn("content=None, embeds=[], attachments=[], view=layout", SOURCE)
+        self.assertIn("view=layout, allowed_mentions=discord.AllowedMentions.none()", SOURCE)
         self.assertIn("target.history(limit=90)", SOURCE)
         self.assertIn("for part in range(len(ADDON_CATALOG_SECTIONS))", SOURCE)
         self.assertIn("save_setting(key, existing.id)", SOURCE)
