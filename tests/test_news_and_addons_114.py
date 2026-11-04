@@ -20,6 +20,8 @@ FUNCTIONS = {
     "addon_project_url", "CurseForgeText",
     "extract_curseforge_forever_version", "CurseForgeDiscovery",
     "gather_community_forever_news", "scan_forever_addons",
+    "CurseForgeProjectIcon", "trusted_addon_icon_url",
+    "extract_curseforge_project_icon",
 }
 
 
@@ -40,6 +42,9 @@ def isolated():
         "ADDON_SOURCES": (
             ("leatrix-plus","Leatrix Plus","Komfort","QoL"),
             ("tomtom","TomTom","Navigation","Wegpunkte")),
+        "ADDON_ICON_HOSTS": frozenset((
+            "media.forgecdn.net", "mediafilez.forgecdn.net", "edge.forgecdn.net"
+        )),
         "FOREVER_COMMUNITY_RSS": ("https://wow-forever.gg/rss.xml",),
         "FOREVER_COMMUNITY_LOOKBACK": 7 * 86400,
         "FOREVER_COMMUNITY_LIMIT": 5,

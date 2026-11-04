@@ -6589,22 +6589,46 @@ async def check_forever_news():
 # CurseForge wird nur über Projekt-/Dateiseiten gelesen (keine API-Keys,
 # keine Weiterleitung auf Download-Hosts, keine automatische Installation).
 ADDON_SOURCES = (
+    # Wunschliste: Blackthornes-Collection zuerst, danach weitere Favoriten.
+    ("blackthornes-farmer", "Blackthornes Farmer", "Blackthornes Collection",
+     "Erfasst Beute, Farmrouten, Dropraten und Gold pro Gegner."),
+    ("blackthornes-tradeskills", "Blackthornes Tradeskills", "Blackthornes Collection",
+     "Berufe, Auktionshauspreise, Handwerkskosten und Gewinnplanung."),
+    ("blackthornes-equipment", "Blackthornes Equipment", "Blackthornes Collection",
+     "Findet Ausrüstungsverbesserungen und passende Questbelohnungen."),
+    ("blackthornes-butler", "Blackthornes Butler", "Blackthornes Collection",
+     "Hilft beim Sortieren, Verkaufen, Lagern und Versenden von Gegenständen."),
+    ("blackthornes-pets", "Blackthornes Pets", "Blackthornes Collection",
+     "Jägerbegleiter: Futter, Zufriedenheit und erlernbare Fähigkeiten."),
+    ("factoruide-guide", "Factoruide Guide", "Level-Planung",
+     "Persönliche Levelroute im Spiel. Benötigt Factoruide Profile."),
+    ("factoruide-profile", "Factoruide Profile", "Level-Planung",
+     "Exportiert Charakterfortschritt für die Factoruide-Routenplanung."),
+    ("azerothcompendium", "Azeroth Compendium", "Dungeons & Beute",
+     "Dungeon- und Raidlexikon mit Bossen, Beute, Quests und Karten."),
+    ("sktools", "SKTools", "PvP & Komfort",
+     "Modulare PvP-, Level-, Berufs- und Komfortwerkzeuge."),
+    ("spoken", "Spoken", "Vertonte Spielwelt",
+     "Liest Questtexte, NPC-Gespräche, Gebiete und Bücher vor."),
+    ("spoken-german", "Spoken: German", "Vertonte Spielwelt",
+     "Deutsche Stimmen für Spoken; nur per CurseForge-App installieren."),
+    # Bereits vorhandene Empfehlungen bleiben vollständig enthalten.
     ("questie", "Questie", "Quests und Leveln",
-     "Questziele, Questgeber und Orientierung in Azeroth"),
-    ("leatrix-plus", "Leatrix Plus", "Komfort",
-     "Viele einzeln aktivierbare Verbesserungen der Oberfläche"),
-    ("leatrix-maps", "Leatrix Maps", "Karte",
-     "Kartenverbesserungen, Koordinaten und Points of Interest"),
-    ("auctionator", "Auctionator", "Auktionshaus",
-     "Auktionen leichter durchsuchen und verwalten"),
-    ("baganator", "Baganator", "Inventar",
-     "Ein übersichtlicheres Taschen- und Inventarsystem"),
-    ("tomtom", "TomTom", "Navigation",
-     "Koordinaten und Wegpunkt-Pfeile"),
-    ("deadly-boss-mods", "Deadly Boss Mods", "Dungeon-Helfer",
-     "Bosswarnungen; Forever-Bossabdeckung gesondert prüfen"),
+     "Questziele, Questgeber und Orientierung in Azeroth."),
     ("questforever", "QuestForever", "Quests und Leveln",
-     "Eigenständige Questmarkierungen speziell für Forever"),
+     "Forever-Questhilfe als Alternative zu Questie; nicht parallel aktivieren."),
+    ("leatrix-plus", "Leatrix Plus", "Komfort",
+     "Viele einzeln aktivierbare Verbesserungen der Oberfläche."),
+    ("leatrix-maps", "Leatrix Maps", "Karte",
+     "Kartenverbesserungen und Koordinaten."),
+    ("auctionator", "Auctionator", "Auktionshaus",
+     "Auktionen leichter durchsuchen und verwalten."),
+    ("baganator", "Baganator", "Inventar",
+     "Ein übersichtlicheres Taschen- und Inventarsystem."),
+    ("tomtom", "TomTom", "Navigation",
+     "Koordinaten und Wegpunkt-Pfeile."),
+    ("deadly-boss-mods", "Deadly Boss Mods", "Dungeon-Helfer",
+     "Bosswarnungen; Forever-Bossabdeckung gesondert prüfen."),
 )
 ADDON_PROJECT_BASE = "https://www.curseforge.com/wow/addons/"
 ADDON_DISCOVERY_URL = (
@@ -6612,14 +6636,35 @@ ADDON_DISCOVERY_URL = (
     "class=addons&page=1&pageSize=20&sortBy=dateCreated&version=1.60.1")
 ADDON_CHECK_INTERVAL = 6 * 3600
 
-ADDON_HUB_ART_URL = ART_BASE + "welcome.png"
+# Jede Rubrik wird als eigene, angepinnte Nachricht veröffentlicht.
+# Discord erlaubt maximal zehn Embeds pro Nachricht und nur ein Thumbnail
+# je Embed; drei Nachrichten erlauben alle 19 originalen Addon-Icons.
+ADDON_CATALOG_SECTIONS = (
+    ("⚒️ CORPSEGRINDER · BLACKTHORNES COLLECTION",
+     "Die fünf eigenständigen Blackthornes-Addons für WoW Forever.",
+     ("blackthornes-farmer", "blackthornes-tradeskills",
+      "blackthornes-equipment", "blackthornes-butler", "blackthornes-pets")),
+    ("🌋 CORPSEGRINDER · DEINE FAVORITEN",
+     "Levelrouten, Nachschlagewerk, PvP und vertonte Abenteuer.",
+     ("factoruide-guide", "factoruide-profile", "azerothcompendium",
+      "sktools", "spoken", "spoken-german")),
+    ("🧩 CORPSEGRINDER · WEITERE EMPFEHLUNGEN",
+     "Unsere bewährten Werkzeuge für Quests, Kampf und Komfort.",
+     ("questie", "questforever", "leatrix-plus", "leatrix-maps",
+      "auctionator", "baganator", "tomtom", "deadly-boss-mods")),
+)
 ADDON_CATEGORIES = (
-    ("quests", "Quests & Leveln", "📜", ("questie", "questforever")),
-    ("interface", "Interface & Komfort", "⚙️", ("leatrix-plus",)),
-    ("navigation", "Karte & Navigation", "🗺️", ("leatrix-maps", "tomtom")),
-    ("handel", "Auktionshaus", "💰", ("auctionator",)),
-    ("kampf", "Dungeon-Helfer", "⚔️", ("deadly-boss-mods",)),
-    ("inventar", "Inventar", "🎒", ("baganator",)),
+    ("quests", "Quests & Leveln", "📜", ("questie", "questforever",
+                                        "factoruide-guide", "factoruide-profile")),
+    ("interface", "Interface & Komfort", "⚙️", ("leatrix-plus", "sktools")),
+    ("navigation", "Karte & Navigation", "🗺️", ("leatrix-maps", "tomtom",
+                                               "azerothcompendium")),
+    ("handel", "Auktionshaus", "💰", ("auctionator",
+                                      "blackthornes-tradeskills", "blackthornes-farmer")),
+    ("kampf", "Dungeon-Helfer", "⚔️", ("deadly-boss-mods",
+                                       "blackthornes-equipment", "blackthornes-pets")),
+    ("inventar", "Inventar", "🎒", ("baganator", "blackthornes-butler")),
+    ("story", "Story & Audio", "🎙️", ("spoken", "spoken-german")),
 )
 ADDON_HUB_VIEW_ID = "corpse_addon_hub_categories_v124"
 ADDON_MARKER = "corpsegrinder:forever-addon-panel"
@@ -6651,6 +6696,54 @@ def read_curseforge_page(url):
         if len(data) > 1_500_000:
             raise ValueError("CurseForge-Antwort zu groß")
         return data.decode("utf-8", errors="replace")
+
+
+# Nur projektbezogene CurseForge-Icons verwenden. Screenshots, Banner,
+# Autoren-Avatare und generische Suchbilder werden explizit abgewiesen.
+ADDON_ICON_HOSTS = frozenset((
+    "media.forgecdn.net", "mediafilez.forgecdn.net",
+    "edge.forgecdn.net",
+))
+
+
+def trusted_addon_icon_url(raw):
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        url = urlparse(html.unescape(raw).replace("\\/", "/"))
+        if (url.scheme != "https" or url.hostname not in ADDON_ICON_HOSTS
+                or url.username or url.password or url.port not in (None, 443)
+                or not re.fullmatch(
+                    r"/avatars/(?:thumbnails/)?\d+/\d+/(?:\d+/\d+/)?"
+                    r"[A-Za-z0-9_.-]+\.(?:png|jpg|jpeg|webp)",
+                    url.path, re.IGNORECASE)):
+            return None
+    except ValueError:
+        return None
+    return url.geturl()
+
+
+class CurseForgeProjectIcon(HTMLParser):
+    """Only the page's declared social project image; never a screenshot."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.candidates = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "meta":
+            return
+        properties = dict(attrs)
+        key = (properties.get("property") or properties.get("name") or "").lower()
+        if key in ("og:image", "og:image:secure_url", "twitter:image"):
+            self.candidates.append(properties.get("content"))
+
+
+def extract_curseforge_project_icon(page):
+    """A true CurseForge /avatars/ logo, or None rather than the wrong art."""
+    parser = CurseForgeProjectIcon()
+    parser.feed(page)
+    return next((url for raw in parser.candidates
+                 if (url := trusted_addon_icon_url(raw))), None)
 
 
 class CurseForgeText(HTMLParser):
@@ -6727,37 +6820,55 @@ class CurseForgeDiscovery(HTMLParser):
                 self.slugs.append(self.active)
 
 
-def scan_forever_addons(already_seen=None):
-    """Single-thread network task; curate source first, then a few new entries."""
+def scan_forever_addons(already_seen=None, include_icons=False):
+    """Inspect real CurseForge projects; optionally return verified icons too.
+
+    The default two-result shape remains stable for offline tests/callers.
+    Network requests run in bounded worker threads, not Discord's event loop.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     known = set(already_seen or ())
-    results, errors = [], []
+    results, errors, icons = [], [], {}
     curated = {row[0]: row for row in ADDON_SOURCES}
     candidates = list(curated)
     try:
         page = read_curseforge_page(ADDON_DISCOVERY_URL)
         parser = CurseForgeDiscovery()
         parser.feed(page)
-        # Only inspect a few discovered projects per cycle.
         candidates += [slug for slug in parser.slugs
                        if slug not in curated and slug not in known][:4]
     except (ValueError, OSError) as exc:
         errors.append("CurseForge-Suche: " + str(exc)[:160])
-    for slug in candidates:
+
+    def fetch_one(slug):
         try:
-            latest = extract_curseforge_forever_version(
-                read_curseforge_page(addon_project_url(slug)))
+            return read_curseforge_page(addon_project_url(slug)), None
         except (OSError, ValueError) as exc:
-            errors.append(f"{slug}: {str(exc)[:100]}")
-            continue
-        if not latest:
-            continue  # No reliably identified Forever file: do not advertise it.
-        item = curated.get(slug)
-        title = item[1] if item else slug.replace("-", " ").title()
-        area = item[2] if item else "Neu entdeckt"
-        summary = item[3] if item else (
-            "CurseForge führt eine Forever-Datei. "
-            "Funktionen und Vertrauenswürdigkeit noch selbst prüfen.")
-        results.append((slug, title, area, summary, latest))
+            return None, f"{slug}: {str(exc)[:100]}"
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for slug, (page, error) in zip(
+                candidates, pool.map(fetch_one, candidates)):
+            if error:
+                errors.append(error)
+                continue
+            icon = extract_curseforge_project_icon(page)
+            if icon and slug in curated:
+                icons[slug] = icon
+            latest = extract_curseforge_forever_version(page)
+            if not latest:
+                continue  # Never declare a Forever release without file evidence.
+            item = curated.get(slug)
+            title = item[1] if item else slug.replace("-", " ").title()
+            area = item[2] if item else "Neu entdeckt"
+            summary = item[3] if item else (
+                "CurseForge führt eine Forever-Datei. "
+                "Funktionen und Vertrauenswürdigkeit noch selbst prüfen.")
+            results.append((slug, title, area, summary, latest))
+
+    if include_icons:
+        return results, errors, icons
     return results, errors
 
 
@@ -6780,47 +6891,68 @@ def addon_latest_version(slug):
     return row[0] if row else None
 
 
-def addon_catalogue_embeds():
-    """Compact catalogue: no banner, intro card, extra disclaimer or menus.
+def addon_catalogue_sections(icon_urls=None, versions=None):
+    """Three small pinned messages; one authentic project icon per addon card.
 
-    Discord chooses the number of columns. Inline fields are grouped
-    in pairs by a full-width spacer so desktop has room for two.
+    Discord allows at most 10 embeds per message. We deliberately use one
+    embed per addon so every individual item can have its own thumbnail.
     """
-    sections = (
-        ("⚒️ CORPSEGRINDER · ADDON-SCHMIEDE",
-         "📜 **QUESTS · KARTEN · NAVIGATION**",
-         ("questie", "questforever", "leatrix-maps", "tomtom")),
-        ("⚔️ KOMFORT · KAMPF · HANDEL · INVENTAR",
-         "",
-         ("leatrix-plus", "deadly-boss-mods", "auctionator", "baganator")),
-    )
+    icon_urls = icon_urls or {}
+    versions = versions or {}
     by_slug = {row[0]: row for row in ADDON_SOURCES}
-    cards = []
-    for title, subtitle, slugs in sections:
-        embed = discord.Embed(
-            title=title, description=subtitle,
+    pages = []
+    for index, (heading, subtitle, slugs) in enumerate(ADDON_CATALOG_SECTIONS):
+        intro = discord.Embed(
+            title=heading,
+            description=subtitle + "\n"
+                        + "🔗 Jeder Name öffnet die originale CurseForge-Seite.",
             colour=discord.Colour.from_rgb(143, 89, 32))
-        available = [slug for slug in slugs if slug in by_slug]
-        for index, slug in enumerate(available):
-            _slug, name, _area, summary = by_slug[slug]
-            embed.add_field(
-                name="✦ " + name,
-                value=(summary + "\n"
-                       + "[🔗 Auf CurseForge ansehen]("
-                       + addon_project_url(slug) + ")"),
-                inline=True)
-            if index % 2 == 1 and index != len(available) - 1:
-                embed.add_field(name="\u200b", value="\u200b", inline=False)
-        cards.append(embed)
-    # Recover the existing pinned message even after a lost setting,
-    # without displaying the old internal marker in its footer.
-    cards[0].set_footer(text="Corpsegrinder · Addon-Schmiede")
-    return cards
+        intro.set_footer(text=(
+            "Corpsegrinder · Addon-Schmiede" if index == 0
+            else "corpsegrinder:addons-part:" + str(index + 1)))
+        embeds = [intro]
+        for slug in slugs:
+            _slug, name, area, summary = by_slug[slug]
+            checked = versions.get(slug)
+            card = discord.Embed(
+                title="✦ " + name,
+                url=addon_project_url(slug),
+                description=(summary + "\n"
+                             + ("📦 **Forever-Datei erkannt:** " +
+                                discord.utils.escape_markdown(str(checked)[:76])
+                                if checked else
+                                "🔎 **Forever-Version:** Auf CurseForge prüfen")
+                             + "\n[🔗 Zum Addon auf CurseForge](" +
+                             addon_project_url(slug) + ")"),
+                colour=discord.Colour.from_rgb(
+                    176, 112, 47 if index == 0 else 90))
+            if slug == "spoken-german":
+                card.add_field(
+                    name="⚠️ Installation",
+                    value="Nur über die CurseForge-App: installiert auch die "
+                          "erforderlichen deutschen Sprachpakete.",
+                    inline=False)
+            if slug == "factoruide-guide":
+                card.add_field(
+                    name="🔗 Benötigtes Zusatz-Addon",
+                    value="[Factoruide Profile](https://www.curseforge.com/"
+                          "wow/addons/factoruide-profile)",
+                    inline=False)
+            icon = trusted_addon_icon_url(icon_urls.get(slug))
+            if icon:
+                card.set_thumbnail(url=icon)
+            embeds.append(card)
+        pages.append(embeds)
+    return pages
 
 
-def addon_simplified_embeds():
-    """Keep updating the existing pinned message; only two compact embeds."""
-    return addon_catalogue_embeds()
+def addon_catalogue_embeds(icon_urls=None, versions=None):
+    """Legacy helper: the primary pinned message with Blackthornes first."""
+    return addon_catalogue_sections(icon_urls, versions)[0]
+
+
+def addon_simplified_embeds(part=0, icon_urls=None, versions=None):
+    return addon_catalogue_sections(icon_urls, versions)[part]
 
 
 async def ensure_addons_channel(guild):
@@ -6853,40 +6985,54 @@ async def ensure_addons_channel(guild):
             await organize_start_channels(guild)
         except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
-    key="addons_intro_post_v114"
-    existing = None
-    saved = setting(key)
-    if saved:
-        try:
-            saved_message=await target.fetch_message(int(saved))
-            if saved_message.author.id==bot.user.id:
-                existing=saved_message
-        except (discord.NotFound,discord.HTTPException,ValueError):
-            pass
-    if existing is None:
-        try:
-            async for msg in target.history(limit=45):
-                if msg.author.id==bot.user.id and any(
-                        (ADDON_MARKER in (e.footer.text or "") or
-                         (e.footer.text or "") == "Corpsegrinder · Addon-Schmiede")
-                        for e in msg.embeds):
-                    existing=msg
-                    break
-        except discord.HTTPException:
-            pass
-    if existing is None:
-        existing=await target.send(
-            embeds=addon_simplified_embeds(),
-            allowed_mentions=discord.AllowedMentions.none())
-    else:
-        # The same message ID and pin are reused. Remove 1.0.24 dropdowns.
-        await existing.edit(embeds=addon_simplified_embeds(), view=None)
-    save_setting(key,existing.id)
-    if not existing.pinned:
-        try:
-            await existing.pin(reason="Corpsegrinder: Addon-Empfehlungen")
-        except discord.HTTPException:
-            logging.warning("Addon-Übersicht konnte nicht angepinnt werden")
+    icon_urls = {
+        slug: trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+        for slug, *_ in ADDON_SOURCES
+    }
+    versions = dict(db.execute(
+        "SELECT slug,latest_version FROM forever_addon_files").fetchall())
+    # 19 true thumbnail cards require three messages (Discord: max 10 embeds).
+    # Keep the historical pinned message and update the two other catalogue
+    # pages in place. Never post a new set each six-hour check.
+    for part in range(len(ADDON_CATALOG_SECTIONS)):
+        key = ("addons_intro_post_v114" if part == 0
+               else "addons_catalog_part_" + str(part + 1) + "_v133")
+        marker = ("Corpsegrinder · Addon-Schmiede" if part == 0
+                  else "corpsegrinder:addons-part:" + str(part + 1))
+        existing = None
+        saved = setting(key)
+        if saved:
+            try:
+                old = await target.fetch_message(int(saved))
+                if old.author.id == bot.user.id:
+                    existing = old
+            except (discord.NotFound, discord.HTTPException, ValueError):
+                pass
+        if existing is None:
+            try:
+                async for msg in target.history(limit=90):
+                    if msg.author.id == bot.user.id and any(
+                            marker in (e.footer.text or "")
+                            for e in msg.embeds):
+                        existing = msg
+                        break
+            except discord.HTTPException:
+                pass
+        cards = addon_simplified_embeds(part, icon_urls, versions)
+        if existing is None:
+            existing = await target.send(
+                embeds=cards,
+                allowed_mentions=discord.AllowedMentions.none())
+        else:
+            await existing.edit(embeds=cards, view=None)
+        save_setting(key, existing.id)
+        if not existing.pinned:
+            try:
+                await existing.pin(reason="Corpsegrinder: Addon-Katalog " +
+                                   str(part + 1))
+            except discord.HTTPException:
+                logging.warning("Addon-Katalog Teil %s konnte nicht angepinnt werden",
+                                part + 1)
     return target
 
 
@@ -6913,6 +7059,9 @@ def addon_version_embed(slug,title,area,summary,latest,new):
         text="Corpsegrinder Addon-Schmiede • "
              + ("Neu entdeckt, nicht automatisch empfohlen" if new
                 else "Neue Forever-Datei gefunden, Kompatibilität prüfen"))
+    icon_url = trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+    if icon_url:
+        embed.set_thumbnail(url=icon_url)
     return embed
 
 
@@ -6926,7 +7075,13 @@ async def check_forever_addons():
             return 0,"Start-Kategorie fehlt"
         known={row[0]:row[1] for row in db.execute(
             "SELECT slug,latest_version FROM forever_addon_files").fetchall()}
-        candidates,errors=await asyncio.to_thread(scan_forever_addons,known)
+        candidates,errors,icons=await asyncio.to_thread(
+            scan_forever_addons,known,True)
+        for slug, icon_url in icons.items():
+            if trusted_addon_icon_url(icon_url):
+                save_setting("addon_project_icon_" + slug, icon_url)
+        # Refresh the pinned catalogue after saving all detected versions;
+        # editing it now would show the previously cached versions instead.
         now=int(datetime.now(timezone.utc).timestamp())
         posted=0
         # Avoid a flood during the initial import; base guide covers the basics.
@@ -6941,10 +7096,15 @@ async def check_forever_addons():
             is_new=slug not in {item[0] for item in ADDON_SOURCES}
             # When the bot first sees curated addons, store all versions but
             # only post a few fresh Forever-file cards.
-            send_card = (not first_run or
-                         (posted < max_messages and (
-                             (not is_new and initial_curated_sent < 3) or
-                             (is_new and initial_discovered_sent < 2))))
+            # Adding twelve newly curated projects during an upgrade is not
+            # a version change. Put them in the pinned overview quietly.
+            # Only actual later file updates may trigger a new notification.
+            initial_curated = not is_new and previous is None and not first_run
+            send_card = (not initial_curated and
+                         (not first_run or
+                          (posted < max_messages and (
+                              (not is_new and initial_curated_sent < 3) or
+                              (is_new and initial_discovered_sent < 2)))))
             message_id=0
             if send_card:
                 msg=await target.send(
@@ -6973,6 +7133,9 @@ async def check_forever_addons():
         save_setting("addons_last_checked",now)
         save_setting("addons_last_result",
                      f"{posted} neue Meldungen; {len(errors)} Quellen-/Prüffehler")
+        # Update the original three pinned posts in place with the newest
+        # confirmed icons AND versions, not just the old cached state.
+        await ensure_addons_channel(guild)
         if errors:
             logging.warning("Addon-Quellen: %s"," | ".join(errors)[:700])
         return posted,"OK" if not errors else f"Teilweise erreichbar ({len(errors)} Fehler)"
@@ -7015,10 +7178,14 @@ async def addon_status_command(interaction: discord.Interaction):
     if not allowed(interaction):
         return await answer(interaction,"Nur auf Corpsegrinder.")
     num=db.execute("SELECT COUNT(*) FROM forever_addon_files").fetchone()[0]
+    icons=sum(bool(trusted_addon_icon_url(
+        setting("addon_project_icon_" + row[0])))
+        for row in ADDON_SOURCES)
     last=setting("addons_last_checked")
     status=setting("addons_last_result") or "Noch nicht geprüft"
     await answer(interaction,
                  f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
+                 f"Echte CurseForge-Icons: **{icons}/{len(ADDON_SOURCES)}**\n"
                  f"Abfrage alle **6 Stunden**\n"
                  + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
                  + f"Status: {status}")
