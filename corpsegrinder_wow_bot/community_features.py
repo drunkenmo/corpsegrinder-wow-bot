@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.26"
+VERSION = "1.0.27"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,18 +139,17 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="⚒️ Corpsegrinder Bot – Addon-Schmiede 1.0.26",
+        title="⚒️ Corpsegrinder Bot – Addon-Schmiede 1.0.27",
         description=(
-            "**Die Addon-Schmiede nutzt jetzt den Platz am PC besser!** 🧩\n\n"
-            "🖥️ **Zwei Addons nebeneinander** innerhalb jeder Katalogkarte "
-            "durch Discord-Inline-Felder.\n"
-            "📱 Auf dem Handy entscheidet Discord automatisch über "
-            "die lesbare Anordnung.\n"
-            "🔗 Alle acht CurseForge-Links bleiben direkt erreichbar "
-            "– ohne Untermenüs.\n"
-            "🔄 Die automatischen Forever-Addon-Meldungen bleiben erhalten.\n\n"
-            "Die bestehenden drei Embeds stehen weiterhin in einer "
-            "angehefteten Nachricht. Keine Kanäle oder Daten werden verändert."
+            "**Weniger Ballast, mehr Addons!**\n\n"
+            "✅ Der große Einleitungsblock samt Bild und Infotext entfällt.\n"
+            "✅ Stattdessen steht direkt über der Liste nur noch die "
+            "**Corpsegrinder Addon-Schmiede** als Überschrift.\n"
+            "✅ Der bisherige Installationshinweis am Ende ist entfernt.\n"
+            "✅ Alle acht Addons und CurseForge-Links sind weiterhin "
+            "direkt sichtbar, am PC mit Inline-Spalten.\n\n"
+            "Die bestehende angeheftete Nachricht wird aktualisiert; "
+            "andere Nachrichten, Kanäle und automatische Updates bleiben erhalten."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
