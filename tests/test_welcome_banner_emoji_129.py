@@ -74,14 +74,14 @@ class EmojiTests(unittest.TestCase):
     def test_banner_survives_existing_welcome_refresh(self):
         block = BOT[BOT.index("async def publish_info("):
                     BOT.index('@bot.tree.command(', BOT.index("async def publish_info("))]
-        self.assertIn('a.filename == "corpsegrinder_banner.png"', block)
-        self.assertIn('embed.set_image(url="attachment://corpsegrinder_banner.png")', block)
-        self.assertIn("attachments=existing.attachments", block)
+        self.assertIn('a.filename.startswith("corpsegrinder_banner.")', block)
+        self.assertIn('embed.set_image(url="attachment://" + banner.filename)', block)
+        self.assertIn('await existing.edit(embed=embed, view=view)', block)
         self.assertIn('save_setting(storage_key, existing.id)', block)
         self.assertNotIn("corpsegrinder_banner.png", FEATURES)
         self.assertNotIn("assets/welcome.png", FEATURES)
         self.assertNotIn("Alte Säcke. Kaltes Bier.", FEATURES)
-        self.assertIn('VERSION = "1.0.30"', FEATURES)
+        self.assertIn('VERSION = "1.0.31"', FEATURES)
 
 
 if __name__ == "__main__":
