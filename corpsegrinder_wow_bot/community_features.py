@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.30"
+VERSION = "1.0.31"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,22 +139,20 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="⚔️ Corpsegrinder Bot – Dungeon-Prüfung & Banner 1.0.30",
+        title="🖼️ Corpsegrinder Bot – Banner-Upload repariert 1.0.31",
         description=(
-            "**Dungeon-Termine und das Corpsegrinder-Banner sind jetzt besser verbunden!**\n\n"
-            "🏰 Beim Bot-Start werden offene Dungeontermine mit ihren "
-            "Discord-Karten abgeglichen. Nachweislich gelöschte Karten "
-            "werden aus aktiven Übersichten entfernt.\n"
-            "🔎 Admin-Befehl **/dungeon_pruefen** zeigt den Status; "
-            "mit **bereinigen: Ja** lassen sich bestätigte Leichen archivieren.\n"
-            "🗑️ Werden Gruppenkarten in Discord gelöscht, verschwinden sie "
-            "künftig auch aus der aktiven Terminliste.\n"
-            "🖼️ **/willkommensbanner_setzen** bindet dasselbe Banner in "
-            "Willkommen **und die Dungeon-Halle** ein.\n"
-            "🔁 Beim Neustart bleiben beide Banner in ihren angehefteten "
-            "Nachrichten erhalten.\n\n"
-            "Unklare oder vorübergehend nicht erreichbare Discord-Karten "
-            "werden aus Sicherheitsgründen **nicht** entfernt."
+            "**Das Corpsegrinder-Banner wird jetzt zuverlässiger eingebunden.**\n\n"
+            "✅ Bilder werden zuerst als Anhang an die bestehende "
+            "Bot-Nachricht hochgeladen und danach in die Karte eingesetzt.\n"
+            "✅ Dateiendungen von PNG, JPG und WebP bleiben erhalten.\n"
+            "✅ Der Willkommensbereich und die Dungeon-Halle werden "
+            "getrennt aktualisiert, sodass ein Fehler im zweiten Bereich "
+            "das erste erfolgreiche Ergebnis nicht versteckt.\n"
+            "✅ Statt einer allgemeinen Fehlermeldung gibt der Bot "
+            "den **genauen Schritt und Discord-Fehlercode** zurück.\n"
+            "✅ Bereits hinterlegte Banner bleiben bei Bot-Neustarts erhalten.\n\n"
+            "Bitte das Bild nach dem Update erneut über "
+            "**/willkommensbanner_setzen** hochladen."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
