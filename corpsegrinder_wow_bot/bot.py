@@ -78,7 +78,8 @@ EMOJI = {
 STRUCTURE = {
     "🌋 WOW FOREVER | START": [
         ("willkommen", "text"), ("rollenwahl", "text"),
-        ("lagerfeuer", "text"), ("ankündigungen", "text"),
+        ("lagerfeuer", "text"), ("wow-gildenchat", "text"),
+        ("ankündigungen", "text"),
         ("forever-news", "text"), ("addons", "text")],
     "⚔️ WOW FOREVER | PVE": [
         ("pve-gruppensuche", "text"), ("dungeon-planer", "text"),
@@ -503,6 +504,7 @@ async def on_ready():
     background(apply_all_wow_role_styles_once())
     background(ensure_planner_dashboard_on_start())
     background(ensure_trade_dashboard_on_start())
+    background(ensure_guild_chat_channel_on_start())
     background(ensure_level_dashboard_on_start())
     background(remove_old_guild_category_once())
     background(refresh_community_panels_on_start())
@@ -2074,6 +2076,44 @@ class WelcomeView(discord.ui.View):
                 self.add_item(discord.ui.Button(
                     label=label, style=style,
                     url=f"https://discord.com/channels/{guild.id}/{target.id}"))
+
+
+async def ensure_wow_guild_chat_channel(guild):
+    """Prepare a regular text channel for Blizzard's official guild sync.
+
+    The bot does not connect Battle.net, relay messages or manage the guild.
+    Never change permissions/topic of an existing member-managed channel.
+    """
+    existing = channel(guild, "wow-gildenchat")
+    if existing is not None:
+        if not isinstance(existing, discord.TextChannel):
+            logging.warning("#wow-gildenchat existiert, ist aber kein Textkanal")
+        return existing
+    category = discord.utils.get(guild.categories, name=START_CATEGORY_NAME)
+    if category is None:
+        logging.warning("Gildenchat: Start-Kategorie fehlt; Kanal nicht angelegt")
+        return None
+    try:
+        created = await category.create_text_channel(
+            "wow-gildenchat",
+            topic=("💬 WoW Forever ↔ Discord: offizieller Gildenchat. "
+                   "Verbindung später im Spiel unter J → Gilde → "
+                   "Gildeneinstellungen → Discord-Einstellungen herstellen. "
+                   "Dieser Kanal ist zunächst ein normaler Discord-Textkanal."),
+            reason="Corpsegrinder: offizieller WoW-Forever-Gildenchat vorbereiten")
+        # The category determines normal access. Do not introduce a bot relay,
+        # webhooks or extra channel overwrites.
+        await organize_start_channels(guild)
+        return created
+    except discord.HTTPException:
+        logging.exception("Gildenchat: Kanal konnte nicht angelegt werden")
+        return None
+
+
+async def ensure_guild_chat_channel_on_start():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is not None:
+        await ensure_wow_guild_chat_channel(guild)
 
 
 async def refresh_community_panels_on_start():
