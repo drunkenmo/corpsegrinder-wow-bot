@@ -6028,8 +6028,19 @@ async def check_community_forever_news(target):
         pending_upgrade = known - upgraded
         # Existing old cards are refreshed in-place (not reposted) while the
         # official article/feed data remains available.
+        # Always discover unseen posts first; an old un-upgradable card
+        # must never prevent newer items from entering the 12-item window.
         posts, errors = await asyncio.to_thread(
-            gather_community_forever_news, set() if pending_upgrade else known)
+            gather_community_forever_news, known)
+        # Upgrade a bounded selection of existing cards only once per release.
+        if pending_upgrade and setting("forever_news_upgrade_once_132") != "1":
+            older, upgrade_errors = await asyncio.to_thread(
+                gather_community_forever_news, set())
+            errors.extend(upgrade_errors)
+            by_url = {item[1]: item for item in older if item[1] in pending_upgrade}
+            for item in posts:
+                by_url[item[1]] = item
+            posts = list(by_url.values())
         count = 0
         # Chronological ordering makes the channel easy to read.
         for post in sorted(posts):
@@ -6078,6 +6089,7 @@ async def check_community_forever_news(target):
             db.commit()
             known.add(url)
             count += 1
+        save_setting("forever_news_upgrade_once_132", "1")
         save_setting("community_news_last_checked",
                      int(datetime.now(timezone.utc).timestamp()))
         save_setting("community_news_last_result",
