@@ -44,6 +44,7 @@ def load():
             "media.forgecdn.net", "mediafilez.forgecdn.net",
             "edge.forgecdn.net")),
         "ADDON_SOURCES": constant("ADDON_SOURCES"),
+        "ADDON_PROJECT_IDS": constant("ADDON_PROJECT_IDS"),
         "clean_official_text": lambda s, limit: s[:limit],
     }
     exec(compile(ast.fix_missing_locations(ast.Module(
@@ -73,7 +74,7 @@ class CFWidgetIconFallbackTests(unittest.TestCase):
         self.env = load()
 
     def test_reads_exact_project_json_without_api_key(self):
-        url = "https://api.cfwidget.com/wow/addons/blackthornes-farmer"
+        url = "https://api.cfwidget.com/1710618"
         metadata = {"id": 1710618, "game": "wow",
                     "slug": "blackthornes-farmer",
                     "thumbnail": "https://media.forgecdn.net/avatars/123/45/farmer.png"}
@@ -88,7 +89,7 @@ class CFWidgetIconFallbackTests(unittest.TestCase):
         self.assertEqual(self.env["extract_cfwidget_project_icon"](p), metadata["thumbnail"])
 
     def test_mismatched_project_and_redirects_are_rejected(self):
-        base = "https://api.cfwidget.com/wow/addons/blackthornes-farmer"
+        base = "https://api.cfwidget.com/1710618"
         for data, actual in [
             ({"id": 17, "slug": "other", "game": "wow"}, base),
             ({"id": 17, "game": "minecraft"}, base),
@@ -108,6 +109,19 @@ class CFWidgetIconFallbackTests(unittest.TestCase):
         }))
         self.assertIsNone(icon({"thumbnail": "https://evil.example/avatars/2/3/icon.png"}))
         self.assertIsNone(icon({"thumbnail": "https://static-beta.curseforge.com/placeholder.png"}))
+
+    def test_all_19_official_icons_are_available_before_first_live_scan(self):
+        ids = constant("ADDON_PROJECT_IDS")
+        icons = constant("ADDON_VERIFIED_ICONS")
+        expected = {row[0] for row in constant("ADDON_SOURCES")}
+        self.assertEqual(set(ids), expected)
+        self.assertEqual(set(icons), expected)
+        self.assertEqual(len(set(ids.values())), 19)
+        self.assertEqual(len(set(icons.values())), 19)
+        check = self.env["trusted_addon_icon_url"]
+        for slug, url in icons.items():
+            self.assertEqual(check(url), url, slug)
+        self.assertIn("or ADDON_VERIFIED_ICONS.get(slug)", SOURCE)
 
     def test_forever_versions_only_from_explicit_file_names(self):
         version = self.env["extract_cfwidget_forever_version"]
