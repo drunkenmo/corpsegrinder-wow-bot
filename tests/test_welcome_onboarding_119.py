@@ -4,6 +4,7 @@ Runs without discord.py, Discord token or Home Assistant.
 """
 import ast
 import asyncio
+import re
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -137,6 +138,9 @@ class LayoutAndGuideTests(unittest.TestCase):
                        if isinstance(n,ast.AsyncFunctionDef)
                        and n.name=="on_member_join")
         join_node.decorator_list=[]  # Run isolated without a real Discord bot
+        short_node=next(n for n in TREE.body
+                        if isinstance(n,ast.FunctionDef)
+                        and n.name=="short_lagerfeuer_greeting")
 
         class FakeTextChannel:
             def __init__(self,mention):
@@ -169,7 +173,7 @@ class LayoutAndGuideTests(unittest.TestCase):
                                     "willkommen":welcome}.get(n),
             "logging":SimpleNamespace(warning=lambda *args:None)}
         exec(compile(ast.fix_missing_locations(
-            ast.Module(body=[join_node],type_ignores=[])),
+            ast.Module(body=[short_node,join_node],type_ignores=[])),
             "bot.py","exec"),env)
         member=FakeMember(guild)
         asyncio.run(env["on_member_join"](member))
@@ -190,6 +194,97 @@ class LayoutAndGuideTests(unittest.TestCase):
         asyncio.run(env["on_member_join"](FakeMember(guild)))
         self.assertEqual(len(chat.posts),1)
         self.assertEqual(welcome.posts,[])
+
+
+    def test_old_greetings_are_edited_in_place_exactly_once(self):
+        """Only bot-authored legacy messages are edited; no chat is reposted."""
+        selected=[n for n in TREE.body if (
+            isinstance(n,ast.Assign) and any(
+                isinstance(dst,ast.Name) and
+                dst.id=="_OLD_LAGERFEUER_GREETING" for dst in n.targets))
+            or (isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))
+                and n.name in ("short_lagerfeuer_greeting",
+                               "compact_old_lagerfeuer_greetings"))]
+        class FakeChat:
+            def __init__(self,messages,mention):
+                self.messages,self.mention=messages,mention
+                self.send_count=0
+                self.requested_history=False
+            def history(self,limit):
+                self.requested_history=True
+                self.assert_limit=limit
+                async def generator():
+                    for m in self.messages:
+                        yield m
+                return generator()
+            async def send(self,*args,**kwargs):
+                self.send_count+=1
+        class FakeMessage:
+            def __init__(self,identifier,author_id,content):
+                self.id=identifier
+                self.author=SimpleNamespace(id=author_id)
+                self.content=content
+                self.edits=[]
+                self.deletes=0
+            async def edit(self,**kwargs):
+                self.edits.append(kwargs)
+                self.content=kwargs["content"]
+            async def delete(self,*args,**kwargs):
+                self.deletes+=1
+
+        old_content=(
+            "⚔️ Willkommen bei **Corpsegrinder**, <@42>! Für die Horde! 🍻\n"
+            "Starte mit unserer Orientierung in <#11>. Danach in <#12> "
+            "Rollen wählen und **Ingame-Name + Klasse** registrieren. "
+            "Keine Freigabe erforderlich.")
+        first=FakeMessage(100,999,old_content)
+        second=FakeMessage(101,999,old_content.replace("<@42>","<@43>"))
+        normal=FakeMessage(102,42,"Moin, spielt ihr heute?")
+        other_bot=FakeMessage(103,111,old_content)
+        modern=FakeMessage(104,999,"👋 Willkommen am Lagerfeuer, <@44>!")
+        chat=FakeChat([first,second,normal,other_bot,modern],"<#10>")
+        welcome=FakeChat([],"<#11>")
+        storage={}
+        class AllowedMentions:
+            @staticmethod
+            def none():
+                return "no-pings"
+
+        env={
+            "re":re,
+            "discord":SimpleNamespace(
+                TextChannel=FakeChat,HTTPException=Exception,
+                AllowedMentions=AllowedMentions),
+            "channel":lambda guild,name:{
+                "lagerfeuer":chat,"willkommen":welcome}.get(name),
+            "bot":SimpleNamespace(user=SimpleNamespace(id=999)),
+            "setting":lambda key:storage.get(key),
+            "save_setting":lambda key,value:storage.__setitem__(key,value),
+            "logging":SimpleNamespace(info=lambda *args:None,
+                                      warning=lambda *args:None,
+                                      exception=lambda *args:None)
+        }
+        exec(compile(ast.fix_missing_locations(
+            ast.Module(body=selected,type_ignores=[])),
+            "bot.py","exec"),env)
+        asyncio.run(env["compact_old_lagerfeuer_greetings"](SimpleNamespace()))
+        self.assertEqual(storage.get("lagerfeuer_greetings_compacted_v136"),"1")
+        self.assertEqual(first.content,
+                         "👋 Willkommen am Lagerfeuer, <@42>! 🍻 "
+                         "Neu hier? Schau in <#11>.")
+        self.assertEqual(len(first.edits),1)
+        self.assertEqual(first.edits[0]["allowed_mentions"],"no-pings")
+        self.assertEqual(len(second.edits),1)
+        self.assertEqual(len(normal.edits),0)
+        self.assertEqual(len(other_bot.edits),0)
+        self.assertEqual(len(modern.edits),0)
+        self.assertEqual(sum(m.deletes for m in chat.messages),0)
+        self.assertEqual(chat.send_count,0)
+        self.assertEqual(welcome.send_count,0)
+        # Marker prevents touching old posts again on future bot restarts.
+        asyncio.run(env["compact_old_lagerfeuer_greetings"](SimpleNamespace()))
+        self.assertEqual(len(first.edits),1)
+        self.assertEqual(len(second.edits),1)
 
 
 if __name__=="__main__":
