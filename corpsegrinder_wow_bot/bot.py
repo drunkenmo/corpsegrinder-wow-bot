@@ -5745,12 +5745,15 @@ FOREVER_MEDIA_HOSTS = frozenset((
     "wow-forever.gg", "www.wow-forever.gg",
     "wowforever-community.de", "www.wowforever-community.de",
     "wow.4fansites.de", "images.4fansites.de",
-    "bnetcmsus-a.akamaihd.net", "bnetcmsus-a.akamaihd.net",
+    "bnetcmsus-a.akamaihd.net",
     "blz-contentstack-images.akamaized.net",
-    "images.blz-contentstack.com", "bnetcmsus-a.akamaihd.net",
-    "i.ytimg.com", "img.youtube.com", "www.youtube.com", "youtube.com",
-    "youtu.be", "player.vimeo.com", "vimeo.com",
-    "images.wowhead.com", "wowhead.com",
+    "images.blz-contentstack.com",
+    "i.ytimg.com", "img.youtube.com",
+    "images.wowhead.com",
+))
+FOREVER_VIDEO_HOSTS = frozenset((
+    "www.youtube.com", "youtube.com", "youtu.be",
+    "player.vimeo.com", "vimeo.com",
 ))
 
 
@@ -5760,14 +5763,13 @@ def trusted_forever_media_url(raw, base, video=False):
         return None
     try:
         resolved = urlparse(urljoin(base, html.unescape(raw.strip())))
+        valid_port = resolved.port in (None, 443)
     except ValueError:
         return None
     if (resolved.scheme != "https" or not resolved.hostname
-            or resolved.username or resolved.password
-            or resolved.port not in (None, 443)):
+            or resolved.username or resolved.password or not valid_port):
         return None
-    allowed = (("www.youtube.com", "youtube.com", "youtu.be",
-                "player.vimeo.com", "vimeo.com")
+    allowed = (FOREVER_MEDIA_HOSTS | FOREVER_VIDEO_HOSTS
                if video else FOREVER_MEDIA_HOSTS)
     if resolved.hostname not in allowed:
         return None
