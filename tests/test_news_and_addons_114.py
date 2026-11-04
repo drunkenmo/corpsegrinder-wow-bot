@@ -22,6 +22,7 @@ FUNCTIONS = {
     "gather_community_forever_news", "scan_forever_addons",
     "CurseForgeProjectIcon", "trusted_addon_icon_url",
     "extract_curseforge_project_icon",
+    "extract_cfwidget_project_icon", "extract_cfwidget_forever_version",
 }
 
 
@@ -155,6 +156,9 @@ class TestAddons(unittest.TestCase):
         env=self.env
         page="""<h4>WoW Retail</h4>12.1.5 Latest release R Retail
         <h4>WoW Forever</h4>1.60.1-forever Latest release R Forever"""
+        # Keine echten Netzabrufe aus den Offline-Regressions-Tests.
+        env["read_cfwidget_project"] = lambda slug: {
+            "thumbnail": None, "files": [], "download": {}}
         env["read_curseforge_page"]=lambda url: (
             '<a href="/wow/addons/fresh-addon">Fresh addon</a>'
             if "search" in url else

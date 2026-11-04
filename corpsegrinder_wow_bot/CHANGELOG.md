@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.34 – Original-Addon-Icons zuverlässig sichtbar
+
+- **Alle 19 Original-Logos** am 4. November 2026 unmittelbar auf den jeweiligen CurseForge-Projektseiten geprüft. Jede Karte erhält einen eindeutig zugeordneten, echten HTTPS-CDN-Icon-Link schon beim ersten Rendern, auch ohne erfolgreichen Live-Scan. Keine Screenshots, Fantasiebilder oder vertauschten Projektlogos.
+- Projekt-ID-Zuordnung für alle 19 Addons geprüft; wenn die direkte CurseForge-Abfrage fehlschlägt, kann die öffentliche CFWidget-Schnittstelle anhand der **numerischen Projekt-ID** statt eines teils nicht auflösbaren Namens abgefragt werden. Der JSON-Abruf unterstützt auch größere, etablierte Projekte.
+- Die regelmäßige sechsstündliche Aktualisierung und die drei bestehenden angepinnten Addon-Übersichten bleiben erhalten. Originalbilder aus späteren erfolgreichen Scans können die verifizierten Anfangsbilder aktualisieren.
+- `/addons_pruefen` und `/addons_status` zeigen die verfügbaren Original-Icons sowie Abfragefehler deutlicher an. Beim Status wird zwischen verifizierten Basis-Icons und dynamisch gefundenen Icons unterschieden.
+- Tests schützen die 19 Projekt-IDs und Original-URLs, den CFWidget-Fallback und das Verbot, Screenshots als Logo einzusetzen. Keine Änderung an bestehenden Discord-Rollen, Kanalstruktur oder gespeicherten Gruppen.
+
 ## 1.0.33 – Addon-Schmiede: 19 echte Addons mit projektbezogenen Icons
 
 - Alle **19 realen CurseForge-Projekte** bleiben im Katalog: Blackthornes Farmer, Tradeskills, Equipment, Butler und Pets an erster Stelle; Factoruide Guide + das benötigte Factoruide Profile, AzerothCompendium, SKTools, Spoken und Spoken: German; danach die acht bisherigen Empfehlungen.

@@ -6636,6 +6636,54 @@ ADDON_DISCOVERY_URL = (
     "class=addons&page=1&pageSize=20&sortBy=dateCreated&version=1.60.1")
 ADDON_CHECK_INTERVAL = 6 * 3600
 
+# Am 04.11.2026 direkt per CurseForge-Projektseite verifizierte IDs und
+# og:image-Logos. Garantierte Anfangsbilder, auch wenn Live-Scraping blockiert.
+# Keine Screenshots oder generischen Suchbilder. Der Live-Scanner kann sie
+# später mit aktuellen echten Projekticons überschreiben.
+ADDON_PROJECT_IDS = {
+    "blackthornes-farmer": 1710618,
+    "blackthornes-tradeskills": 1710638,
+    "blackthornes-equipment": 1720051,
+    "blackthornes-butler": 1739020,
+    "blackthornes-pets": 1720056,
+    "factoruide-guide": 1754477,
+    "factoruide-profile": 1754451,
+    "azerothcompendium": 1698451,
+    "sktools": 1527228,
+    "spoken": 1700375,
+    "spoken-german": 1746501,
+    "questie": 334372,
+    "questforever": 1710478,
+    "leatrix-plus": 94855,
+    "leatrix-maps": 298842,
+    "auctionator": 6124,
+    "baganator": 914482,
+    "tomtom": 18808,
+    "deadly-boss-mods": 3358,
+}
+ADDON_VERIFIED_ICONS = {
+    "blackthornes-farmer": "https://media.forgecdn.net/avatars/thumbnails/2144/935/256/256/639284459389105451.png",
+    "blackthornes-tradeskills": "https://media.forgecdn.net/avatars/thumbnails/2152/127/256/256/639286635197992420.png",
+    "blackthornes-equipment": "https://media.forgecdn.net/avatars/thumbnails/2144/933/256/256/639284459219886287.png",
+    "blackthornes-butler": "https://media.forgecdn.net/avatars/thumbnails/2144/932/256/256/639284459015605998.png",
+    "blackthornes-pets": "https://media.forgecdn.net/avatars/thumbnails/2144/939/256/256/639284459737875343.png",
+    "factoruide-guide": "https://media.forgecdn.net/avatars/thumbnails/2132/520/256/256/639280247983836450.png",
+    "factoruide-profile": "https://media.forgecdn.net/avatars/thumbnails/2132/479/256/256/639280238996741654.png",
+    "azerothcompendium": "https://media.forgecdn.net/avatars/thumbnails/2089/363/256/256/639266454395040344.jpg",
+    "sktools": "https://media.forgecdn.net/avatars/thumbnails/1779/608/256/256/639129235278294781.png",
+    "spoken": "https://media.forgecdn.net/avatars/thumbnails/2123/272/256/256/639277523184843230.png",
+    "spoken-german": "https://media.forgecdn.net/avatars/thumbnails/2123/343/256/256/639277526503267345.png",
+    "questie": "https://media.forgecdn.net/avatars/thumbnails/351/162/256/256/637505206198965674.png",
+    "questforever": "https://media.forgecdn.net/avatars/thumbnails/2068/345/256/256/639258843131399481.jpg",
+    "leatrix-plus": "https://media.forgecdn.net/avatars/thumbnails/483/32/256/256/637782408501667202.png",
+    "leatrix-maps": "https://media.forgecdn.net/avatars/thumbnails/483/28/256/256/637782408015473073.png",
+    "auctionator": "https://media.forgecdn.net/avatars/thumbnails/1403/232/256/256/638909541952729618.png",
+    "baganator": "https://media.forgecdn.net/avatars/thumbnails/956/327/256/256/638449029664561508.png",
+    "tomtom": "https://media.forgecdn.net/avatars/thumbnails/1495/687/256/256/638971692093458734.png",
+    "deadly-boss-mods": "https://media.forgecdn.net/avatars/thumbnails/199/661/256/256/636908483866103322.png",
+}
+
+
 # Jede Rubrik wird als eigene, angepinnte Nachricht veröffentlicht.
 # Discord erlaubt maximal zehn Embeds pro Nachricht und nur ein Thumbnail
 # je Embed; drei Nachrichten erlauben alle 19 originalen Addon-Icons.
@@ -6721,6 +6769,60 @@ def trusted_addon_icon_url(raw):
     except ValueError:
         return None
     return url.geturl()
+
+
+# CFWidget stellt projektgebundene CurseForge-Metadaten ohne API-Key bereit.
+# Fallback, falls CurseForge direkte Bot-Anfragen blockiert oder kein Logo in
+# den Social-Metatags angibt. Bilder bleiben echte CurseForge-CDN-Projektlogos.
+def read_cfwidget_project(slug):
+    addon_project_url(slug)  # Eingabe prüfen, bevor eine URL gebaut wird
+    project_id = ADDON_PROJECT_IDS.get(slug)
+    if project_id is None:
+        raise ValueError("Unbekanntes CurseForge-Projekt")
+    request = Request("https://api.cfwidget.com/" + str(project_id),
+                      headers={
+                          "User-Agent": "CorpsegrinderAddons/1.0",
+                          "Accept": "application/json",
+                      })
+    with urlopen(request, timeout=12) as response:
+        actual = urlparse(response.geturl())
+        if actual.scheme != "https" or actual.hostname != "api.cfwidget.com":
+            raise ValueError("Unerwartete CFWidget-Weiterleitung")
+        data = response.read(2_000_001)
+        if len(data) > 2_000_000:
+            raise ValueError("CFWidget-Antwort zu groß")
+    project = json.loads(data.decode("utf-8"))
+    if (not isinstance(project, dict)
+            or type(project.get("id")) is not int
+            or project["id"] != project_id):
+        raise ValueError("CFWidget hat keine gültigen Projektmetadaten geliefert")
+    game = str(project.get("game", "wow")).lower()
+    if game not in ("wow", "world-of-warcraft", "world of warcraft"):
+        raise ValueError("CFWidget-Projekt gehört nicht zu WoW")
+    if project.get("slug") and project["slug"] != slug:
+        raise ValueError("CFWidget-Projektname passt nicht zur angefragten URL")
+    return project
+
+
+def extract_cfwidget_project_icon(project):
+    """Nur das Logo-Feld eines gültigen Projekts, nie Screenshots/Galerie."""
+    return trusted_addon_icon_url(project.get("thumbnail"))
+
+
+def extract_cfwidget_forever_version(project):
+    """Nur klar als Forever bezeichnete Dateinamen, keine Retail-Dateien."""
+    files = project.get("files")
+    entries = ([project.get("download")] if isinstance(project.get("download"), dict)
+               else []) + (files if isinstance(files, list) else [])
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = next((v for key in ("display", "displayName", "name", "filename", "fileName")
+                     if isinstance((v := entry.get(key)), str) and v.strip()), "")
+        if name and re.search(r"(?:^|[^a-z])forever(?:[^a-z]|$)", name,
+                              re.IGNORECASE):
+            return clean_official_text(name, 85)
+    return None
 
 
 class CurseForgeProjectIcon(HTMLParser):
@@ -6842,23 +6944,36 @@ def scan_forever_addons(already_seen=None, include_icons=False):
         errors.append("CurseForge-Suche: " + str(exc)[:160])
 
     def fetch_one(slug):
+        page, alternative, failures = None, None, []
         try:
-            return read_curseforge_page(addon_project_url(slug)), None
+            page = read_curseforge_page(addon_project_url(slug))
         except (OSError, ValueError) as exc:
-            return None, f"{slug}: {str(exc)[:100]}"
+            failures.append("CurseForge: " + str(exc)[:80])
+        if slug in curated and (page is None or
+                                not extract_curseforge_project_icon(page)):
+            try:
+                alternative = read_cfwidget_project(slug)
+            except (OSError, ValueError, UnicodeError) as exc:
+                failures.append("CFWidget: " + str(exc)[:80])
+        return page, alternative, failures
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        for slug, (page, error) in zip(
+    # CFWidget bittet um nur wenige gleichzeitige Abrufe. Kein API-Key nötig.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for slug, (page, alternative, failures) in zip(
                 candidates, pool.map(fetch_one, candidates)):
-            if error:
-                errors.append(error)
+            if page is None and alternative is None:
+                errors.append(slug + ": " + "; ".join(failures)[:160])
                 continue
-            icon = extract_curseforge_project_icon(page)
+            icon = (extract_curseforge_project_icon(page) if page else None)
+            if not icon and alternative:
+                icon = extract_cfwidget_project_icon(alternative)
             if icon and slug in curated:
                 icons[slug] = icon
-            latest = extract_curseforge_forever_version(page)
+            latest = (extract_curseforge_forever_version(page) if page else None)
+            if not latest and alternative:
+                latest = extract_cfwidget_forever_version(alternative)
             if not latest:
-                continue  # Never declare a Forever release without file evidence.
+                continue  # Kein gemeldetes Release ohne klare Forever-Kennung.
             item = curated.get(slug)
             title = item[1] if item else slug.replace("-", " ").title()
             area = item[2] if item else "Neu entdeckt"
@@ -6986,7 +7101,8 @@ async def ensure_addons_channel(guild):
         except discord.HTTPException:
             logging.warning("Addon-Kanal konnte nicht einsortiert werden")
     icon_urls = {
-        slug: trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+        slug: (trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+               or ADDON_VERIFIED_ICONS.get(slug))
         for slug, *_ in ADDON_SOURCES
     }
     versions = dict(db.execute(
@@ -7059,7 +7175,8 @@ def addon_version_embed(slug,title,area,summary,latest,new):
         text="Corpsegrinder Addon-Schmiede • "
              + ("Neu entdeckt, nicht automatisch empfohlen" if new
                 else "Neue Forever-Datei gefunden, Kompatibilität prüfen"))
-    icon_url = trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+    icon_url = (trusted_addon_icon_url(setting("addon_project_icon_" + slug))
+                or ADDON_VERIFIED_ICONS.get(slug))
     if icon_url:
         embed.set_thumbnail(url=icon_url)
     return embed
@@ -7131,6 +7248,7 @@ async def check_forever_addons():
                 break
         save_setting("addons_initial_import_complete","1")
         save_setting("addons_last_checked",now)
+        save_setting("addons_last_error_preview", " | ".join(errors)[:500])
         save_setting("addons_last_result",
                      f"{posted} neue Meldungen; {len(errors)} Quellen-/Prüffehler")
         # Update the original three pinned posts in place with the newest
@@ -7162,7 +7280,9 @@ async def check_addons_command(interaction: discord.Interaction):
         number,status=await check_forever_addons()
         await interaction.followup.send(
             f"🧩 **Addon-Prüfung beendet**\n"
-            f"Neue Meldungen: **{number}**\nStatus: {status}\nKanal: #addons",
+            f"Neue Meldungen: **{number}**\nStatus: {status}\n"
+            f"Original-Icons: **{sum(bool(trusted_addon_icon_url(setting('addon_project_icon_' + row[0])) or trusted_addon_icon_url(ADDON_VERIFIED_ICONS.get(row[0]))) for row in ADDON_SOURCES)}/{len(ADDON_SOURCES)}**\n"
+            f"Letzte Quellenfehler: {(setting('addons_last_error_preview') or 'keine')[:230]}\nKanal: #addons",
             ephemeral=True)
     except Exception:
         logging.exception("Manuelle Addon-Prüfung fehlgeschlagen")
@@ -7178,17 +7298,24 @@ async def addon_status_command(interaction: discord.Interaction):
     if not allowed(interaction):
         return await answer(interaction,"Nur auf Corpsegrinder.")
     num=db.execute("SELECT COUNT(*) FROM forever_addon_files").fetchone()[0]
-    icons=sum(bool(trusted_addon_icon_url(
+    verified=sum(bool(trusted_addon_icon_url(
+        setting("addon_project_icon_" + row[0])) or
+        trusted_addon_icon_url(ADDON_VERIFIED_ICONS.get(row[0])))
+        for row in ADDON_SOURCES)
+    live_icons=sum(bool(trusted_addon_icon_url(
         setting("addon_project_icon_" + row[0])))
         for row in ADDON_SOURCES)
     last=setting("addons_last_checked")
     status=setting("addons_last_result") or "Noch nicht geprüft"
+    error_details=setting("addons_last_error_preview") or ""
     await answer(interaction,
                  f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
-                 f"Echte CurseForge-Icons: **{icons}/{len(ADDON_SOURCES)}**\n"
+                 f"Original-Icons: **{verified}/{len(ADDON_SOURCES)}** (live: {live_icons})\n"
                  f"Abfrage alle **6 Stunden**\n"
                  + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
-                 + f"Status: {status}")
+                 + f"Status: {status}"
+                 + (f"\nQuellenfehler: {error_details[:230]}"
+                    if error_details and admin(interaction) else ""))
 
 
 
