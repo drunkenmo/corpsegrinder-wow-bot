@@ -5,6 +5,7 @@ connection, bot token or Home Assistant instance is required.
 """
 import ast
 import asyncio
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
@@ -22,10 +23,8 @@ def get_async(name, env):
                 if isinstance(x, ast.AsyncFunctionDef) and x.name == name)
     # Slash/event decorators require a running Discord bot; test the
     # underlying coroutine independently instead.
-    node = ast.AsyncFunctionDef(
-        name=node.name, args=node.args, body=node.body,
-        decorator_list=[], returns=node.returns,
-        type_comment=node.type_comment)
+    node = copy.deepcopy(node)
+    node.decorator_list = []
     obj = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
     exec(compile(obj, "bot.py", "exec"), env)
     return env[name]
