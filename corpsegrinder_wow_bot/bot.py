@@ -6324,71 +6324,47 @@ def addon_latest_version(slug):
     return row[0] if row else None
 
 
-def addon_intro_embed():
-    """One large, readable fantasy header; no menu or nested selection."""
-    embed = discord.Embed(
-        title="⚒️ CORPSEGRINDER · DIE ADDON-SCHMIEDE",
-        description=(
-            "✦ **FÜR DIE HORDE · FÜR AZEROTH** ✦\n\n"
-            "**Die Werkzeuge für deine Abenteuer – ohne Klick-Labyrinth!**\n"
-            "Alle Addons stehen **direkt unten** mit Kurzbeschreibung "
-            "und CurseForge-Link. Einfach das gewünschte Addon öffnen.\n\n"
-            "🍻 *Alte Säcke. Kaltes Bier. Gut geschmiedete Addons.*"),
-        colour=discord.Colour.from_rgb(176, 110, 38))
-    embed.set_image(url=ADDON_HUB_ART_URL)
-    embed.set_footer(text="Corpsegrinder • Addon-Schmiede • " + ADDON_MARKER)
-    return embed
-
-
 def addon_catalogue_embeds():
-    """Readable two-column layout on desktop, responsive on phones.
+    """Compact catalogue: no banner, intro card, extra disclaimer or menus.
 
-    Discord lays out inline fields itself. A full-width separator after
-    each pair prevents a third addon from appearing on the same row.
+    Discord chooses the number of columns. Inline fields are grouped
+    in pairs by a full-width spacer so desktop has room for two.
     """
     sections = (
-        ("📜 QUESTS · KARTEN · NAVIGATION",
+        ("⚒️ CORPSEGRINDER · ADDON-SCHMIEDE",
+         "📜 **QUESTS · KARTEN · NAVIGATION**",
          ("questie", "questforever", "leatrix-maps", "tomtom")),
         ("⚔️ KOMFORT · KAMPF · HANDEL · INVENTAR",
+         "",
          ("leatrix-plus", "deadly-boss-mods", "auctionator", "baganator")),
     )
     by_slug = {row[0]: row for row in ADDON_SOURCES}
     cards = []
-    for title, slugs in sections:
+    for title, subtitle, slugs in sections:
         embed = discord.Embed(
-            title=title,
-            description="━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            title=title, description=subtitle,
             colour=discord.Colour.from_rgb(143, 89, 32))
         available = [slug for slug in slugs if slug in by_slug]
         for index, slug in enumerate(available):
-            _slug, name, area, summary = by_slug[slug]
+            _slug, name, _area, summary = by_slug[slug]
             embed.add_field(
                 name="✦ " + name,
                 value=(summary + "\n"
                        + "[🔗 Auf CurseForge ansehen]("
                        + addon_project_url(slug) + ")"),
                 inline=True)
-            # Discord supports up to three inline fields in a row. A
-            # full-width spacer keeps pairs of add-ons grouped together.
             if index % 2 == 1 and index != len(available) - 1:
                 embed.add_field(name="\u200b", value="\u200b", inline=False)
         cards.append(embed)
-    cards[-1].add_field(
-        name="⚠️ VOR DER INSTALLATION",
-        value="Immer die **WoW-Forever-Datei (1.60.1)** auswählen. "
-              "Nicht jedes Addon ist garantiert vollständig kompatibel. "
-              "Der Bot installiert keine Dateien.",
-        inline=False)
-    cards[-1].set_footer(
-        text="Auf schmalen Bildschirmen ordnet Discord die Addons automatisch um.")
+    # Recover the existing pinned message even after a lost setting,
+    # without displaying the old internal marker in its footer.
+    cards[0].set_footer(text="Corpsegrinder · Addon-Schmiede")
     return cards
 
 
 def addon_simplified_embeds():
-    """The original pinned message contains all three cards at once."""
-    return [addon_intro_embed(), *addon_catalogue_embeds()]
-
-
+    """Keep updating the existing pinned message; only two compact embeds."""
+    return addon_catalogue_embeds()
 
 
 async def ensure_addons_channel(guild):
@@ -6435,7 +6411,8 @@ async def ensure_addons_channel(guild):
         try:
             async for msg in target.history(limit=45):
                 if msg.author.id==bot.user.id and any(
-                        ADDON_MARKER in (e.footer.text or "")
+                        (ADDON_MARKER in (e.footer.text or "") or
+                         (e.footer.text or "") == "Corpsegrinder · Addon-Schmiede")
                         for e in msg.embeds):
                     existing=msg
                     break
