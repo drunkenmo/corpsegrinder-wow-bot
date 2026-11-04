@@ -139,18 +139,19 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="💬 Corpsegrinder Bot – Gildenchat-Vorbereitung 1.0.28",
+        title="💬 Corpsegrinder Bot – PvE- und PvP-Gildenchat 1.0.28",
         description=(
-            "**WoW Forever ↔ Discord: Der Gildenchat bekommt seinen eigenen Platz!**\n\n"
-            "✅ Neuer Textkanal **#wow-gildenchat** im Startbereich.\n"
-            "✅ Bereits vorhandene Kanäle und ihre Berechtigungen bleiben erhalten.\n"
-            "✅ Der Kanal ist zunächst ein ganz normaler Textchat.\n"
-            "✅ Später im Spiel verknüpfen: **J → Gilde → Gildeneinstellungen → "
-            "Discord-Einstellungen**, Discord-Server und Kanal auswählen.\n"
-            "✅ **Kein zweiter Chat-Bot, keine Webhooks und keine Doppelposts.**\n\n"
-            "Die tatsächliche WoW-Verknüpfung muss der Gildenleiter bzw. ein "
-            "berechtigter Offizier herstellen, sobald Blizzard die Funktion "
-            "auf dem Forever-Server bereitstellt."
+            "**Zwei Gildenchats, zwei Bereiche – für die Horde!**\n\n"
+            "⚔️ **#pve-gildenchat** im PvE-Bereich.\n"
+            "🏹 **#pvp-gildenchat** im PvP-Bereich.\n"
+            "✅ Vorhandene Kanäle und Berechtigungen bleiben erhalten.\n"
+            "✅ Beide Kanäle sind zunächst normale Discord-Textchats.\n"
+            "✅ Später jede Ingame-Gilde separat über **J → Gilde → "
+            "Gildeneinstellungen → Discord-Einstellungen** mit dem "
+            "jeweiligen Discord-Kanal verknüpfen.\n"
+            "✅ Keine Bot-Bridge und keine Doppelposts.\n\n"
+            "Die Verbindung richtet ein Gildenleiter oder berechtigter "
+            "Offizier im WoW-Client ein, sobald die Funktion verfügbar ist."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
