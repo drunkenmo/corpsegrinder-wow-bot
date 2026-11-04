@@ -7281,7 +7281,7 @@ async def check_addons_command(interaction: discord.Interaction):
         await interaction.followup.send(
             f"🧩 **Addon-Prüfung beendet**\n"
             f"Neue Meldungen: **{number}**\nStatus: {status}\n"
-            f"Echte Icons: **{sum(bool(trusted_addon_icon_url(setting('addon_project_icon_' + row[0]))) for row in ADDON_SOURCES)}/{len(ADDON_SOURCES)}**\n"
+            f"Original-Icons: **{sum(bool(trusted_addon_icon_url(setting('addon_project_icon_' + row[0])) or trusted_addon_icon_url(ADDON_VERIFIED_ICONS.get(row[0]))) for row in ADDON_SOURCES)}/{len(ADDON_SOURCES)}**\n"
             f"Letzte Quellenfehler: {(setting('addons_last_error_preview') or 'keine')[:230]}\nKanal: #addons",
             ephemeral=True)
     except Exception:
@@ -7310,7 +7310,7 @@ async def addon_status_command(interaction: discord.Interaction):
     error_details=setting("addons_last_error_preview") or ""
     await answer(interaction,
                  f"🧩 **Forever Addons**\nVerfolgte Forever-Dateien: **{num}**\n"
-                 f"Echte CurseForge-Icons: **{icons}/{len(ADDON_SOURCES)}**\n"
+                 f"Original-Icons: **{verified}/{len(ADDON_SOURCES)}** (live: {live_icons})\n"
                  f"Abfrage alle **6 Stunden**\n"
                  + (f"Letzte Prüfung: <t:{last}:F>\n" if last else "")
                  + f"Status: {status}"
