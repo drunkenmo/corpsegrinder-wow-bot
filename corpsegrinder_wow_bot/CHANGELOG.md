@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.24 – Warcraft-Fantasy Addon-Schmiede
+
+- Der bestehende, angeheftete **#addons**-Einführungsbeitrag wird als **Addon-Schmiede** mit bronzegoldener Fantasy-Farbgebung, Horde-Grafik, kurzer Einleitung und sechs Kategorien überarbeitet. Die alte Nachrichten-ID und der gespeicherte Marker bleiben erhalten, damit keine doppelte Hauptkarte entsteht.
+- **Interaktive, dauerhafte Discord-Auswahl:** Quests & Leveln, Interface & Komfort, Karte & Navigation, Auktionshaus, Dungeon-Helfer und Inventar. Ein zweites Dropdown öffnet private Detailkarten zu den kuratierten Addons; die Downloadseite ist über einen sicheren CurseForge-Link-Button erreichbar.
+- Buttons **Empfehlungen** und **Neu auf CurseForge** zeigen private Übersichten, ohne den Kanal zu fluten. Ein fehlender Forever-Dateinachweis wird ausdrücklich als *nicht bestätigt* angezeigt.
+- Bereits bestehende, automatisch veröffentlichte Forever-Dateimeldungen bleiben bestehen. Neue Update-Karten erhalten eine besser lesbare Fantasy-Optik. CurseForge-Abfrage weiterhin alle sechs Stunden, keine zusätzlichen API-Schlüssel.
+- Discord-Einschränkung: Die native linke Kanalseitenleiste kann nicht mit eigenen Fantasy-Texturen oder Rahmen versehen werden. Die vorhandene Kanalstruktur und Emoji-Kategorien bleiben erhalten; nur die Darstellung **innerhalb von #addons** wird über Discord-Embeds, Bild und native Menüs umgestaltet.
+- Die vorhandenen Rollen, Kanäle, Nachrichten, Datenbank und übrigen Bot-Funktionen werden nicht gelöscht oder verändert.
+
+
 ## 1.0.23 – Paladin der Verlassenen für WoW Forever
 
 - **Paladin** als neunte Klasse für die Horde ergänzt, wie von Blizzard für untote Charaktere bestätigt.

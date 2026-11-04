@@ -354,3 +354,14 @@ Der Server-Leitfaden ist Discord-nativ; für zukünftige neue Funktionskarten er
 
 Blizzard hat für WoW Forever den **Untoten Paladin (Verlassene)** auf Hordeseite bestätigt. Die Klasse ist in der Characterregistrierung, beim Bearbeiten von Charakterprofilen, als Slash-Choice und im Rollenmenü wählbar. Die passende `🛡️ Paladin`-Rolle wird beim ersten Start erstellt, falls sie fehlt und der Bot `Rollen verwalten` besitzt. Bestehende Rolle und Charaktere bleiben erhalten. Nach `/bot_update` den Bot neu starten und unter `#rollenwahl` die Auswahl prüfen.
 
+
+## Interaktive Addon-Schmiede 1.0.24
+
+Der bestehende `#addons`-Kanal enthält eine einzelne angeheftete **Addon-Schmiede**. Die vorhandene Nachricht wird über ihre alte ID bzw. den bisherigen Marker erneut verwendet; es wird kein zweites Dashboard angelegt.
+
+- Kategorieauswahl in einem persistenten Dropdown: Quests & Leveln, Interface & Komfort, Karte & Navigation, Auktionshaus, Dungeon-Helfer, Inventar.
+- Persönliche Addon-Details erscheinen ephemeral. Der Link-Button führt ausschließlich auf `https://www.curseforge.com/wow/addons/<slug>`.
+- **Empfehlungen** listet den kuratierten Katalog, **Neu auf CurseForge** die letzten gespeicherten Forever-Dateien. Die Datei-Version gilt nur als erkannt, nicht als garantiert kompatibel.
+- Die automatischen 6-Stunden-CurseForge-Checks und das Newsarchiv bleiben erhalten. Der Bot installiert selbst keine Addons.
+- Die Optik verwendet einen goldbraunen Discord-Embed mit bestehender Horde-Grafik; die native Discord-Seitenleiste selbst kann keinen eigenen Skin erhalten. Bestehende Kategorie-Reihenfolge bleibt aus Sicherheitsgründen unangetastet.
+
