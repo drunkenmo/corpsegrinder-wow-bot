@@ -365,3 +365,10 @@ Der bestehende `#addons`-Kanal enthält eine einzelne angeheftete **Addon-Schmie
 - Die automatischen 6-Stunden-CurseForge-Checks und das Newsarchiv bleiben erhalten. Der Bot installiert selbst keine Addons.
 - Die Optik verwendet einen goldbraunen Discord-Embed mit bestehender Horde-Grafik; die native Discord-Seitenleiste selbst kann keinen eigenen Skin erhalten. Bestehende Kategorie-Reihenfolge bleibt aus Sicherheitsgründen unangetastet.
 
+
+## Vereinfachte Addon-Schmiede (1.0.25)
+
+Die angeheftete Nachricht in `#addons` hat **keine Kategorie-Dropdowns oder verschachtelte Menüs** mehr. Stattdessen enthält sie drei eingebettete Discord-Karten in einem Beitrag: Fantasy-Header, Quests/Karten/Komfort und Kampf/Handel/Inventar. Alle acht Addons haben einen direkt klickbaren CurseForge-Link, keine private Zwischenansicht.
+
+Die vorherige gespeicherte Post-ID `addons_intro_post_v114` wird weiterverwendet und der Footer-Marker `corpsegrinder:forever-addon-panel` bleibt stabil. Mit `view=None` werden die bisherigen Menüs beim Editieren entfernt. Die automatische Prüfung und bisherigen Addon-Update-Nachrichten bleiben bestehen.
+
