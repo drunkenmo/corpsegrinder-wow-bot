@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.31"
+VERSION = "1.0.32"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,21 +139,25 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🖼️ Corpsegrinder Bot – Banner-Upload repariert 1.0.31",
+        title="📰 Corpsegrinder Bot – Forever-News im neuen Design 1.0.32",
         description=(
-            "**Das Corpsegrinder-Banner wird jetzt zuverlässiger eingebunden.**\n\n"
-            "✅ Bilder werden zuerst als Anhang an die bestehende "
-            "Bot-Nachricht hochgeladen und danach in die Karte eingesetzt.\n"
-            "✅ Dateiendungen von PNG, JPG und WebP bleiben erhalten.\n"
-            "✅ Der Willkommensbereich und die Dungeon-Halle werden "
-            "getrennt aktualisiert, sodass ein Fehler im zweiten Bereich "
-            "das erste erfolgreiche Ergebnis nicht versteckt.\n"
-            "✅ Statt einer allgemeinen Fehlermeldung gibt der Bot "
-            "den **genauen Schritt und Discord-Fehlercode** zurück.\n"
-            "✅ Bereits hinterlegte Banner bleiben bei Bot-Neustarts erhalten.\n\n"
-            "Bitte das Bild nach dem Update erneut über "
-            "**/willkommensbanner_setzen** hochladen."
+            "**Nur echte und datierte WoW-Forever-News.**\n\n"
+            "✅ Neue Quellen: Wowhead-RSS, deutsche WoW-Forever-Community "
+            "und WoW Source (4Fansites) – nur relevante Forever-Meldungen.\n"
+            "✅ Blizzard, Blizzard-Forum und WoW Forever GG bleiben erhalten.\n"
+            "✅ Große Vorschaubilder aus Originalartikeln, sofern vorhanden; "
+            "echte Videolinks werden angezeigt, wenn die Quelle sie anbietet.\n"
+            "✅ Titel und kurze Quellenvorschau werden übernommen; keine "
+            "erfundenen Aussagen oder künstlichen Nachrichten.\n"
+            "✅ Offizielle Blizzard-Beiträge sind klar als offiziell gekennzeichnet.\n"
+            "✅ 14 Tage Rückblick, weiterhin automatisch alle 30 Minuten.\n"
+            "✅ Der Statusbefehl **/forever_news_status** zeigt auch "
+            "Fehler der einzelnen Community-Feeds.\n"
+            "✅ Ältere Community-News werden, soweit abrufbar, "
+            "in ihren bestehenden Karten aktualisiert.\n\n"
+            "**Admin:** Mit **/forever_news_pruefen** jetzt einmal "
+            "einen Abruf auslösen."
         ),
-        colour=discord.Colour.gold())
+        colour=discord.Colour.blue())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
     return embed

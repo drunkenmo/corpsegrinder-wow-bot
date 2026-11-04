@@ -86,15 +86,15 @@ class TestGermanNewsCards(unittest.TestCase):
                            "def community_news_embed("))]
         self.assertNotIn("Ausführlicher lesen", cards)
         self.assertNotIn("discord.ui.Button", cards)
-        self.assertIn("german_forever_news_summary", cards)
+        self.assertIn("verified_news_excerpt", cards)
         official = SOURCE[SOURCE.index("def forever_news_embed("):
                           SOURCE.index("async def check_blizzard_forever_news(")]
-        self.assertIn("german_forever_news_summary", official)
+        self.assertIn("verified_news_excerpt", official)
 
     def test_preexisting_posts_are_edited_not_reposted(self):
         self.assertIn("CREATE TABLE IF NOT EXISTS forever_news_card_versions", SOURCE)
         self.assertIn("pending_upgrade = known - upgraded", SOURCE)
-        self.assertIn("await old.edit(embed=community_news_embed(post))", SOURCE)
+        self.assertIn("await old.edit(embed=community_news_embed(", SOURCE)
         self.assertIn('"SELECT canonical_url,discord_message_id FROM forever_community_posts"', SOURCE)
 
 

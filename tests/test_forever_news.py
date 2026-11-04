@@ -160,7 +160,7 @@ class ForeverNewsTests(unittest.TestCase):
         self.assertIn('("forever-news", "text")', SOURCE)
         self.assertIn("background(forever_news_worker())", SOURCE)
         self.assertIn("FOREVER_NEWS_PERIOD = 30 * 60", SOURCE)
-        self.assertIn("FOREVER_NEWS_BACKFILL = 48 * 60 * 60", SOURCE)
+        self.assertIn("FOREVER_NEWS_BACKFILL = 14 * 86400", SOURCE)
         self.assertIn("CREATE TABLE IF NOT EXISTS blizzard_news_posts", SOURCE)
         self.assertIn('name="forever_news_status"', SOURCE)
         self.assertIn('name="forever_news_pruefen"', SOURCE)

@@ -5011,7 +5011,7 @@ FOREVER_NEWS_INDEXES = (
 FOREVER_NEWS_HOSTS = frozenset((
     "worldofwarcraft.blizzard.com", "news.blizzard.com"))
 FOREVER_NEWS_PERIOD = 30 * 60
-FOREVER_NEWS_BACKFILL = 48 * 60 * 60
+FOREVER_NEWS_BACKFILL = 14 * 86400  # auch ruhige News-Wochen auffangen
 FOREVER_NEWS_MAX_DOWNLOAD = 2_000_000
 FOREVER_NEWS_MAX_ARTICLES = 15
 FOREVER_NEWS_MARKER = "corpsegrinder:forever-news"
@@ -5362,8 +5362,8 @@ async def ensure_forever_news_channel(guild):
             "🔴 **Offizielle Meldungen:** Blizzard Entertainment\n"
             "🟠 **Community-News:** Wowhead und WoW Forever GG (deutlich gekennzeichnet)\n"
             "🔎 **Prüfung:** alle 30 Minuten · **keine Doppelpostings**\n\n"
-            "Es gibt eine kleine echte **Wowhead-Startauswahl**. Neue Meldungen "
-            "erscheinen danach automatisch, sofern die Quellen erreichbar sind."
+            "Neue echte Beiträge mit **Quellenlink und Vorschaubild**, "
+            "sofern der Originalartikel eines liefert. Keine erfundenen Meldungen."
         ),
         colour=discord.Colour.dark_red())
     embed.set_footer(text=FOREVER_NEWS_MARKER)
@@ -5404,21 +5404,23 @@ async def ensure_forever_news_channel(guild):
     return target
 
 
-def forever_news_embed(row):
+def forever_news_embed(row, image_url=None, video_url=None):
     timestamp, article_id, title, summary, url = row
     embed = discord.Embed(
-        title="📰 " + german_forever_news_title(title)[:250],
-        description=german_forever_news_summary(title, summary),
-        colour=discord.Colour.from_rgb(155, 48, 28),
-        url=url)
-    embed.add_field(
-        name="📅 Von Blizzard veröffentlicht",
-        value=f"<t:{timestamp}:F>", inline=False)
-    embed.add_field(
-        name="⚔️ Originalbeitrag",
-        value=f"[Jetzt bei Blizzard lesen]({url})",
-        inline=False)
-    embed.set_footer(text=f"Blizzard Entertainment · Forever · Artikel {article_id}")
+        title="🔵 " + clean_official_text(title, 245),
+        # A source's actual short teaser, not a manufactured paraphrase.
+        description=verified_news_excerpt(summary),
+        colour=discord.Colour.from_rgb(58, 120, 207),
+        url=url,
+        timestamp=datetime.fromtimestamp(timestamp, timezone.utc))
+    if image_url:
+        embed.set_image(url=image_url)
+    if video_url:
+        embed.add_field(name="🎬 Video im Originalbeitrag",
+                        value=f"[Video öffnen]({video_url})", inline=False)
+    embed.add_field(name="📜 Originalquelle",
+                    value=f"[Blizzard-Meldung lesen]({url})", inline=False)
+    embed.set_footer(text=f"OFFIZIELL · Blizzard Entertainment · Artikel {article_id}")
     return embed
 
 
@@ -5441,8 +5443,10 @@ async def check_blizzard_forever_news():
                     "SELECT 1 FROM blizzard_news_posts WHERE article_id=?",
                     (article_id,)).fetchone():
                 continue
+            image_url, video_url = await asyncio.to_thread(
+                get_verified_forever_media, url)
             message = await target.send(
-                embed=forever_news_embed(row),
+                embed=forever_news_embed(row, image_url, video_url),
                 allowed_mentions=discord.AllowedMentions.none())
             db.execute(
                 "INSERT OR IGNORE INTO blizzard_news_posts "
@@ -5504,12 +5508,16 @@ async def forever_news_status(interaction: discord.Interaction):
     forum_total = db.execute("SELECT COUNT(*) FROM forever_forum_posts").fetchone()[0]
     last = setting("forever_news_checked")
     status = setting("forever_news_last_result") or "Noch kein erfolgreicher Abruf"
+    community_info = setting("community_news_last_result") or "Noch kein Community-Check"
+    errors = setting("community_news_source_errors") or ""
     await answer(interaction,
                  f"📰 **Forever-News**\nAutomatisch alle **30 Minuten**\n"
                  f"Blizzard-Artikel: **{total}** · Community-News: **{community_total}** · "
                   f"Blueposts: **{forum_total}**\n"
-                 + (f"Letzter erfolgreicher Check: <t:{last}:F>\n"
-                    if last else "") + f"Status: {status}")
+                 + (f"Letzter Check: <t:{last}:F>\n"
+                    if last else "") + f"Status: {status}\n"
+                 + f"Community-Feeds: {community_info}"
+                 + (f"\nQuellenprobleme: {errors[:550]}" if errors else ""))
 
 
 # --- Forever-News 1.0.14: ergänzende, klar markierte Community-Quellen -------
@@ -5517,16 +5525,23 @@ async def forever_news_status(interaction: discord.Interaction):
 # sowie eine spezialisierte Community-Seite. Nur der Link zum Original wird
 # geteilt; Artikeltexte werden nicht kopiert.
 FOREVER_COMMUNITY_RSS = (
+    # Verified dedicated Forever feeds
     "https://wow-forever.gg/rss.xml",
     "https://wow-forever.gg/official.xml",
+    "https://wowforever-community.de/feed.xml",
+    # Broader news feeds: RSS items must mention Forever in the headline.
+    "https://www.wowhead.com/news&rss",
+    "https://wow.4fansites.de/rss_feed.xml",
 )
 FOREVER_WOWHEAD_INDEX = "https://www.wowhead.com/forever/news"
-FOREVER_COMMUNITY_LOOKBACK = 7 * 86400
-FOREVER_COMMUNITY_LIMIT = 5
+FOREVER_COMMUNITY_LOOKBACK = 14 * 86400
+FOREVER_COMMUNITY_LIMIT = 12
 FOREVER_COMMUNITY_HOSTS = frozenset((
     "wow-forever.gg", "www.wow-forever.gg",
     "www.wowhead.com", "wowhead.com",
     "worldofwarcraft.blizzard.com", "news.blizzard.com",
+    "wowforever-community.de", "www.wowforever-community.de",
+    "wow.4fansites.de",
 ))
 _community_news_lock = asyncio.Lock()
 
@@ -5619,6 +5634,14 @@ def parse_community_rss(payload, source):
                 or not title or any(word in title.casefold() for word in (
                     "midnight", "retail", "burning crusade", "titan reforged"))):
             continue
+        # A general WoW RSS stream must never spill unrelated news into
+        # Corpsegrinder. The two dedicated Forever sites are scoped feeds.
+        if source in ("Wowhead", "WoW Source") and not re.search(
+                r"\bforever\b", title, re.IGNORECASE):
+            continue
+        if source == "WoW Forever DE" and "forever" not in (
+                title + " " + field("description")).casefold():
+            continue
         stamp = (field("pubDate") or field("published") or field("updated"))
         when = parse_blizzard_publication_date(stamp)
         if when is None:
@@ -5670,7 +5693,13 @@ def gather_community_forever_news(already_known=None):
     for address in FOREVER_COMMUNITY_RSS:
         try:
             feed = fetch_community_page(address)
-            for post in parse_community_rss(feed, "Forever-Community"):
+            host = urlparse(address).hostname
+            source = ("Wowhead" if host in ("www.wowhead.com", "wowhead.com")
+                      else "WoW Source" if host == "wow.4fansites.de"
+                      else "WoW Forever DE" if host in (
+                          "wowforever-community.de", "www.wowforever-community.de")
+                      else "Forever-Community")
+            for post in parse_community_rss(feed, source):
                 when, url, *_ = post
                 if now-FOREVER_COMMUNITY_LOOKBACK <= when <= now+60 and url not in known:
                     posts.append(post)
@@ -5705,6 +5734,85 @@ def gather_community_forever_news(already_known=None):
     return (sorted(deduped.values(), key=lambda p:p[0],
                    reverse=True)[:FOREVER_COMMUNITY_LIMIT], errors)
 
+
+
+# --- Echte Vorschaubilder/Videos aus den Originalartikeln (1.0.32) ---
+# We pass URLs to Discord instead of downloading or inventing artwork.
+# Only allow official site/CDN hosts. No arbitrary embedded HTML/videos.
+FOREVER_MEDIA_HOSTS = frozenset((
+    "worldofwarcraft.blizzard.com", "news.blizzard.com",
+    "wowhead.com", "www.wowhead.com", "wow.zamimg.com",
+    "wow-forever.gg", "www.wow-forever.gg",
+    "wowforever-community.de", "www.wowforever-community.de",
+    "wow.4fansites.de", "images.4fansites.de",
+    "bnetcmsus-a.akamaihd.net",
+    "blz-contentstack-images.akamaized.net",
+    "images.blz-contentstack.com",
+    "i.ytimg.com", "img.youtube.com",
+    "images.wowhead.com",
+))
+FOREVER_VIDEO_HOSTS = frozenset((
+    "www.youtube.com", "youtube.com", "youtu.be",
+    "player.vimeo.com", "vimeo.com",
+))
+
+
+def trusted_forever_media_url(raw, base, video=False):
+    """Accept only HTTPS links to known image/video hosts, never guesses."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        resolved = urlparse(urljoin(base, html.unescape(raw.strip())))
+        valid_port = resolved.port in (None, 443)
+    except ValueError:
+        return None
+    if (resolved.scheme != "https" or not resolved.hostname
+            or resolved.username or resolved.password or not valid_port):
+        return None
+    allowed = (FOREVER_MEDIA_HOSTS | FOREVER_VIDEO_HOSTS
+               if video else FOREVER_MEDIA_HOSTS)
+    if resolved.hostname not in allowed:
+        return None
+    return resolved.geturl()
+
+
+def media_from_forever_article(page, url):
+    """Read the publisher's declared OG/Twitter image and video only."""
+    parser = ForeverArticleParser()
+    parser.feed(page)
+    meta = parser.meta
+    image = trusted_forever_media_url(
+        meta.get("og:image:secure_url") or meta.get("og:image")
+        or meta.get("twitter:image"), url)
+    video = trusted_forever_media_url(
+        meta.get("og:video:url") or meta.get("og:video:secure_url")
+        or meta.get("twitter:player") or meta.get("og:video"),
+        url, video=True)
+    return (image, video)
+
+
+def get_verified_forever_media(url):
+    """Network I/O runs only in to_thread; failure means no image, not fake art."""
+    parsed = urlparse(url)
+    try:
+        if parsed.hostname in FOREVER_NEWS_HOSTS:
+            page = read_official_blizzard_page(url)
+        elif parsed.hostname in FOREVER_COMMUNITY_HOSTS:
+            page = fetch_community_page(url)
+        else:
+            return (None, None)
+        return media_from_forever_article(page, url)
+    except (OSError, ValueError, UnicodeError):
+        logging.info("Kein verwendbares News-Vorschaubild für %s", url)
+        return (None, None)
+
+
+def verified_news_excerpt(description, *, max_chars=450):
+    """Short teaser copied from source-provided metadata, no invented claims."""
+    text = clean_official_text(description, max_chars + 30)
+    if text:
+        return text[:max_chars] + ("…" if len(text) > max_chars else "")
+    return "Keine Kurzbeschreibung von der Quelle geliefert – öffne den Originalbeitrag."
 
 
 # --- Ausführliche, direkt in Discord lesbare News-Karten --------------------
@@ -5851,19 +5959,28 @@ def german_forever_news_summary(title, description, max_chars=1550):
     return "\n".join(lines)[:max_chars]
 
 
-def community_news_embed(post):
+def community_news_embed(post, image_url=None, video_url=None):
     when, url, title, summary, source = post
     embed = discord.Embed(
-        title="📰 " + german_forever_news_title(title)[:230],
+        title="📰 " + clean_official_text(title, 235),
         url=url,
-        description=german_forever_news_summary(title, summary),
-        colour=discord.Colour.from_rgb(165, 111, 36))
-    embed.add_field(name="🗞️ Quelle",
-                    value=("Wowhead · Forever" if source=="Wowhead"
-                           else "WoW Forever GG · Community"),
-                    inline=False)
-    embed.add_field(name="📅 Veröffentlicht", value=f"<t:{when}:F>",inline=False)
-    embed.set_footer(text="Community-News · keine offizielle Blizzard-Mitteilung")
+        description=verified_news_excerpt(summary),
+        colour=discord.Colour.from_rgb(165, 111, 36),
+        timestamp=datetime.fromtimestamp(when, timezone.utc))
+    if image_url:
+        embed.set_image(url=image_url)
+    if video_url:
+        embed.add_field(name="🎬 Video zum Beitrag",
+                        value=f"[Video öffnen]({video_url})", inline=False)
+    display = {
+        "Wowhead": "Wowhead · Forever",
+        "WoW Source": "WoW Source / 4Fansites",
+        "WoW Forever DE": "WoW Forever Community (DE)",
+        "Forever-Community": "WoW Forever GG",
+    }.get(source, source)
+    embed.add_field(name="🔗 Originalbericht",
+                    value=f"[Bei {display} lesen]({url})", inline=False)
+    embed.set_footer(text=display+" · Community / Presse · nicht Blizzard")
     return embed
 
 
@@ -5907,12 +6024,23 @@ async def check_community_forever_news(target):
         known = set(existing)
         upgraded = {row[0] for row in db.execute(
             "SELECT canonical_url FROM forever_news_card_versions "
-            "WHERE version>=115").fetchall()}
+            "WHERE version>=132").fetchall()}
         pending_upgrade = known - upgraded
         # Existing old cards are refreshed in-place (not reposted) while the
         # official article/feed data remains available.
+        # Always discover unseen posts first; an old un-upgradable card
+        # must never prevent newer items from entering the 12-item window.
         posts, errors = await asyncio.to_thread(
-            gather_community_forever_news, set() if pending_upgrade else known)
+            gather_community_forever_news, known)
+        # Upgrade a bounded selection of existing cards only once per release.
+        if pending_upgrade and setting("forever_news_upgrade_once_132") != "1":
+            older, upgrade_errors = await asyncio.to_thread(
+                gather_community_forever_news, set())
+            errors.extend(upgrade_errors)
+            by_url = {item[1]: item for item in older if item[1] in pending_upgrade}
+            for item in posts:
+                by_url[item[1]] = item
+            posts = list(by_url.values())
         count = 0
         # Chronological ordering makes the channel easy to read.
         for post in sorted(posts):
@@ -5922,10 +6050,13 @@ async def check_community_forever_news(target):
                     try:
                         old = await target.fetch_message(int(existing[url]))
                         if old.author.id == bot.user.id:
-                            await old.edit(embed=community_news_embed(post))
+                            image_url, video_url = await asyncio.to_thread(
+                                get_verified_forever_media, url)
+                            await old.edit(embed=community_news_embed(
+                                post, image_url, video_url))
                             db.execute(
                                 "INSERT OR REPLACE INTO forever_news_card_versions "
-                                "(canonical_url,version) VALUES (?,115)", (url,))
+                                "(canonical_url,version) VALUES (?,132)", (url,))
                             db.commit()
                     except (discord.NotFound, discord.Forbidden):
                         logging.info(
@@ -5942,8 +6073,11 @@ async def check_community_forever_news(target):
                     "SELECT 1 FROM blizzard_news_posts WHERE article_id=?",
                     (official_link[0],)).fetchone():
                 continue
-            message = await target.send(embed=community_news_embed(post),
-                                        allowed_mentions=discord.AllowedMentions.none())
+            image_url, video_url = await asyncio.to_thread(
+                get_verified_forever_media, url)
+            message = await target.send(
+                embed=community_news_embed(post, image_url, video_url),
+                allowed_mentions=discord.AllowedMentions.none())
             db.execute(
                 "INSERT OR IGNORE INTO forever_community_posts "
                 "(canonical_url,source,published_utc,discord_message_id,title) "
@@ -5951,14 +6085,16 @@ async def check_community_forever_news(target):
                 (url,source,when,message.id,title))
             db.execute(
                 "INSERT OR REPLACE INTO forever_news_card_versions "
-                "(canonical_url,version) VALUES (?,115)", (url,))
+                "(canonical_url,version) VALUES (?,132)", (url,))
             db.commit()
             known.add(url)
             count += 1
+        save_setting("forever_news_upgrade_once_132", "1")
         save_setting("community_news_last_checked",
                      int(datetime.now(timezone.utc).timestamp()))
         save_setting("community_news_last_result",
                      f"{count} neue Artikel; {len(errors)} Quellenfehler")
+        save_setting("community_news_source_errors", " | ".join(errors)[:850])
         return count, len(errors)
 
 
@@ -6416,7 +6552,7 @@ async def check_forever_news():
     target = await ensure_forever_news_channel(guild)
     if not target:
         return (0, "Kanal fehlt")
-    await seed_forever_news_reading(target)
+    # Die frühere starre Lesetipp-Karte nicht erneut in den Newsfeed posten.
     total, statuses = 0, []
     try:
         n, status = await check_blizzard_forever_news()

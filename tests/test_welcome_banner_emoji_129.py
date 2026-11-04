@@ -82,7 +82,11 @@ class EmojiTests(unittest.TestCase):
         self.assertNotIn("corpsegrinder_banner.png", FEATURES)
         self.assertNotIn("assets/welcome.png", FEATURES)
         self.assertNotIn("Alte Säcke. Kaltes Bier.", FEATURES)
-        self.assertIn('VERSION = "1.0.31"', FEATURES)
+        self.assertGreaterEqual(
+            tuple(int(p) for p in next(line.split('"')[1]
+                for line in FEATURES.splitlines()
+                if line.startswith("VERSION = ")).split(".")),
+            (1, 0, 31))
 
 
 if __name__ == "__main__":

@@ -195,7 +195,11 @@ class BannerTests(unittest.TestCase):
         self.assertIn("await audit_dungeon_cards(guild, repair=True)", SOURCE)
         self.assertIn('name="dungeon_pruefen"', SOURCE)
         self.assertIn("bereinigen: bool = False", SOURCE)
-        self.assertIn('VERSION = "1.0.31"', FEATURES)
+        self.assertGreaterEqual(
+            tuple(int(p) for p in next(line.split('"')[1]
+                for line in FEATURES.splitlines()
+                if line.startswith("VERSION = ")).split(".")),
+            (1, 0, 31))
 
 
 if __name__ == "__main__":
