@@ -20,7 +20,7 @@ NAMES={
 }
 CLASSES=(
     "Krieger","Schamane","Druide","Jäger","Schurke",
-    "Magier","Priester","Hexenmeister"
+    "Magier","Priester","Hexenmeister","Paladin"
 )
 
 
@@ -83,11 +83,20 @@ class RegistrationTests(unittest.TestCase):
             self.db.execute("SELECT COUNT(*) FROM characters").fetchone()[0],1)
 
     def test_rejects_invalid_classes_and_names(self):
-        for klass in ("Paladin","Todesritter",""):
+        for klass in ("Todesritter","Dämonenjäger",""):
             with self.assertRaises(ValueError):
                 self.f["save_character_without_level"](42,"Grumok",klass)
         with self.assertRaises(ValueError):
             self.f["save_character_without_level"](42,"@everyone","Krieger")
+
+    def test_undead_paladin_is_valid_horde_character(self):
+        name, existed = self.f["save_character_without_level"](
+            42, "Lichtbann", "Paladin")
+        self.assertEqual((name, existed), ("Lichtbann", False))
+        self.assertEqual(
+            self.db.execute(
+                "SELECT klass FROM characters WHERE user=42"
+            ).fetchone()[0], "Paladin")
 
     def test_maximum_25_characters(self):
         for i in range(25):

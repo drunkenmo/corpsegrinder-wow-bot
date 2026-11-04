@@ -349,3 +349,8 @@ Der Server-Leitfaden ist Discord-nativ; für zukünftige neue Funktionskarten er
 - Bot-Rechte für den Handelskanal: Kanal ansehen, Nachrichten senden, Links einbetten, Nachrichtenverlauf anzeigen und zum Anheften Nachrichten verwalten. `/handel_aktualisieren` aktualisiert die Händler-Tafel.
 - Keine zusätzliche HA-App und kein externer Bot erforderlich; die aktuelle SQLite-Datenbank bleibt erhalten.
 
+
+## Horde-Paladin in WoW Forever (Bot 1.0.23)
+
+Blizzard hat für WoW Forever den **Untoten Paladin (Verlassene)** auf Hordeseite bestätigt. Die Klasse ist in der Characterregistrierung, beim Bearbeiten von Charakterprofilen, als Slash-Choice und im Rollenmenü wählbar. Die passende `🛡️ Paladin`-Rolle wird beim ersten Start erstellt, falls sie fehlt und der Bot `Rollen verwalten` besitzt. Bestehende Rolle und Charaktere bleiben erhalten. Nach `/bot_update` den Bot neu starten und unter `#rollenwahl` die Auswahl prüfen.
+

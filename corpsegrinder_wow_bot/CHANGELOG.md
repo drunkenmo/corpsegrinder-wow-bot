@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.23 – Paladin der Verlassenen für WoW Forever
+
+- **Paladin** als neunte Klasse für die Horde ergänzt, wie von Blizzard für untote Charaktere bestätigt.
+- Paladin ist jetzt bei der privaten Charakterregistrierung, der Bearbeitung von Charakterprofilen, bei `/charakter` und in der Klassen-Rollenwahl verfügbar.
+- Neue Rollenfarbe und 🛡️-Symbol. Falls auf dem Server noch keine Paladin-Rolle vorhanden ist, legt der Bot diese beim Start an (Berechtigung **Rollen verwalten** erforderlich); vorhandene Rollen werden wiederverwendet.
+- Bestehende Charaktere, Gruppenanmeldungen, Kanalnachrichten, Namen und Berechtigungen bleiben unverändert. Für bestehende Panels genügt das reguläre Bot-Update mit Neustart.
+- Offline-Regressionstests decken die neun Klassen, die Paladinregistrierung und die sichere Rollenerstellung ab.
+
+
 ## 1.0.22 – Lagerfeuer, Dungeon-Planer und Horde-Handelsbörse
 
 - **Bestehende Kanäle umbenennen:** `#allgemein` → `#lagerfeuer`, `#dungeons` → `#dungeon-planer`. Der Bot verwendet die vorhandenen Discord-Kanäle und IDs; Nachrichten, Pins, Rollen, Einstellungen, Termine und Sprachkanäle bleiben erhalten. Bei vorhandenen Namenskonflikten wird nichts gelöscht oder zusammengeführt.
