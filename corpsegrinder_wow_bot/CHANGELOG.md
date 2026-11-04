@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.37 – Beide Namen im Discord-Sprachchat
+
+- Statt nur dem Ingame-Namen wird bei freiwilliger Aktivierung **Discord-Name | Hauptcharakter** als Servernickname gesetzt, z. B. `drunkenmo | Grumok`. Discord zeigt denselben Nickname in Sprach- und Textkanälen an.
+- In `#rollenwahl` steht dafür die Schaltfläche **Discord + Ingame-Name**; im Charakterprofil **Beide Namen im Sprachchat**. Die Funktion bleibt **freiwillig** und kann mit demselben Button rückgängig gemacht werden. Kein zusätzliches Login oder automatische Umbenennung aller Mitglieder.
+- Bei Änderungen des Hauptcharakters wird ein vom Bot gesetzter kombinierter Nickname aktualisiert. Manuelle Änderungen werden weiterhin nicht überschrieben, der ursprüngliche Servernickname beim Deaktivieren wiederhergestellt.
+- Discords 32-Zeichen-Grenze wird berücksichtigt. Ein bereits gesetzter individueller Servernickname bleibt als Discord-Teil erhalten.
+- **Serverinhaber** kann der Bot aufgrund Discords Rollenregeln nicht selbst umbenennen. Sie können den kombinierten Nicknamen über **Serverprofil bearbeiten** manuell einstellen.
+- Keine Änderungen an Rollenwahl, Gruppen, Sprachkanälen oder anderen Daten.
+
 ## 1.0.36 – Dezente Begrüßungen im Lagerfeuer
 
 - Bei Serverbeitritt nur noch **eine kurze Zeile** in `#lagerfeuer`: persönliche Begrüßung und Link zum bestehenden `#willkommen`-Leitfaden.

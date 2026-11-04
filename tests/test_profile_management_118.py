@@ -140,10 +140,21 @@ class CharacterModificationTests(unittest.TestCase):
         self.assertIsNone(self.db.execute(
             "SELECT name FROM main_characters WHERE user=42").fetchone())
 
-    def test_voice_server_nickname_shows_only_ingame_character(self):
-        member=SimpleNamespace(name="drunkenmo")
+    def test_voice_server_nickname_shows_discord_and_ingame_character(self):
+        member=SimpleNamespace(name="drunkenmo", global_name="Drunken Mo")
         self.assertEqual(self.f["ingame_server_nickname"](
-            self.f["main_character"](42),member),"Grumok")
+            self.f["main_character"](42),member),"Drunken Mo | Grumok")
+        self.assertEqual(self.f["ingame_server_nickname"](
+            self.f["main_character"](42),member,"AlterNickname"),
+            "AlterNickname | Grumok")
+        long_name=self.f["ingame_server_nickname"](
+            ("Torahan Stiernacken Der Zweite",),
+            SimpleNamespace(name="Discordname-mit-vielen-Buchstaben"))
+        self.assertLessEqual(len(long_name),32)
+        self.assertIn(" | ", long_name)
+        self.assertIn("Torahan", long_name)
+        self.assertEqual(self.f["ingame_server_nickname"](
+            ("Grumok",),SimpleNamespace(name="Grumok")),"Grumok")
 
 
 class DiscordUxTests(unittest.TestCase):
@@ -163,8 +174,10 @@ class DiscordUxTests(unittest.TestCase):
         self.assertIn("label=\"Löschen\"",SOURCE)
 
     def test_voice_optin_has_discoverable_buttons_and_reversal(self):
-        self.assertIn("label=\"Im Sprachchat anzeigen\"",SOURCE)
-        self.assertIn("label=\"Sprachchat-Name an/aus\"",SOURCE)
+        self.assertIn("label=\"Beide Namen im Sprachchat\"",SOURCE)
+        self.assertIn("label=\"Discord + Ingame-Name\"",SOURCE)
+        self.assertIn("ingame_server_nickname(main, member, preference[0])",SOURCE)
+        self.assertIn("ingame_server_nickname(main, member, old_nick)",SOURCE)
         self.assertIn("await restore_character_nickname(member)",SOURCE)
         self.assertIn("member.nick != preference[1]",SOURCE)
         self.assertIn("Serverinhaber",SOURCE)
