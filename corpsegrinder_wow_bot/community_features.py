@@ -1,6 +1,6 @@
 import discord
 
-VERSION = "1.0.23"
+VERSION = "1.0.24"
 
 # Schlüssel bleiben ohne Emoji, damit die gespeicherten Rollen und Bot-Befehle stabil bleiben.
 ROLE_STYLE = {
@@ -139,18 +139,23 @@ def news_embed(title, description, author=None):
 
 def update_embed():
     embed = discord.Embed(
-        title="🌋 Corpsegrinder Bot – Update " + VERSION,
+        title="⚒️ Corpsegrinder Bot – Die Addon-Schmiede 1.0.24",
         description=(
-            "🛡️ **Die Paladine der Verlassenen sind angekommen!**\n\n"
-            "In **WoW Forever** können auf Hordeseite auch "
-            "**Untote Paladine** gespielt werden.\n\n"
-            "✅ **Paladin** steht jetzt bei der Charakterregistrierung, "
-            "der Bearbeitung bestehender Charaktere und im "
-            "Klassen-Rollenauswahlmenü zur Verfügung.\n"
-            "🎭 Die passende **Paladin-Rolle** wird beim Botstart "
-            "ergänzt, falls sie noch fehlt.\n\n"
-            "Alle bestehenden Rollen, Charakterprofile und "
-            "Gruppenanmeldungen bleiben erhalten."
+            "**Die Addon-Schmiede öffnet ihre Tore!** 🔥\n\n"
+            "🧩 In **#addons** wartet eine neue, dauerhaft angeheftete "
+            "**Fantasy-Übersicht** mit goldener Warcraft-Optik.\n"
+            "📜 **Sechs Kategorien** für Quests, Interface, Karten, "
+            "Handel, Dungeons und Inventar.\n"
+            "🏆 Mit **Empfehlungen** und dem Kategorienmenü öffnen sich "
+            "private Addon-Karten mit Beschreibungen, Forever-Dateistatus "
+            "und CurseForge-Links.\n"
+            "🔄 Mit **Neu auf CurseForge** sieht man die zuletzt "
+            "gefundenen Forever-Dateien. Die sechs-stündige Prüfung "
+            "und vorhandene News bleiben aktiv.\n\n"
+            "Die bestehenden Kanäle, Kategorien, Nachrichten, "
+            "Gruppentermine und Rollen bleiben unverändert. "
+            "Nur die bisherige angeheftete Addon-Übersicht wird "
+            "an Ort und Stelle verbessert."
         ),
         colour=discord.Colour.gold())
     embed.set_footer(text="Corpsegrinder • Bot-Version " + VERSION)
