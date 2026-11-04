@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.36 – Dezente Begrüßungen im Lagerfeuer
+
+- Bei Serverbeitritt nur noch **eine kurze Zeile** in `#lagerfeuer`: persönliche Begrüßung und Link zum bestehenden `#willkommen`-Leitfaden.
+- Keine mehrzeiligen wiederholten Anleitungen zu Rollen, Ingame-Namen oder Freigaben im allgemeinen Chat; alle Orientierungshilfen bleiben dauerhaft in `#willkommen`.
+- Neue Lagerfeuer-Begrüßungen werden durch `delete_after` bei laufendem Bot nach 24 Stunden automatisch entfernt, damit Gespräche im Vordergrund bleiben.
+- `#willkommen` wird bei fehlendem `#lagerfeuer` nicht als Spam-Ersatz verwendet. Vergabe der Community-Rolle und alle anderen Join-Funktionen bleiben unverändert.
+- Die Änderung betrifft nur zukünftige Begrüßungen; ältere Chatnachrichten bleiben unangetastet.
+
 ## 1.0.35 – Aufgeräumte Addon-Schmiede mit einem Panel pro Rubrik
 
 - Drei zusammenhängende Discord-Komponenten-V2-Container statt 19 unterschiedlich breiter Embed-Karten; je Rubrik eine einheitliche Fläche mit Projektname, kurzem deutschen Text und echtem Original-Icon rechts.
