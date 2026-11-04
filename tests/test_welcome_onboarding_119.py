@@ -124,9 +124,72 @@ class LayoutAndGuideTests(unittest.TestCase):
         start=BOT.index("async def on_member_join(")
         finish=BOT.index("# Nur vom Bot erzeugte Sprachkanäle",start)
         section=BOT[start:finish]
-        self.assertIn('channel(member.guild,"lagerfeuer")',section)
-        self.assertIn('channel(member.guild,"willkommen")',section)
+        self.assertIn('channel(member.guild, "lagerfeuer")',section)
+        self.assertIn('channel(member.guild, "willkommen")',section)
         self.assertIn("welcome_link",section)
+        self.assertIn("delete_after=24 * 3600",section)
+        self.assertNotIn("Ingame-Name + Klasse",section)
+        self.assertNotIn("Rollen wählen",section)
+        self.assertNotIn('or channel(member.guild, "willkommen")',section)
+
+    def test_new_member_gets_only_one_short_public_greeting(self):
+        join_node=next(n for n in TREE.body
+                       if isinstance(n,ast.AsyncFunctionDef)
+                       and n.name=="on_member_join")
+        join_node.decorator_list=[]  # Run isolated without a real Discord bot
+
+        class FakeTextChannel:
+            def __init__(self,mention):
+                self.mention=mention
+                self.posts=[]
+            async def send(self,content,**kwargs):
+                self.posts.append((content,kwargs))
+
+        class FakeMember:
+            def __init__(self,guild):
+                self.guild=guild
+                self.mention="<@42>"
+                self.roles=[]
+            async def add_roles(self,role):
+                self.roles.append(role)
+
+        chat=FakeTextChannel("<#10>")
+        welcome=FakeTextChannel("<#11>")
+        community=object()
+        guild=SimpleNamespace(id=12345)
+        fake_discord=SimpleNamespace(
+            TextChannel=FakeTextChannel,
+            AllowedMentions=lambda **kwargs:SimpleNamespace(**kwargs),
+            HTTPException=Exception,
+            Forbidden=Exception)
+        env={
+            "discord":fake_discord,"GUILD_ID":12345,
+            "role":lambda g,n: community if n=="Community" else None,
+            "channel":lambda g,n:{"lagerfeuer":chat,
+                                    "willkommen":welcome}.get(n),
+            "logging":SimpleNamespace(warning=lambda *args:None)}
+        exec(compile(ast.fix_missing_locations(
+            ast.Module(body=[join_node],type_ignores=[])),
+            "bot.py","exec"),env)
+        member=FakeMember(guild)
+        asyncio.run(env["on_member_join"](member))
+        self.assertEqual(member.roles,[community])
+        self.assertEqual(len(chat.posts),1)
+        text,kwargs=chat.posts[0]
+        self.assertIn("<@42>",text)
+        self.assertIn("<#11>",text)
+        self.assertNotIn("\\n",text)
+        self.assertLess(len(text),120)
+        self.assertEqual(kwargs["delete_after"],24*3600)
+        self.assertTrue(kwargs["allowed_mentions"].users)
+        self.assertFalse(kwargs["allowed_mentions"].everyone)
+        self.assertEqual(welcome.posts,[])
+
+        # Ausfall von #lagerfeuer darf #willkommen nicht vollschreiben.
+        env["channel"]=lambda g,n:welcome if n=="willkommen" else None
+        asyncio.run(env["on_member_join"](FakeMember(guild)))
+        self.assertEqual(len(chat.posts),1)
+        self.assertEqual(welcome.posts,[])
 
 
 if __name__=="__main__":
