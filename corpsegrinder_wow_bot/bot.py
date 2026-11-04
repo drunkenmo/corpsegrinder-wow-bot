@@ -7097,10 +7097,15 @@ async def check_forever_addons():
             is_new=slug not in {item[0] for item in ADDON_SOURCES}
             # When the bot first sees curated addons, store all versions but
             # only post a few fresh Forever-file cards.
-            send_card = (not first_run or
-                         (posted < max_messages and (
-                             (not is_new and initial_curated_sent < 3) or
-                             (is_new and initial_discovered_sent < 2))))
+            # Adding twelve newly curated projects during an upgrade is not
+            # a version change. Put them in the pinned overview quietly.
+            # Only actual later file updates may trigger a new notification.
+            initial_curated = not is_new and previous is None and not first_run
+            send_card = (not initial_curated and
+                         (not first_run or
+                          (posted < max_messages and (
+                              (not is_new and initial_curated_sent < 3) or
+                              (is_new and initial_discovered_sent < 2)))))
             message_id=0
             if send_card:
                 msg=await target.send(
