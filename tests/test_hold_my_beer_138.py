@@ -36,6 +36,7 @@ def functions(*names, extras=None):
          "HMB_CATEGORY_NAME":literal("HMB_CATEGORY_NAME"),
          "HMB_LEGACY_CATEGORY":literal("HMB_LEGACY_CATEGORY"),
          "HMB_PANEL_MARKER":literal("HMB_PANEL_MARKER"),
+         "ART_BASE":"https://raw.githubusercontent.com/drunkenmo/corpsegrinder-wow-bot/main/assets/",
          "HMB_BEACON_TTL":literal("HMB_BEACON_TTL")}
     env.update(extras or {})
     exec(compile(ast.fix_missing_locations(ast.Module(
