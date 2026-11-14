@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Hold My Beer, PvP-Ableger von Corpsegrinder">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#110E0D"/><stop offset=".54" stop-color="#302115"/><stop offset="1" stop-color="#110F0D"/>
+  </linearGradient>
+  <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FFF1BD"/><stop offset=".25" stop-color="#E5B34E"/><stop offset=".58" stop-color="#975B24"/><stop offset="1" stop-color="#F3C97B"/>
+  </linearGradient>
+  <linearGradient id="beer" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#5B2D0F"/><stop offset=".24" stop-color="#CF8424"/><stop offset=".55" stop-color="#F8BE45"/><stop offset="1" stop-color="#87501A"/>
+  </linearGradient>
+  <radialGradient id="glow"><stop offset="0" stop-color="#F6B951" stop-opacity=".26"/><stop offset="1" stop-color="#F6B951" stop-opacity="0"/></radialGradient>
+  <pattern id="grain" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M0 63 L63 0 M-22 64 L42 0" stroke="#F5BD61" stroke-opacity=".06" stroke-width="1"/></pattern>
+</defs>
+<rect width="1280" height="320" fill="url(#bg)"/>
+<rect width="1280" height="320" fill="url(#grain)"/>
+<ellipse cx="218" cy="160" rx="240" ry="220" fill="url(#glow)"/>
+<path d="M0 18 H1280 M0 302 H1280" stroke="#BA8844" stroke-opacity=".52" stroke-width="2"/>
+<path d="M22 32 H1258 M22 288 H1258" stroke="#EDBF70" stroke-opacity=".20" stroke-width="1"/>
+<g transform="translate(185 159)">
+  <g stroke-linejoin="round">
+    <g transform="rotate(-43)">
+      <rect x="-6" y="-115" width="12" height="235" rx="4" fill="#61371D" stroke="#CF9A4A" stroke-width="2"/>
+      <path d="M-10 -122 L10 -122 L43 -90 Q9 -70 -10 -84 Z" fill="url(#metal)" stroke="#E9BF7C" stroke-width="2"/>
+      <path d="M-10 -118 L-46 -93 Q-27 -68 -10 -84 Z" fill="#A57337" stroke="#EDC583" stroke-width="2"/>
+      <path d="M-7 91 H7 M-7 101 H7" stroke="#E7C184" stroke-width="3"/>
+    </g>
+    <g transform="rotate(43)">
+      <rect x="-6" y="-115" width="12" height="235" rx="4" fill="#61371D" stroke="#CF9A4A" stroke-width="2"/>
+      <path d="M-10 -122 L10 -122 L43 -90 Q9 -70 -10 -84 Z" fill="url(#metal)" stroke="#E9BF7C" stroke-width="2"/>
+      <path d="M-10 -118 L-46 -93 Q-27 -68 -10 -84 Z" fill="#A57337" stroke="#EDC583" stroke-width="2"/>
+      <path d="M-7 91 H7 M-7 101 H7" stroke="#E7C184" stroke-width="3"/>
+    </g>
+  </g>
+  <path d="M-67 -73 Q-69 -88 -55 -88 H50 Q62 -88 60 -70 L51 70 Q49 85 37 85 H-44 Q-58 85 -59 69 Z" fill="#110D0A" stroke="#3B2516" stroke-width="6"/>
+  <path d="M-60 -74 L53 -74 L44 65 Q43 78 32 78 H-39 Q-51 77 -52 65 Z" fill="url(#beer)" stroke="#F5C978" stroke-width="5"/>
+  <path d="M48 -49 H83 Q107 -49 104 -20 Q100 8 52 8" fill="none" stroke="#EDBB61" stroke-width="14" stroke-linecap="round"/>
+  <path d="M48 -49 H83 Q107 -49 104 -20 Q100 8 52 8" fill="none" stroke="#71421D" stroke-width="5"/>
+  <path d="M-60 -74 Q-78 -85 -68 -99 Q-68 -115 -45 -113 Q-38 -130 -17 -122 Q1 -143 20 -122 Q44 -129 56 -111 Q74 -105 66 -84 Q63 -68 50 -71 Z" fill="#F7E8C1" stroke="#E5C78C" stroke-width="3"/>
+  <path d="M-46 -102 Q-32 -111 -14 -104 M3 -119 Q17 -122 30 -111 M36 -93 Q50 -98 58 -88" stroke="#FFF7DE" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M-41 -60 V56 M-24 -63 V67" stroke="#FFE2A0" stroke-opacity=".35" stroke-width="9" stroke-linecap="round"/>
+  <path d="M-49 102 H54" stroke="#F5C571" stroke-width="3" stroke-linecap="round"/>
+</g>
+<g font-family="'DejaVu Sans',Arial,sans-serif">
+ <text x="385" y="121" fill="#F7DEAA" font-size="72" font-weight="900" letter-spacing="2">HOLD MY BEER</text>
+ <path d="M385 145 H1216" stroke="url(#metal)" stroke-width="3"/>
+ <text x="385" y="190" fill="#E6A93E" font-size="25" font-weight="800" letter-spacing="6">PVP  /  FÜR DIE HORDE</text>
+ <text x="385" y="245" fill="#DECCB2" font-size="24" letter-spacing=".6">Halt mal mein Bier. Ich hab' ne Idee.</text>
+</g>
+<path d="M1221 42 L1239 60 L1221 78 M1221 242 L1239 260 L1221 278" stroke="#D4A15A" stroke-width="3" fill="none" opacity=".6"/>
+</svg>
