@@ -2205,6 +2205,9 @@ def hmb_hq_embed(guild):
         value=("Wer sich anmeldet, erhält neue Signalfeuer privat per DM. "
                "Keine automatischen Rollen-Pings."),
         inline=False)
+    # Ein eigenes, originales Hold-My-Beer-Banner – Corpsegrinder-Bilder
+    # und das Server-Icon bleiben unangetastet.
+    embed.set_image(url=ART_BASE + "hold_my_beer.png")
     embed.set_footer(text=HMB_PANEL_MARKER)
     return embed
 
