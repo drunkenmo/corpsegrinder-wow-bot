@@ -8,6 +8,7 @@ on:
       - 'corpsegrinder_wow_bot/bot.py'
       - 'corpsegrinder_wow_bot/community_features.py'
       - 'assets/hold_my_beer.svg'
+      - '.github/workflows/publish_bot_update.yml'
 
 permissions:
   contents: read
@@ -34,19 +35,6 @@ jobs:
           git checkout -B main origin/main
       - name: Discord-Bibliothek für echte Layout-Tests installieren
         run: python -m pip install discord.py==2.6.4
-      - name: Hold-My-Beer-Banner als PNG prüfen
-        run: |
-          python -m pip install CairoSVG==2.7.1
-          python - <<'PY'
-          import cairosvg
-          from pathlib import Path
-          cairosvg.svg2png(
-              url="assets/hold_my_beer.svg",
-              write_to="assets/hold_my_beer.png",
-              output_width=1280, output_height=320)
-          assert Path("assets/hold_my_beer.png").stat().st_size > 10000
-          print("HMB-Banner erfolgreich erstellt.")
-          PY
       - name: Python-Syntax prüfen
         run: python -m compileall -q corpsegrinder_wow_bot
       - name: Tests ausführen
@@ -57,10 +45,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bot_releases/latest.json assets/hold_my_beer.png
+          git add bot_releases/latest.json
           if git diff --cached --quiet; then
             echo "Keine Änderungen."
           else
             git commit -m "Publish verified Corpsegrinder bot release"
+            # Der separate Banner-Workflow kann kurz zuvor ein PNG pushen.
+            # Rebase verhindert einen Konflikt um den Git-Branch-Zeiger.
+            git pull --rebase origin main
             git push origin HEAD:main
           fi
