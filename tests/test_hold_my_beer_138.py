@@ -107,6 +107,7 @@ class GuildBoundaryTests(unittest.TestCase):
         self.assertIn("HOLD MY BEER",embed.title)
         self.assertIn("Signalfeuer",embed.fields[1].name)
         self.assertEqual(embed.footer.text,"hmb:headquarters:v138")
+        self.assertTrue(embed.image.url.endswith("/assets/hold_my_beer.png"))
         self.assertNotIn("@everyone",str(embed.to_dict()))
 
     def test_dm_optin_defaults_to_off_and_is_guild_scoped(self):
