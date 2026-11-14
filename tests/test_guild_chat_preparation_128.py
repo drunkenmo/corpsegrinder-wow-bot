@@ -18,7 +18,7 @@ class GuildChatChannelTests(unittest.TestCase):
                                  for target in node.targets))
         data = ast.literal_eval(structure.value)
         self.assertIn(("pve-gildenchat", "text"), data["⚔️ WOW FOREVER | PVE"])
-        self.assertIn(("pvp-gildenchat", "text"), data["🏹 WOW FOREVER | PVP"])
+        self.assertIn(("pvp-gildenchat", "text"), data["🍺 HOLD MY BEER | PVP"])
         self.assertNotIn(("wow-gildenchat", "text"), data["🌋 WOW FOREVER | START"])
         self.assertEqual(sum(ch == "pve-gildenchat" for items in data.values()
                              for ch, typ in items), 1)
@@ -30,7 +30,7 @@ class GuildChatChannelTests(unittest.TestCase):
             SOURCE.index("async def ensure_wow_guild_chat_channel(guild, area):"):
             SOURCE.index("async def ensure_guild_chat_channel_on_start():")]
         for text in ('"pve": ("pve-gildenchat", "⚔️ WOW FOREVER | PVE")',
-                     '"pvp": ("pvp-gildenchat", "🏹 WOW FOREVER | PVP")',
+                     '"pvp": ("pvp-gildenchat", "🍺 HOLD MY BEER | PVP")',
                      "if existing is not None:", "return existing",
                      "category.create_text_channel(", "await organize_start_channels(guild)"):
             self.assertIn(text, fragment)
