@@ -55,6 +55,16 @@ db.execute("CREATE TABLE IF NOT EXISTS forever_news_card_versions (canonical_url
 db.execute("CREATE TABLE IF NOT EXISTS forever_addon_files (slug TEXT PRIMARY KEY, latest_version TEXT NOT NULL, message_id INTEGER NOT NULL, first_seen_utc INTEGER NOT NULL, last_seen_utc INTEGER NOT NULL)")
 db.execute("CREATE TABLE IF NOT EXISTS trade_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, owner INTEGER NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, details TEXT NOT NULL, conditions TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open', channel_id INTEGER, message_id INTEGER, created_utc INTEGER NOT NULL)")
 
+# Separate, optionale Hold-My-Beer-Daten, ohne vorhandene Tabellen zu verändern.
+db.execute("CREATE TABLE IF NOT EXISTS hmb_beacons ("
+           "id INTEGER PRIMARY KEY AUTOINCREMENT, guild INTEGER NOT NULL, "
+           "owner INTEGER NOT NULL, area TEXT NOT NULL, situation TEXT NOT NULL, "
+           "expires_utc INTEGER NOT NULL, channel_id INTEGER, "
+           "message_id INTEGER, status TEXT NOT NULL DEFAULT 'open', "
+           "helpers TEXT NOT NULL DEFAULT '[]')")
+db.execute("CREATE TABLE IF NOT EXISTS hmb_alert_preferences ("
+           "guild INTEGER NOT NULL, user INTEGER NOT NULL, "
+           "enabled INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(guild,user))")
 db.commit()
 db.commit()
 
@@ -105,7 +115,7 @@ STRUCTURE = {
         ("raids-und-termine", "text"), ("pve-guides", "text"),
         ("PvE – Leveln", "voice"), ("PvE – Dungeon", "voice"),
         ("PvE – Raid", "voice"), ("➕ PvE-Gruppe erstellen", "voice")],
-    "🏹 WOW FOREVER | PVP": [
+    "🍺 HOLD MY BEER | PVP": [
         ("pvp-gruppensuche", "text"), ("pvp-gildenchat", "text"),
         ("schlachtfelder", "text"),
         ("welt-pvp", "text"), ("pvp-guides", "text"),
@@ -115,6 +125,13 @@ STRUCTURE = {
         ("screenshots", "text")],
 }
 
+
+HMB_ROLE_NAME = "🍺 Hold My Beer"
+HMB_CATEGORY_NAME = "🍺 HOLD MY BEER | PVP"
+HMB_LEGACY_CATEGORY = "🏹 WOW FOREVER | PVP"
+HMB_PANEL_KEY = "hmb_hq_post_v138"
+HMB_PANEL_MARKER = "hmb:headquarters:v138"
+HMB_BEACON_TTL = 20 * 60
 
 START_CATEGORY_NAME = "🌋 WOW FOREVER | START"
 START_CHANNEL_ORDER = tuple(name for name,_kind in STRUCTURE[START_CATEGORY_NAME])
@@ -512,6 +529,13 @@ async def on_ready():
     if guild is not None:
         await migrate_channel_names(guild)
         await ensure_paladin_role(guild)
+        await prepare_hmb_guild(guild)
+    bot.add_view(HMBHQView())
+    for hmb_id, message_id in db.execute(
+            "SELECT id,message_id FROM hmb_beacons WHERE guild=? "
+            "AND status='open' AND expires_utc>? AND message_id IS NOT NULL",
+            (GUILD_ID, int(datetime.now(timezone.utc).timestamp()))).fetchall():
+        bot.add_view(HMBBeaconView(hmb_id), message_id=message_id)
     bot.add_view(RoleView())
     bot.add_view(CharacterPanelView())
     bot.add_view(PlannerDashboardView())
@@ -547,6 +571,10 @@ async def on_ready():
     background(refresh_community_panels_on_start())
     if guild is not None:
         background(compact_old_lagerfeuer_greetings(guild))
+        background(publish_hmb_hq(guild))
+    if not getattr(bot, "hmb_signal_worker_started", False):
+        bot.hmb_signal_worker_started = True
+        background(hmb_expiry_worker())
     if not getattr(bot, "event_scheduler_started", False):
         bot.event_scheduler_started = True
         background(event_scheduler_loop())
@@ -2191,7 +2219,7 @@ async def ensure_wow_guild_chat_channel(guild, area):
     """
     config = {
         "pve": ("pve-gildenchat", "⚔️ WOW FOREVER | PVE"),
-        "pvp": ("pvp-gildenchat", "🏹 WOW FOREVER | PVP"),
+        "pvp": ("pvp-gildenchat", "🍺 HOLD MY BEER | PVP"),
     }
     if area not in config:
         raise ValueError("Unbekannter Gildenchat-Bereich")
