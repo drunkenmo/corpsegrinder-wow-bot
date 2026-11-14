@@ -2132,6 +2132,415 @@ async def set_character_nickname(i: discord.Interaction, aktiv: bool):
           "Mit **/ingame_nickname aktiv:false** kannst du ihn wieder ausschalten.")
 
 
+
+# --- Hold My Beer (PvP-Ableger) | neue, unabhängige Gildenfunktionen ---
+
+
+def hmb_role(guild):
+    return discord.utils.get(guild.roles, name=HMB_ROLE_NAME) if guild else None
+
+
+async def prepare_hmb_guild(guild):
+    """Nur die existierende PvP-Kategorie umbenennen; IDs/Rechte bleiben."""
+    active = discord.utils.get(guild.categories, name=HMB_CATEGORY_NAME)
+    previous = discord.utils.get(guild.categories, name=HMB_LEGACY_CATEGORY)
+    if active is None and previous is not None:
+        try:
+            await previous.edit(
+                name=HMB_CATEGORY_NAME,
+                reason="Hold My Beer: PvP-Bereich kennzeichnen")
+        except discord.HTTPException:
+            logging.warning("HMB: PvP-Kategorie konnte nicht umbenannt werden")
+    if hmb_role(guild) is None:
+        try:
+            await guild.create_role(
+                name=HMB_ROLE_NAME, colour=discord.Colour(0xD9A441),
+                hoist=False, mentionable=False,
+                reason="Hold My Beer: freiwillige PvP-Gildenrolle")
+        except discord.HTTPException:
+            logging.warning("HMB: Gildenrolle nicht erstellbar")
+
+
+def hmb_is_member(member):
+    target = hmb_role(getattr(member, "guild", None))
+    return target is not None and target in member.roles
+
+
+def hmb_notifications_on(user_id):
+    row = db.execute(
+        "SELECT enabled FROM hmb_alert_preferences WHERE guild=? AND user=?",
+        (GUILD_ID, user_id)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def hmb_hq_embed(guild):
+    def link(name):
+        target = channel(guild, name)
+        return target.mention if target else "#" + name
+    embed = discord.Embed(
+        title="🍺 HOLD MY BEER · PVP-EINSATZZENTRALE",
+        description=(
+            "**„Halt mal mein Bier. Ich hab 'ne Idee.“**\n\n"
+            "Hier ist die Heimat des PvP-Ablegers: Schlachtfelder, "
+            "Welt-PvP und spontane Horde-Aktionen. Gäste aus der "
+            "Community sind herzlich willkommen.\n\n"
+            "Die Gildenrolle ist **freiwillig** und getrennt "
+            "von deinen bisherigen PvP- und Klassenrollen."),
+        colour=discord.Colour(0xD9A441))
+    embed.add_field(
+        name="⚔️ Mitspieler und Schlachtfelder",
+        value=(link("pvp-gruppensuche") + " · " + link("schlachtfelder") +
+               "\nNutze für PvP-Gruppen weiterhin **/gruppe_erstellen** "
+               "mit PvP-Auswahl."),
+        inline=False)
+    embed.add_field(
+        name="🚨 Horde-Signalfeuer",
+        value=(link("welt-pvp") +
+               "\nHilferuf mit Gebiet senden und Verstärkung sammeln. "
+               "Meldungen verschwinden nach **20 Minuten** automatisch. "
+               "Ein aktiver Hilferuf pro Spieler."),
+        inline=False)
+    embed.add_field(
+        name="🔔 Freiwillige PvP-Alarme",
+        value=("Wer sich anmeldet, erhält neue Signalfeuer privat per DM. "
+               "Keine automatischen Rollen-Pings."),
+        inline=False)
+    embed.set_footer(text=HMB_PANEL_MARKER)
+    return embed
+
+
+async def publish_hmb_hq(guild):
+    target = channel(guild, "pvp-gruppensuche")
+    if not isinstance(target, discord.TextChannel):
+        logging.warning("HMB: #pvp-gruppensuche fehlt")
+        return None
+    existing = None
+    saved = setting(HMB_PANEL_KEY)
+    if saved:
+        try:
+            existing = await target.fetch_message(int(saved))
+            if existing.author.id != bot.user.id:
+                existing = None
+        except (discord.NotFound, ValueError, discord.HTTPException):
+            existing = None
+    if existing is None:
+        try:
+            async for msg in target.history(limit=100):
+                if msg.author.id == bot.user.id and any(
+                        HMB_PANEL_MARKER in (item.footer.text or "")
+                        for item in msg.embeds):
+                    existing = msg
+                    break
+        except discord.HTTPException:
+            logging.warning("HMB: Historie für Zentrale nicht lesbar")
+    try:
+        if existing is None:
+            existing = await target.send(
+                embed=hmb_hq_embed(guild), view=HMBHQView(),
+                allowed_mentions=discord.AllowedMentions.none())
+        else:
+            await existing.edit(
+                embed=hmb_hq_embed(guild), view=HMBHQView(),
+                allowed_mentions=discord.AllowedMentions.none())
+        save_setting(HMB_PANEL_KEY, existing.id)
+        if not existing.pinned:
+            try:
+                await existing.pin(reason="Hold My Beer PvP-Einsatzzentrale")
+            except discord.HTTPException:
+                logging.warning("HMB: Einsatzzentrale nicht anheftbar")
+        return existing
+    except discord.HTTPException:
+        logging.exception("HMB: Einsatzzentrale nicht aktualisierbar")
+        return None
+
+
+def hmb_beacon_record(beacon_id):
+    return db.execute(
+        "SELECT id,guild,owner,area,situation,expires_utc,channel_id,"
+        "message_id,status,helpers FROM hmb_beacons WHERE guild=? AND id=?",
+        (GUILD_ID, beacon_id)).fetchone()
+
+
+def hmb_beacon_embed(record):
+    beacon_id, _guild, owner, area, situation, expires, _channel, _message, status, helpers = record
+    selected = json.loads(helpers)
+    embed = discord.Embed(
+        title="🚨 HOLD MY BEER · HORDE-SIGNALFEUER",
+        description=("**Gebiet:** " + discord.utils.escape_markdown(area) +
+                     "\n**Lage:** " +
+                     discord.utils.escape_markdown(situation or "Verstärkung gesucht!") +
+                     "\n**Hilferuf von:** <@" + str(owner) + ">\n" +
+                     ("**Läuft ab:** <t:" + str(expires) + ":R>"
+                      if status == "open" else "**Erledigt**")),
+        colour=discord.Colour(0xD9A441))
+    embed.add_field(
+        name="⚔️ Unterstützung (" + str(len(selected)) + ")",
+        value=(", ".join("<@" + str(uid) + ">" for uid in selected)
+               if selected else "Noch niemand – sei der Erste!"),
+        inline=False)
+    embed.set_footer(text="hmb:signal:" + str(beacon_id))
+    return embed
+
+
+async def hmb_dm_signals(guild, originator, area, message):
+    """Direktnachricht nur an freiwillig abonnierende HMB-Mitglieder."""
+    interested = db.execute(
+        "SELECT user FROM hmb_alert_preferences "
+        "WHERE guild=? AND enabled=1 LIMIT 100",
+        (GUILD_ID,)).fetchall()
+    for (user_id,) in interested:
+        member = guild.get_member(user_id)
+        if not member or member.id == originator or not hmb_is_member(member):
+            continue
+        try:
+            await member.send(
+                "🍺 Hold My Beer: Verstärkung in **" +
+                discord.utils.escape_markdown(area) + "** gesucht!\n" +
+                message.jump_url,
+                allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            pass
+
+
+class HMBBeaconModal(discord.ui.Modal, title="🍺 Horde-Signalfeuer"):
+    area = discord.ui.TextInput(
+        label="Wo brauchst du Verstärkung?",
+        placeholder="z. B. Schlingendorntal", min_length=3, max_length=55)
+    situation = discord.ui.TextInput(
+        label="Was ist los? (optional)",
+        placeholder="z. B. 3 Allianzspieler am Questgebiet",
+        style=discord.TextStyle.paragraph, required=False, max_length=160)
+
+    async def on_submit(self, interaction):
+        if not allowed(interaction) or not hmb_is_member(interaction.user):
+            return await answer(interaction, "Bitte zuerst Hold My Beer beitreten.")
+        target = channel(interaction.guild, "welt-pvp")
+        if not isinstance(target, discord.TextChannel):
+            return await answer(interaction, "Der Kanal #welt-pvp fehlt.")
+        now = int(datetime.now(timezone.utc).timestamp())
+        existing = db.execute(
+            "SELECT 1 FROM hmb_beacons WHERE guild=? AND owner=? "
+            "AND status='open' AND expires_utc>?",
+            (GUILD_ID, interaction.user.id, now)).fetchone()
+        if existing:
+            return await answer(interaction, "Du hast bereits einen aktiven Hilferuf.")
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        cur = db.execute(
+            "INSERT INTO hmb_beacons(guild,owner,area,situation,expires_utc) "
+            "VALUES (?,?,?,?,?)",
+            (GUILD_ID, interaction.user.id, str(self.area.value).strip(),
+             str(self.situation.value or "").strip(), now + HMB_BEACON_TTL))
+        beacon_id = cur.lastrowid
+        db.commit()
+        try:
+            message = await target.send(
+                embed=hmb_beacon_embed(hmb_beacon_record(beacon_id)),
+                view=HMBBeaconView(beacon_id),
+                allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            db.execute("DELETE FROM hmb_beacons WHERE id=?", (beacon_id,))
+            db.commit()
+            return await interaction.followup.send(
+                "Hilferuf konnte nicht veröffentlicht werden. "
+                "Bitte Bot-Rechte in #welt-pvp prüfen.", ephemeral=True)
+        db.execute(
+            "UPDATE hmb_beacons SET channel_id=?,message_id=? WHERE id=?",
+            (target.id, message.id, beacon_id))
+        db.commit()
+        background(hmb_dm_signals(
+            interaction.guild, interaction.user.id,
+            str(self.area.value).strip(), message))
+        await interaction.followup.send(
+            "🚨 Signalfeuer ist 20 Minuten aktiv: " + message.jump_url,
+            ephemeral=True)
+
+
+class HMBHQView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Hold My Beer an/aus", emoji="🍺",
+        style=discord.ButtonStyle.primary, row=0,
+        custom_id="hmb_role_toggle_v138")
+    async def guild_role(self, interaction, button):
+        if not allowed(interaction):
+            return
+        target = hmb_role(interaction.guild)
+        if target is None:
+            return await answer(
+                interaction, "Die Hold-My-Beer-Rolle fehlt; bitte Admin informieren.")
+        try:
+            if target in interaction.user.roles:
+                await interaction.user.remove_roles(
+                    target, reason="Hold My Beer: freiwilliger Austritt")
+                db.execute("DELETE FROM hmb_alert_preferences WHERE guild=? AND user=?",
+                           (GUILD_ID, interaction.user.id))
+                db.commit()
+                message = "🍺 Hold-My-Beer-Rolle entfernt; Alarme ausgeschaltet."
+            else:
+                await interaction.user.add_roles(
+                    target, reason="Hold My Beer: freiwilliger Beitritt")
+                message = "🍺 Willkommen bei Hold My Beer! Für die Horde!"
+            await answer(interaction, message)
+        except discord.HTTPException:
+            await answer(interaction, "Der Bot kann die Rolle nicht verwalten. Bitte Rechte prüfen.")
+
+    @discord.ui.button(
+        label="Signalfeuer", emoji="🚨",
+        style=discord.ButtonStyle.danger, row=0,
+        custom_id="hmb_signal_new_v138")
+    async def new_signal(self, interaction, button):
+        if not allowed(interaction):
+            return
+        if not hmb_is_member(interaction.user):
+            return await answer(
+                interaction, "Erst Hold My Beer beitreten, dann Verstärkung rufen.")
+        await interaction.response.send_modal(HMBBeaconModal())
+
+    @discord.ui.button(
+        label="PvP-Alarm an/aus", emoji="🔔",
+        style=discord.ButtonStyle.secondary, row=0,
+        custom_id="hmb_dm_toggle_v138")
+    async def dm_alerts(self, interaction, button):
+        if not allowed(interaction):
+            return
+        if not hmb_is_member(interaction.user):
+            return await answer(interaction, "Für PvP-Alarme zuerst Hold My Beer beitreten.")
+        state = not hmb_notifications_on(interaction.user.id)
+        db.execute(
+            "INSERT OR REPLACE INTO hmb_alert_preferences(guild,user,enabled) "
+            "VALUES (?,?,?)",
+            (GUILD_ID, interaction.user.id, int(state)))
+        db.commit()
+        await answer(
+            interaction, "🔔 Hold-My-Beer-DM-Alarme: " +
+            ("**EIN**" if state else "**AUS**") +
+            ". Andere Discord-Benachrichtigungen bleiben unberührt.")
+
+    @discord.ui.button(
+        label="Mein HMB-Status", emoji="📋",
+        style=discord.ButtonStyle.secondary, row=0,
+        custom_id="hmb_status_v138")
+    async def my_status(self, interaction, button):
+        if not allowed(interaction):
+            return
+        await answer(
+            interaction,
+            "🍺 Hold My Beer: **" +
+            ("Mitglied" if hmb_is_member(interaction.user) else "nicht beigetreten") +
+            "** · Private Signal-Alarme: **" +
+            ("EIN" if hmb_notifications_on(interaction.user.id) else "AUS") + "**")
+
+
+class HMBBeaconView(discord.ui.View):
+    def __init__(self, beacon_id):
+        super().__init__(timeout=None)
+        self.beacon_id = beacon_id
+        # Persistente, pro Hilferuf eindeutige IDs.
+        for item in self.children:
+            item.custom_id = item.custom_id + "_" + str(beacon_id)
+
+    @discord.ui.button(
+        label="Ich komme!", emoji="⚔️",
+        style=discord.ButtonStyle.success,
+        custom_id="hmb_signal_join_v138")
+    async def join(self, interaction, button):
+        if not allowed(interaction):
+            return
+        record = hmb_beacon_record(self.beacon_id)
+        now = int(datetime.now(timezone.utc).timestamp())
+        if not record or record[8] != "open" or record[5] <= now:
+            return await answer(interaction, "Dieser Hilferuf ist nicht mehr aktiv.")
+        helpers = json.loads(record[9])
+        if interaction.user.id in helpers:
+            helpers.remove(interaction.user.id)
+            status = "Abgemeldet."
+        else:
+            if len(helpers) >= 10:
+                return await answer(interaction, "Es helfen bereits zehn Spieler.")
+            helpers.append(interaction.user.id)
+            status = "Du bist als Verstärkung dabei!"
+        db.execute("UPDATE hmb_beacons SET helpers=? WHERE id=?",
+                   (json.dumps(helpers), self.beacon_id))
+        db.commit()
+        try:
+            await interaction.message.edit(
+                embed=hmb_beacon_embed(hmb_beacon_record(self.beacon_id)),
+                view=self, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            logging.warning("HMB-Signalfeuer: Anzeige nicht aktualisierbar")
+        await answer(interaction, status)
+
+    @discord.ui.button(
+        label="Erledigt", emoji="✅",
+        style=discord.ButtonStyle.secondary,
+        custom_id="hmb_signal_done_v138")
+    async def done(self, interaction, button):
+        if not allowed(interaction):
+            return
+        record = hmb_beacon_record(self.beacon_id)
+        if not record or record[8] != "open":
+            return await answer(interaction, "Hilferuf bereits geschlossen.")
+        if interaction.user.id != record[2] and not admin(interaction):
+            return await answer(
+                interaction, "Nur Ersteller oder Admin können das Signal schließen.")
+        db.execute("UPDATE hmb_beacons SET status='done' WHERE id=?",
+                   (self.beacon_id,))
+        db.commit()
+        try:
+            await interaction.message.delete()
+        except (discord.HTTPException, discord.NotFound):
+            logging.warning("HMB-Signalfeuer konnte nicht gelöscht werden")
+        await answer(interaction, "✅ Hilferuf beendet.")
+
+
+async def hmb_expiry_worker():
+    while not bot.is_closed():
+        try:
+            now = int(datetime.now(timezone.utc).timestamp())
+            rows = db.execute(
+                "SELECT id,channel_id,message_id FROM hmb_beacons "
+                "WHERE guild=? AND status='open' AND expires_utc<=?",
+                (GUILD_ID, now)).fetchall()
+            for beacon_id, channel_id, message_id in rows:
+                if channel_id and message_id:
+                    try:
+                        target = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+                        message = await target.fetch_message(message_id)
+                        if message.author.id == bot.user.id and any(
+                                ("hmb:signal:" + str(beacon_id)) ==
+                                (embed.footer.text or "") for embed in message.embeds):
+                            await message.delete()
+                    except discord.NotFound:
+                        pass
+                    except discord.HTTPException:
+                        logging.warning("HMB-Signalfeuer %s konnte nicht gelöscht werden",
+                                        beacon_id)
+                        continue
+                db.execute(
+                    "UPDATE hmb_beacons SET status='expired' WHERE id=?", (beacon_id,))
+                db.commit()
+        except Exception:
+            logging.exception("Hold My Beer: Signalfeuer-Zeitsteuerung")
+        await asyncio.sleep(60)
+
+
+@bot.tree.command(
+    name="hmb_einsatzzentrale",
+    description="Hold-My-Beer-PvP-Zentrale aktualisieren (Admin)",
+    guild=SERVER)
+async def refresh_hmb_hq(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur Server-Admins.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    message = await publish_hmb_hq(interaction.guild)
+    await interaction.followup.send(
+        ("🍺 Hold-My-Beer-Zentrale bereit: " + message.jump_url)
+        if message else "Zentrale konnte nicht aktualisiert werden.",
+        ephemeral=True)
+
+
 @bot.tree.command(name="gruppe_erstellen", description="PvE/PvP-Gruppe erstellen", guild=SERVER)
 @app_commands.choices(art=[app_commands.Choice(name=x, value=x) for x in INTERESTS])
 async def create_group(i: discord.Interaction, art: app_commands.Choice[str],
