@@ -17,6 +17,19 @@ jobs:
           python-version: '3.12'
       - name: Discord-Bibliothek für echte Layout-Tests installieren
         run: python -m pip install discord.py==2.6.4
+      - name: Hold-My-Beer-Banner als PNG prüfen
+        run: |
+          python -m pip install CairoSVG==2.7.1
+          python - <<'PY'
+          import cairosvg
+          from pathlib import Path
+          cairosvg.svg2png(
+              url="assets/hold_my_beer.svg",
+              write_to="assets/hold_my_beer.png",
+              output_width=1280, output_height=320)
+          assert Path("assets/hold_my_beer.png").stat().st_size > 10000
+          print("HMB-Banner erfolgreich erstellt.")
+          PY
       - name: Python-Syntax prüfen
         run: python -m compileall -q corpsegrinder_wow_bot
       - name: Home-Assistant-YAML prüfen

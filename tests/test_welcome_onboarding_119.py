@@ -66,7 +66,7 @@ class LayoutAndGuideTests(unittest.TestCase):
             "ankündigungen","forever-news","addons"])
         self.assertEqual(list(structure)[1:],[
             "⚔️ WOW FOREVER | PVE",
-            "🏹 WOW FOREVER | PVP",
+            "🍺 HOLD MY BEER | PVP",
             "🔨 WOW FOREVER | CHARAKTERE"])
 
     def test_welcome_contains_all_start_steps_and_function_directory(self):
