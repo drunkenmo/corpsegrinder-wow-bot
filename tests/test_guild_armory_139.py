@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import discord
 
@@ -61,6 +61,7 @@ def isolated(*names, extras=None):
         "re": re,
         "json": json,
         "urlparse": urlparse,
+        "quote": quote,
         "_ARMORY_CLASS_NAMES": {
             1: "Krieger", 3: "Jäger", 7: "Schamane",
         },
@@ -104,6 +105,17 @@ class ArmoryTests(unittest.TestCase):
         self.assertEqual(members[0]["level"], 5)
         self.assertEqual(members[1]["klass"], "Krieger")
         self.assertEqual(members[2]["name"], "Zaraku Erdmann")
+
+    def test_unicode_characters_remain_supported(self):
+        normalize = isolated("_armory_normalize_roster")["_armory_normalize_roster"]
+        members = normalize({"members": [{"character": {
+            "slug": "büro-kämpfer", "name": "Büro",
+            "surname": "Kämpfer", "level": 13,
+            "playable_class": {"id": 1}}}]})
+        self.assertEqual(members[0]["slug"], "büro-kämpfer")
+        url = isolated("armory_profile_url")["armory_profile_url"](
+            members[0]["slug"])
+        self.assertIn("b%C3%BCro-k%C3%A4mpfer", url)
 
     def test_rejects_invalid_member_slugs_and_duplicate_entries(self):
         normalize = isolated("_armory_normalize_roster")["_armory_normalize_roster"]
@@ -174,6 +186,26 @@ class ArmoryTests(unittest.TestCase):
         self.assertIn("Stufe 5", embeds[1].description)
         self.assertIn("noch nicht verfügbar", embeds[1].fields[0].name)
         self.assertNotIn("@everyone", str([e.to_dict() for e in embeds]))
+
+    def test_discord_component_structure_is_valid(self):
+        env = isolated(
+            "ArmoryIndexView", "ArmoryMemberSelect", "ArmoryBrowseView",
+            extras={
+                "_armory_cache": {"members": [
+                    {"slug": "aaa-bbb", "name": "Test Char", "klass": "Krieger",
+                     "level": 11}]},
+                "armory_summary": lambda m: "Krieger · Stufe 11",
+            })
+        board = env["ArmoryIndexView"]()
+        self.assertTrue(board.is_persistent())
+        self.assertEqual(len(board.children), 2)
+        self.assertIn("corpse_armory_open_v139",
+                      [c.custom_id for c in board.children])
+        browse = env["ArmoryBrowseView"](0)
+        self.assertEqual(browse.timeout, 240)
+        self.assertEqual(len(browse.children), 3)
+        self.assertTrue(browse.prev.disabled)
+        self.assertTrue(browse.next.disabled)
 
     def test_discord_ui_has_private_gallery_and_select(self):
         src = BOT[BOT.index("class ArmoryMemberSelect"):
