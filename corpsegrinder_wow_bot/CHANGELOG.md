@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.39 – Offizielles WoW-Forever-Gilden-Arsenal im Discord
+
+- Home-Assistant-App-Basis **1.0.7** ergänzt zwei optionale Konfigurationsfelder: `blizzard_client_id` und `blizzard_client_secret` (Passwortfeld). Secrets werden ausschließlich aus `/data/options.json` geladen; niemals in GitHub, SQLite oder Discord gespeichert.
+- Bot-Update **1.0.39** benötigt HA-Basis 1.0.7. Nach App-Update: Blizzard-Zugangsdaten in Home Assistant speichern, App neu starten und anschließend `/bot_update` ausführen.
+- EU-Forever-Gildenroster über Blizzard OAuth Client Credentials und `profile-forever-eu`: `/data/wow/guild/corpsegrinder/roster`. Normal-Charaktere inklusive Name, Familienname, Klasse und Stufe; auch unter Stufe 10. Bilder von den jeweiligen Blizzard-Charaktermedien, mit sicherem Fallback.
+- Ein einzelnes **angeheftetes Gilden-Arsenal** im vorhandenen `#charaktere-und-berufe`, aktualisiert in-place alle sechs Stunden. Öffnen einer **privaten paginierten Mitgliedergalerie** (4 Charaktere pro Seite mit Bildern) und einer individuellen Charakterkarte/Arsenal-Link per Dropdown. Kein neuer Kanal oder Spam durch wiederholte Posts.
+- `/arsenal_test` (Admin, privat) verifiziert erstmals echte Zugangsdaten, Mitgliederzahl und die Bildverfügbarkeit. `/arsenal_aktualisieren` (Admin) aktualisiert die bestehende Arsenal-Nachricht.
+- Ohne Zugangsdaten, bei API-Fehlern oder ungewohntem Antwortformat bleibt der Bot voll funktionsfähig; es werden keine erfundenen Gildenmitglieder gepostet. Externe Daten werden zeitlich zwischengespeichert (Roster 6 h, Bilder 24 h). Blizzard Forever API derzeit noch nicht vollständig offiziell dokumentiert.
+- Bestehendes Corpsegrinder-Branding, PvE-/PvP-Bereiche, Rollen, Chatnachrichten und registrierte Discord-Charaktere bleiben unverändert.
+
 ## 1.0.38 – Hold My Beer bekommt ein eigenes PvP-Zuhause
 
 - Der Discord-Server heißt weiterhin **Corpsegrinder**. Sein Logo, alle Corpsegrinder-PvE-Kanäle, Rollen und Willkommens-/Charakter-/Dungeon-Panels bleiben vollständig unverändert.
