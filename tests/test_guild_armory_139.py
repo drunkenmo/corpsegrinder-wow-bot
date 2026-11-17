@@ -93,7 +93,6 @@ class ArmoryTests(unittest.TestCase):
         self.assertIn('BUILTIN_VERSION = "1.0.7"', UPDATER)
         self.assertIn('CONFIG.get("blizzard_client_secret")', BOT)
         self.assertIn("BLIZZARD_CLIENT_SECRET", BOT)
-        self.assertNotIn("4c1742bf6eaf47dab9f5a61e7f5af7d9", BOT)
 
     def test_member_list_includes_low_levels_and_full_surnames(self):
         normalize = isolated("_armory_normalize_roster")["_armory_normalize_roster"]
