@@ -12,6 +12,18 @@ Horde-only Discord-Community-Bot für PvE/PvP.
 6. In Discord als Administrator zunächst /einrichtung_vorschau ausführen. Vorhandene Kanäle bleiben erhalten.
 7. /rollenmenue_aktualisieren stellt das neue Rollenmenü bereit. /einrichtung_start ist nur erforderlich, falls Kanäle fehlen.
 
+## Blizzard WoW-Forever-Arsenal (HA-App ab 1.0.7 / Bot 1.0.39)
+
+1. In **Home Assistant → Einstellungen → Apps → Corpsegrinder WoW Forever Bot → Konfiguration** erst nach einem regulären **App-Update auf 1.0.7** die beiden neuen Felder füllen: `blizzard_client_id` und `blizzard_client_secret` (Passwortfeld). Der API-Client wird im Blizzard Developer Portal erstellt; keine personenbezogenen Battle.net-Logins der Gildenmitglieder erforderlich.
+2. App-Einstellungen speichern, die App neu starten und danach den **Bot-Code per Discord `/bot_update` auf 1.0.39** aktualisieren. Vorherige Bot-Versionen funktionieren weiterhin, enthalten aber noch keine Galerie.
+3. Als Admin **`/arsenal_test`** ausführen: Der Befehl antwortet nur dir, zeigt Mitgliederzahl und die Verfügbarkeit eines Testbilds; er zeigt **niemals** die Zugangsdaten an.
+4. Bei erfolgreichem Test den Pin in **#charaktere-und-berufe** prüfen. Falls er fehlt: **`/arsenal_aktualisieren`** ausführen. Der Bot braucht im Kanal die Berechtigungen Nachrichten senden, Nachrichtenverlauf lesen, Links einbetten und zum Anpinnen Nachrichten verwalten.
+5. Der angeheftete Katalog zeigt erste Mitglieder. **Mitglieder ansehen** öffnet eine private Liste mit vier Charakteren pro Seite, weiter/zurück und einem Dropdown für die große Charakteransicht. Kein Serverprofil wird überschrieben und kein Nutzer wird gezwungen, seinen Blizzard-Account zu verbinden.
+
+**Technik:** Blizzard OAuth `client_credentials` → `https://eu.api.blizzard.com/data/wow/guild/corpsegrinder/roster?namespace=profile-forever-eu`. Pro Charakter `/profile/wow/character/{name-surname}/character-media`. Für niedrigstufige Charaktere fehlt der öffentliche Render oft, die Mitgliederliste bleibt trotzdem vollständig. Der Bot publiziert keine Galerie, bevor ein echter API-Abruf funktioniert, und bleibt bei fehlenden oder ungültigen Credentials normal online. Nach erfolgreichem Abruf gibt es alle 6 Stunden eine Aktualisierung derselben angehefteten Discord-Nachricht.
+
+**Datenschutz:** Das Client Secret nur in den Passwortfeldern der Home-Assistant-App speichern. Nicht in Discord, Screenshots, Chats, GitHub, Backup-Logs oder veröffentlichte Dateien kopieren. Nur die öffentlichen Gildeninformationen werden verwendet.
+
 ## Wichtige Hinweise
 
 - Discord-Token niemals in GitHub veröffentlichen. Token wird nur im Home-Assistant-Konfigurationsdialog eingetragen.
