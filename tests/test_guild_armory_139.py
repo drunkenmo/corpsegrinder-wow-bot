@@ -196,16 +196,18 @@ class ArmoryTests(unittest.TestCase):
                      "level": 11}]},
                 "armory_summary": lambda m: "Krieger · Stufe 11",
             })
-        board = env["ArmoryIndexView"]()
-        self.assertTrue(board.is_persistent())
-        self.assertEqual(len(board.children), 2)
-        self.assertIn("corpse_armory_open_v139",
-                      [c.custom_id for c in board.children])
-        browse = env["ArmoryBrowseView"](0)
-        self.assertEqual(browse.timeout, 240)
-        self.assertEqual(len(browse.children), 3)
-        self.assertTrue(browse.prev.disabled)
-        self.assertTrue(browse.next.disabled)
+        async def inspect_views():
+            board = env["ArmoryIndexView"]()
+            self.assertTrue(board.is_persistent())
+            self.assertEqual(len(board.children), 2)
+            self.assertIn("corpse_armory_open_v139",
+                          [c.custom_id for c in board.children])
+            browse = env["ArmoryBrowseView"](0)
+            self.assertEqual(browse.timeout, 240)
+            self.assertEqual(len(browse.children), 3)
+            self.assertTrue(browse.prev.disabled)
+            self.assertTrue(browse.next.disabled)
+        asyncio.run(inspect_views())
 
     def test_discord_ui_has_private_gallery_and_select(self):
         src = BOT[BOT.index("class ArmoryMemberSelect"):
