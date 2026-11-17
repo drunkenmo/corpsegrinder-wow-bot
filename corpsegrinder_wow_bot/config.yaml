@@ -1,5 +1,5 @@
 name: "Corpsegrinder WoW Forever Bot"
-version: "1.0.6"
+version: "1.0.7"
 slug: "corpsegrinder_wow_bot"
 description: "Horde PvE/PvP Community Bot für Discord"
 url: "https://github.com/drunkenmo/corpsegrinder-wow-bot"
@@ -13,9 +13,13 @@ options:
   discord_token: ""
   guild_id: ""
   setup_admin_ids: ""
+  blizzard_client_id: ""
+  blizzard_client_secret: ""
 schema:
   discord_token: password
   guild_id: str
   setup_admin_ids: str?
+  blizzard_client_id: str?
+  blizzard_client_secret: password?
 map:
   - addon_config:rw

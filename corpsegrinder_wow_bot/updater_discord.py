@@ -92,6 +92,6 @@ def register(bot, server, admin_predicate):
         await i.response.send_message(
             "🛠️ **Corpsegrinder Bot**\nAktiv: **" + active +
             "**\nInstalliert für nächsten Start: **" + pending +
-            "**\nHome-Assistant-Basis: **1.0.6**\n"
+            "**\nHome-Assistant-Basis: **" + BUILTIN_VERSION + "**\n"
             "Mit /bot_update kannst du nach einer neuen GitHub-Version suchen.",
             ephemeral=True)

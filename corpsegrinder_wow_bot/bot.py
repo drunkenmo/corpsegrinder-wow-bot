@@ -1,15 +1,18 @@
 import asyncio
+import base64
 import calendar
 import email.utils
 import html
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode, quote
 from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import io
 import json
 import logging
+import threading
+import urllib.error
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -26,6 +29,8 @@ logging.basicConfig(level=logging.INFO)
 CONFIG = json.load(open("/data/options.json", encoding="utf-8"))
 TOKEN = CONFIG.get("discord_token", "")
 GUILD_ID = int(CONFIG.get("guild_id") or 0)
+BLIZZARD_CLIENT_ID = str(CONFIG.get("blizzard_client_id") or "").strip()
+BLIZZARD_CLIENT_SECRET = str(CONFIG.get("blizzard_client_secret") or "").strip()
 if not TOKEN or not GUILD_ID:
     raise RuntimeError("discord_token und guild_id in Home Assistant eintragen")
 
@@ -530,6 +535,7 @@ async def on_ready():
         await migrate_channel_names(guild)
         await ensure_paladin_role(guild)
         await prepare_hmb_guild(guild)
+    bot.add_view(ArmoryIndexView())
     bot.add_view(HMBHQView())
     for hmb_id, message_id in db.execute(
             "SELECT id,message_id FROM hmb_beacons WHERE guild=? "
@@ -572,6 +578,8 @@ async def on_ready():
     if guild is not None:
         background(compact_old_lagerfeuer_greetings(guild))
         background(publish_hmb_hq(guild))
+        if BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET:
+            background(armory_refresh_worker(guild))
     if not getattr(bot, "hmb_signal_worker_started", False):
         bot.hmb_signal_worker_started = True
         background(hmb_expiry_worker())
@@ -2130,6 +2138,467 @@ async def set_character_nickname(i: discord.Interaction, aktiv: bool):
     await answer(
         i,f"✅ Servernickname: **{discord.utils.escape_markdown(proposed)}**. "
           "Mit **/ingame_nickname aktiv:false** kannst du ihn wieder ausschalten.")
+
+
+
+
+# --- Corpsegrinder Forever Gilden-Arsenal (Bot 1.0.39) -----------------------
+# Nur öffentliche EU-Normal-Gildeninformationen; keine Spielerkonto-OAuth.
+# Blizzard-Zugangsdaten werden ausschließlich aus Home Assistant gelesen.
+ARMORY_GUILD_SLUG = "corpsegrinder"
+ARMORY_GUILD_URL = (
+    "https://worldofwarcraft.blizzard.com/de-de/forever/eu/armory/guild/"
+    + ARMORY_GUILD_SLUG)
+ARMORY_API = "https://eu.api.blizzard.com"
+ARMORY_NAMESPACE = "profile-forever-eu"
+ARMORY_CACHE_SECONDS = 6 * 3600
+ARMORY_MEDIA_SECONDS = 24 * 3600
+ARMORY_PAGE_SIZE = 4
+ARMORY_PANEL_KEY = "corpsegrinder_armory_panel_v139"
+ARMORY_PANEL_MARKER = "corpsegrinder:armory:v139"
+
+# Alle zustandsbehafteten Daten bleiben im Arbeitsspeicher, keine Speicherung
+# von Zugangstoken oder Geheimnissen in SQLite/Discord.
+_armory_lock = asyncio.Lock()
+_armory_token_guard = threading.Lock()
+_armory_token = {"token": "", "until": 0}
+_armory_cache = {"members": [], "until": 0, "updated": 0}
+_armory_media_cache = {}
+_ARMORY_CLASS_NAMES = {
+    1: "Krieger", 2: "Paladin", 3: "Jäger", 4: "Schurke",
+    5: "Priester", 7: "Schamane", 8: "Magier",
+    9: "Hexenmeister", 11: "Druide",
+}
+_ARMORY_CLASS_ICONS = {
+    "Krieger": "⚔️", "Paladin": "🛡️", "Jäger": "🏹",
+    "Schurke": "🗡️", "Priester": "🌟", "Schamane": "🌩️",
+    "Magier": "✨", "Hexenmeister": "🔥", "Druide": "🌿",
+}
+
+
+class ArmoryError(RuntimeError):
+    """Bewusst ohne Token- oder HTTP-Bibliotheksdetails."""
+
+
+def armory_configured():
+    return bool(BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET)
+
+
+def _armory_json(url, *, auth=None, data=None):
+    """Nur feste Battle.net-/Blizzard-Endpunkte, kurze Timeouts und Limits."""
+    headers = {
+        "User-Agent": "Corpsegrinder-Discord-Armory/1.0",
+        "Accept": "application/json",
+    }
+    if auth:
+        headers["Authorization"] = auth
+    if data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    request = Request(url, data=data, headers=headers)
+    try:
+        with urlopen(request, timeout=18) as response:
+            raw = response.read(2_000_001)
+    except urllib.error.HTTPError as exc:
+        raise ArmoryError("Blizzard antwortet mit HTTP " + str(exc.code)) from None
+    except (OSError, urllib.error.URLError):
+        raise ArmoryError("Blizzard-API derzeit nicht erreichbar") from None
+    if len(raw) > 2_000_000:
+        raise ArmoryError("Blizzard-Antwort überschreitet die Größenbegrenzung")
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        raise ArmoryError("Blizzard hat ungültige JSON-Daten geliefert") from None
+
+
+def _armory_token_sync():
+    if not armory_configured():
+        raise ArmoryError("Blizzard-Zugangsdaten fehlen in Home Assistant")
+    with _armory_token_guard:
+        now = int(datetime.now(timezone.utc).timestamp())
+        if _armory_token["token"] and _armory_token["until"] > now + 90:
+            return _armory_token["token"]
+        basic = base64.b64encode(
+            (BLIZZARD_CLIENT_ID + ":" + BLIZZARD_CLIENT_SECRET).encode()
+        ).decode("ascii")
+        response = _armory_json(
+            "https://oauth.battle.net/token", auth="Basic " + basic,
+            data=urlencode({"grant_type": "client_credentials"}).encode("utf-8"))
+        if not isinstance(response, dict) or not isinstance(
+                response.get("access_token"), str):
+            raise ArmoryError("Blizzard hat kein gültiges Zugangstoken geliefert")
+        token = response["access_token"]
+        lifetime = max(300, int(response.get("expires_in") or 3600))
+        _armory_token.update(token=token, until=now + lifetime)
+        return token
+
+
+def _armory_api_json(path):
+    # path is created from constants or strictly checked character slugs.
+    token = _armory_token_sync()
+    url = (ARMORY_API + path + "?" +
+           urlencode({"namespace": ARMORY_NAMESPACE, "locale": "de_DE"}))
+    return _armory_json(url, auth="Bearer " + token)
+
+
+def _armory_normalize_roster(payload):
+    if not isinstance(payload, dict) or not isinstance(payload.get("members"), list):
+        raise ArmoryError("Blizzard-Roster hat ein unbekanntes Format")
+    members = []
+    seen = set()
+    for entry in payload["members"][:1200]:
+        if not isinstance(entry, dict):
+            continue
+        character = entry.get("character") or {}
+        if not isinstance(character, dict):
+            continue
+        slug = str(character.get("slug") or "").lower()
+        name = str(character.get("name") or "").strip()
+        surname = str(character.get("surname") or "").strip()
+        if not (2 <= len(slug) <= 100 and "-" in slug and
+                all(c.isalnum() or c == "-" for c in slug)) or not name:
+            continue
+        if slug in seen:
+            continue
+        seen.add(slug)
+        klass = character.get("playable_class") or {}
+        class_id = klass.get("id") if isinstance(klass, dict) else None
+        level = character.get("level")
+        try:
+            level = max(1, min(int(level), 100))
+        except (ValueError, TypeError):
+            level = None
+        members.append({
+            "slug": slug,
+            "name": (name + " " + surname).strip()[:90],
+            "klass": _ARMORY_CLASS_NAMES.get(class_id, "Unbekannte Klasse"),
+            "level": level,
+        })
+    if not members:
+        raise ArmoryError("Keine gültigen Charaktere im Blizzard-Roster gefunden")
+    return sorted(members, key=lambda m: m["name"].casefold())
+
+
+def _armory_fetch_roster_sync():
+    payload = _armory_api_json(
+        "/data/wow/guild/" + ARMORY_GUILD_SLUG + "/roster")
+    return _armory_normalize_roster(payload)
+
+
+def _armory_safe_image_url(value):
+    if not isinstance(value, str):
+        return None
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").casefold()
+    if (parsed.scheme == "https" and
+            (host == "render.worldofwarcraft.com" or
+             host.endswith(".worldofwarcraft.com"))):
+        return value
+    return None
+
+
+def _armory_fetch_media_sync(slug):
+    if not (2 <= len(slug) <= 100 and "-" in slug and
+            all(c.isalnum() or c == "-" for c in slug)):
+        return None
+    try:
+        payload = _armory_api_json(
+            "/profile/wow/character/" + quote(slug, safe="-") + "/character-media")
+    except ArmoryError:
+        return None  # < Stufe 10, kein Render oder API-Ausfall
+    assets = payload.get("assets", []) if isinstance(payload, dict) else []
+    if not isinstance(assets, list):
+        return None
+    by_key = {
+        asset.get("key"): _armory_safe_image_url(asset.get("value"))
+        for asset in assets if isinstance(asset, dict)
+    }
+    return (by_key.get("inset") or by_key.get("avatar") or
+            by_key.get("main-raw") or None)
+
+
+async def armory_members(*, force=False):
+    now = int(datetime.now(timezone.utc).timestamp())
+    if not force and _armory_cache["members"] and _armory_cache["until"] > now:
+        return _armory_cache["members"]
+    async with _armory_lock:
+        now = int(datetime.now(timezone.utc).timestamp())
+        if not force and _armory_cache["members"] and _armory_cache["until"] > now:
+            return _armory_cache["members"]
+        members = await asyncio.to_thread(_armory_fetch_roster_sync)
+        _armory_cache.update(
+            members=members, updated=now, until=now + ARMORY_CACHE_SECONDS)
+        return members
+
+
+async def armory_image(slug):
+    now = int(datetime.now(timezone.utc).timestamp())
+    cached = _armory_media_cache.get(slug)
+    if cached and cached[0] > now:
+        return cached[1]
+    image = await asyncio.to_thread(_armory_fetch_media_sync, slug)
+    _armory_media_cache[slug] = (now + ARMORY_MEDIA_SECONDS, image)
+    return image
+
+
+def armory_profile_url(slug):
+    return ("https://worldofwarcraft.blizzard.com/de-de/forever/eu/"
+            "armory/character/" + quote(slug, safe="-"))
+
+
+def armory_summary(m):
+    klass = m["klass"]
+    icon = _ARMORY_CLASS_ICONS.get(klass, "🎭")
+    level = "Stufe " + str(m["level"]) if m["level"] is not None else "Stufe unbekannt"
+    return icon + " " + klass + " · " + level
+
+
+async def armory_page_embeds(page=0, *, intro=False):
+    members = _armory_cache["members"]
+    total = len(members)
+    pages = max(1, (total + ARMORY_PAGE_SIZE - 1) // ARMORY_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    first = page * ARMORY_PAGE_SIZE
+    selected = members[first:first + ARMORY_PAGE_SIZE]
+    images = await asyncio.gather(
+        *(armory_image(m["slug"]) for m in selected))
+    header = discord.Embed(
+        title="🌋 CORPSEGRINDER · GILDEN-ARSENAL",
+        description=(
+            "**" + str(total) + " Charaktere** im offiziellen "
+            "WoW-Forever-Gildenroster (EU · Normal).\n"
+            + ("**Galerie öffnen** für alle Mitglieder und Charakterdetails.\n"
+               if intro else "Wähle unten einen Charakter für die große Ansicht.\n")
+            + "[Gesamtes Gilden-Arsenal öffnen](" + ARMORY_GUILD_URL + ")"),
+        colour=discord.Colour(0x972E1D))
+    header.set_footer(
+        text=(ARMORY_PANEL_MARKER if intro else
+              "Seite " + str(page + 1) + "/" + str(pages) +
+              " • Stände können nach dem Logout verzögert sein"))
+    result = [header]
+    for member, image in zip(selected, images):
+        embed = discord.Embed(
+            title=member["name"],
+            url=armory_profile_url(member["slug"]),
+            description=armory_summary(member),
+            colour=discord.Colour(0xA85934))
+        if image:
+            embed.set_thumbnail(url=image)
+        else:
+            embed.add_field(
+                name="Bild noch nicht verfügbar",
+                value="Charakter kann trotzdem im Arsenal geöffnet werden.",
+                inline=False)
+        result.append(embed)
+    return result
+
+
+class ArmoryMemberSelect(discord.ui.Select):
+    def __init__(self, members):
+        super().__init__(
+            placeholder="🎭 Charakterbild und Profil ansehen",
+            min_values=1, max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=m["name"][:100],
+                    description=armory_summary(m)[:100],
+                    value=m["slug"])
+                for m in members])
+    async def callback(self, interaction):
+        slug = self.values[0]
+        member = next(
+            (m for m in _armory_cache["members"] if m["slug"] == slug), None)
+        if member is None:
+            return await answer(interaction, "Charakter nicht mehr in der Liste.")
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        image = await armory_image(slug)
+        embed = discord.Embed(
+            title="⚔️ " + member["name"],
+            url=armory_profile_url(slug),
+            description=(armory_summary(member) +
+                         "\n[Zum vollständigen Blizzard-Arsenal](" +
+                         armory_profile_url(slug) + ")"),
+            colour=discord.Colour(0x972E1D))
+        if image:
+            embed.set_image(url=image)
+        else:
+            embed.add_field(
+                name="Noch kein Charakterbild",
+                value="Blizzard liefert für diesen Charakter derzeit kein Bild.",
+                inline=False)
+        await interaction.followup.send(
+            embed=embed, ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+
+class ArmoryBrowseView(discord.ui.View):
+    def __init__(self, page=0):
+        super().__init__(timeout=240)
+        members = _armory_cache["members"]
+        pages = max(1, (len(members) + ARMORY_PAGE_SIZE - 1) // ARMORY_PAGE_SIZE)
+        self.page = max(0, min(page, pages - 1))
+        self.prev.disabled = self.page == 0
+        self.next.disabled = self.page + 1 >= pages
+        selected = members[
+            self.page * ARMORY_PAGE_SIZE:(self.page + 1) * ARMORY_PAGE_SIZE]
+        if selected:
+            self.add_item(ArmoryMemberSelect(selected))
+
+    @discord.ui.button(
+        label="Zurück", emoji="◀️", style=discord.ButtonStyle.secondary)
+    async def prev(self, interaction, button):
+        await self.change_page(interaction, self.page - 1)
+
+    @discord.ui.button(
+        label="Weiter", emoji="▶️", style=discord.ButtonStyle.primary)
+    async def next(self, interaction, button):
+        await self.change_page(interaction, self.page + 1)
+
+    async def change_page(self, interaction, new_page):
+        await interaction.response.defer()
+        view = ArmoryBrowseView(new_page)
+        embeds = await armory_page_embeds(view.page)
+        await interaction.edit_original_response(embeds=embeds, view=view)
+
+
+class ArmoryIndexView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(discord.ui.Button(
+            label="Offizielles Arsenal", emoji="🔗",
+            style=discord.ButtonStyle.link, url=ARMORY_GUILD_URL))
+
+    @discord.ui.button(
+        label="Mitglieder ansehen", emoji="🎭",
+        custom_id="corpse_armory_open_v139",
+        style=discord.ButtonStyle.primary)
+    async def open_gallery(self, interaction, button):
+        if not allowed(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await armory_members()
+            embeds = await armory_page_embeds(0)
+        except ArmoryError as exc:
+            return await interaction.followup.send(str(exc), ephemeral=True)
+        await interaction.followup.send(
+            embeds=embeds, view=ArmoryBrowseView(0), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+
+async def publish_armory_panel(guild, *, force=False):
+    if not armory_configured():
+        return None
+    target = channel(guild, "charaktere-und-berufe")
+    if not isinstance(target, discord.TextChannel):
+        logging.warning("Gilden-Arsenal: #charaktere-und-berufe fehlt")
+        return None
+    try:
+        await armory_members(force=force)
+        embeds = await armory_page_embeds(0, intro=True)
+    except ArmoryError as exc:
+        logging.warning("Gilden-Arsenal: %s", exc)
+        return None
+    key = setting(ARMORY_PANEL_KEY)
+    existing = None
+    if key:
+        try:
+            candidate = await target.fetch_message(int(key))
+            if candidate.author.id == bot.user.id and any(
+                    (e.footer.text or "") == ARMORY_PANEL_MARKER
+                    for e in candidate.embeds):
+                existing = candidate
+        except (discord.NotFound, ValueError, discord.HTTPException):
+            pass
+    if existing is None:
+        try:
+            async for msg in target.history(limit=100):
+                if msg.author.id == bot.user.id and any(
+                        (e.footer.text or "") == ARMORY_PANEL_MARKER
+                        for e in msg.embeds):
+                    existing = msg
+                    break
+        except discord.HTTPException:
+            pass
+    try:
+        if existing:
+            await existing.edit(
+                embeds=embeds, view=ArmoryIndexView(),
+                allowed_mentions=discord.AllowedMentions.none())
+        else:
+            existing = await target.send(
+                embeds=embeds, view=ArmoryIndexView(),
+                allowed_mentions=discord.AllowedMentions.none())
+        save_setting(ARMORY_PANEL_KEY, str(existing.id))
+        if not existing.pinned:
+            try:
+                await existing.pin(reason="Corpsegrinder: offizielles Gilden-Arsenal")
+            except discord.HTTPException:
+                logging.info("Gilden-Arsenal konnte nicht angepinnt werden")
+        return existing
+    except discord.HTTPException:
+        logging.warning("Gilden-Arsenal: Panel kann nicht veröffentlicht werden")
+        return None
+
+
+async def armory_refresh_worker(guild):
+    """Bei API-Ausfall keine falschen Daten posten und keine Nachrichten fluten."""
+    while not bot.is_closed():
+        try:
+            await publish_armory_panel(guild, force=True)
+        except Exception:
+            logging.exception("Gilden-Arsenal: unerwarteter Fehler")
+        await asyncio.sleep(ARMORY_CACHE_SECONDS)
+
+
+@bot.tree.command(
+    name="arsenal_test",
+    description="Blizzard-Zugang und Corpsegrinder-Roster prüfen (Admin)",
+    guild=SERVER)
+async def armory_test(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur Server-Admins.")
+    if not armory_configured():
+        return await answer(
+            interaction, "Blizzard-Client-ID/Secret fehlen in der "
+            "Home-Assistant-App-Konfiguration (Basis 1.0.7).")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        members = await armory_members(force=True)
+        image = await armory_image(members[0]["slug"])
+    except ArmoryError as exc:
+        return await interaction.followup.send(
+            "⚠️ Gildenabruf fehlgeschlagen: " + str(exc), ephemeral=True)
+    await interaction.followup.send(
+        "✅ Blizzard OAuth funktioniert.\n"
+        "✅ **" + str(len(members)) + "** Gildencharaktere abgerufen.\n"
+        "🎭 Testcharakter: **" +
+        discord.utils.escape_markdown(members[0]["name"]) + "**\n"
+        "🖼️ Testbild: **" + ("verfügbar" if image else "nicht verfügbar") +
+        "**\nMit **/arsenal_aktualisieren** kann die "
+        "angeheftete Galerie neu geladen werden.",
+        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.tree.command(
+    name="arsenal_aktualisieren",
+    description="Corpsegrinder-Mitgliedergalerie aktualisieren (Admin)",
+    guild=SERVER)
+async def armory_refresh_command(interaction: discord.Interaction):
+    if not admin(interaction):
+        return await answer(interaction, "Nur Server-Admins.")
+    if not armory_configured():
+        return await answer(
+            interaction, "Blizzard-Zugangsdaten fehlen in Home Assistant.")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    result = await publish_armory_panel(interaction.guild, force=True)
+    if result is None:
+        return await interaction.followup.send(
+            "⚠️ Galerie nicht aktualisiert. Bitte /arsenal_test ausführen "
+            "und die Bot-Rechte in #charaktere-und-berufe prüfen.",
+            ephemeral=True)
+    await interaction.followup.send(
+        "✅ Gilden-Arsenal aktualisiert: " + result.jump_url,
+        ephemeral=True)
 
 
 

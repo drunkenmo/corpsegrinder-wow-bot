@@ -42,7 +42,7 @@ commit = subprocess.check_output(
     ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 manifest = {
     "version": version,
-    "min_bootstrap": "1.0.6",
+    "min_bootstrap": "1.0.7",
     "commit": commit,
     "files": {
         filename: hashlib.sha256((APP / filename).read_bytes()).hexdigest()
