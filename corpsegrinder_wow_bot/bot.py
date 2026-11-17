@@ -4,7 +4,7 @@ import calendar
 import email.utils
 import html
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse, urlencode
+from urllib.parse import urljoin, urlparse, urlencode, quote
 from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
@@ -2251,10 +2251,11 @@ def _armory_normalize_roster(payload):
         character = entry.get("character") or {}
         if not isinstance(character, dict):
             continue
-        slug = str(character.get("slug") or "").casefold()
+        slug = str(character.get("slug") or "").lower()
         name = str(character.get("name") or "").strip()
         surname = str(character.get("surname") or "").strip()
-        if not re.fullmatch(r"[a-z0-9-]{2,100}", slug) or not name:
+        if not (2 <= len(slug) <= 100 and "-" in slug and
+                all(c.isalnum() or c == "-" for c in slug)) or not name:
             continue
         if slug in seen:
             continue
@@ -2296,11 +2297,12 @@ def _armory_safe_image_url(value):
 
 
 def _armory_fetch_media_sync(slug):
-    if not re.fullmatch(r"[a-z0-9-]{2,100}", slug):
+    if not (2 <= len(slug) <= 100 and "-" in slug and
+            all(c.isalnum() or c == "-" for c in slug)):
         return None
     try:
         payload = _armory_api_json(
-            "/profile/wow/character/" + slug + "/character-media")
+            "/profile/wow/character/" + quote(slug, safe="-") + "/character-media")
     except ArmoryError:
         return None  # < Stufe 10, kein Render oder API-Ausfall
     assets = payload.get("assets", []) if isinstance(payload, dict) else []
@@ -2340,7 +2342,7 @@ async def armory_image(slug):
 
 def armory_profile_url(slug):
     return ("https://worldofwarcraft.blizzard.com/de-de/forever/eu/"
-            "armory/character/" + slug)
+            "armory/character/" + quote(slug, safe="-"))
 
 
 def armory_summary(m):
