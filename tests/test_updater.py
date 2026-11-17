@@ -19,11 +19,11 @@ class UpdaterTests(unittest.TestCase):
         updater.ACTIVE = updater.ROOT / "active.json"
         updater.LAST_GOOD = updater.ROOT / "last_good.json"
         self.bot_bytes = b'print("new bot")\n'
-        self.features_bytes = b'VERSION="1.0.7"\n'
+        self.features_bytes = b'VERSION="1.0.8"\n'
         self.manifest = {
-            "version": "1.0.7",
+            "version": "1.0.8",
             "commit": "a" * 40,
-            "min_bootstrap": "1.0.6",
+            "min_bootstrap": "1.0.7",
             "files": {
                 "bot.py": hashlib.sha256(self.bot_bytes).hexdigest(),
                 "community_features.py": hashlib.sha256(self.features_bytes).hexdigest(),
@@ -41,12 +41,12 @@ class UpdaterTests(unittest.TestCase):
     def test_install_preserves_persistent_data(self):
         data = updater.ROOT.parent / "corpsegrinder.sqlite"
         data.write_bytes(b"test database")
-        self.assertEqual(updater.installed(), "1.0.6")
-        self.assertEqual(updater.install_update(self.manifest), "1.0.7")
         self.assertEqual(updater.installed(), "1.0.7")
+        self.assertEqual(updater.install_update(self.manifest), "1.0.8")
+        self.assertEqual(updater.installed(), "1.0.8")
         self.assertEqual(data.read_bytes(), b"test database")
         self.assertEqual(
-            (updater.release_dir("1.0.7") / "bot.py").read_bytes(),
+            (updater.release_dir("1.0.8") / "bot.py").read_bytes(),
             self.bot_bytes,
         )
 
@@ -54,7 +54,7 @@ class UpdaterTests(unittest.TestCase):
         self.manifest["files"]["bot.py"] = "0" * 64
         with self.assertRaises(updater.UpdateError):
             updater.install_update(self.manifest)
-        self.assertEqual(updater.installed(), "1.0.6")
+        self.assertEqual(updater.installed(), "1.0.7")
 
     def test_path_traversal_rejected(self):
         self.manifest["files"]["../../evil.py"] = "0" * 64
@@ -68,8 +68,8 @@ class UpdaterTests(unittest.TestCase):
 
     def test_rollback_to_builtin(self):
         updater.install_update(self.manifest)
-        self.assertEqual(updater.rollback("test"), "1.0.6")
-        self.assertEqual(updater.installed(), "1.0.6")
+        self.assertEqual(updater.rollback("test"), "1.0.7")
+        self.assertEqual(updater.installed(), "1.0.7")
 
     def test_minimum_bootstrap_enforced(self):
         self.manifest["min_bootstrap"] = "1.1.0"
