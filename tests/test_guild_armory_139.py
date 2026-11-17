@@ -50,13 +50,13 @@ def ast_const(name):
 
 
 def isolated(*names, extras=None):
-    nodes = [node for node in TREE.body
-             if node.name in names] if False else [
+    nodes = [
         node for node in TREE.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         and node.name in names]
     env = {
         "discord": discord,
+        "asyncio": asyncio,
         "ArmoryError": type("ArmoryError", (RuntimeError,), {}),
         "re": re,
         "json": json,
